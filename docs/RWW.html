@@ -160,7 +160,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </ul>
             <ul class="navbar-nav navbar-nav-scroll ms-auto">
   <li class="nav-item compact">
-    <a class="nav-link" href="https://nono"> <i class="bi bi-github" role="img" aria-label="TVBOptim on GitHub">
+    <a class="nav-link" href="https://github.com/virtual-twin/tvboptim"> <i class="bi bi-github" role="img" aria-label="TVBOptim on GitHub">
 </i> 
 <span class="menu-text"></span></a>
   </li>  
@@ -212,7 +212,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </header>
 
 
-<div id="3f6b91ba" class="cell" data-execution_count="1">
+<div id="7ab649c3" class="cell" data-execution_count="1">
 <details class="code-fold">
 <summary>Imports</summary>
 <div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Set up environment</span></span>
@@ -254,7 +254,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <section id="create-a-tvb-o-simulation-experiment" class="level2">
 <h2 class="anchored" data-anchor-id="create-a-tvb-o-simulation-experiment">Create a TVB-O Simulation Experiment</h2>
-<div id="bc1c591a" class="cell" data-execution_count="2">
+<div id="051937b3" class="cell" data-execution_count="2">
 <div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>experiment <span class="op">=</span> SimulationExperiment(</span>
 <span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    model <span class="op">=</span> {</span>
 <span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>        <span class="st">"name"</span>: <span class="st">"ReducedWongWang"</span>, </span>
@@ -282,7 +282,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>        <span class="st">"Bold"</span>: {<span class="st">"name"</span>: <span class="st">"Bold"</span>, <span class="st">"period"</span>: <span class="fl">1000.0</span>}},</span>
 <span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
-<div id="cde29ea8" class="cell" data-execution_count="4">
+<div id="3c382715" class="cell" data-execution_count="4">
 <div class="cell-output cell-output-display">
 <div>
 <figure class="figure">
@@ -306,7 +306,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <div id="callout-1" class="callout-1-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<div id="dcefc542" class="cell" data-execution_count="6">
+<div id="e1b3aeb6" class="cell" data-execution_count="6">
 <div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>numbered_print(experiment.render_code(<span class="bu">format</span> <span class="op">=</span> <span class="st">"jax"</span>, scalar_pre <span class="op">=</span> <span class="va">True</span>))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>001 
@@ -532,7 +532,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 <section id="run-initial-simulation---update-inital-conditions" class="level2">
 <h2 class="anchored" data-anchor-id="run-initial-simulation---update-inital-conditions">Run Initial Simulation - Update Inital Conditions</h2>
-<div id="5e1b6eb8" class="cell" data-execution_count="7">
+<div id="886a5319" class="cell" data-execution_count="7">
 <div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Run the model and get results</span></span>
 <span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>result <span class="op">=</span> model(state)</span>
 <span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -542,7 +542,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>state.monitor_parameters[<span class="dv">1</span>][<span class="st">"stock"</span>] <span class="op">=</span> result[<span class="dv">0</span>].data[<span class="op">-</span><span class="dv">5000</span>:]</span>
 <span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>result2 <span class="op">=</span> model(state)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
-<div id="0be4000b" class="cell" data-execution_count="8">
+<div id="9b189ced" class="cell" data-execution_count="8">
 <div class="cell-output cell-output-display">
 <div>
 <figure class="figure">
@@ -554,7 +554,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 <section id="define-observations-and-loss" class="level2">
 <h2 class="anchored" data-anchor-id="define-observations-and-loss">Define Observations and Loss</h2>
-<div id="9fb9ff8c" class="cell" data-execution_count="9">
+<div id="288460c7" class="cell" data-execution_count="9">
 <div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> observation(state):</span>
 <span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>    bold <span class="op">=</span> model(state)[<span class="dv">1</span>]</span>
 <span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> obs.fc(bold, skip_t <span class="op">=</span> <span class="dv">20</span>)</span>
@@ -564,7 +564,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>    <span class="co"># return 1 - obs.fc_corr(fc, fc_target)</span></span>
 <span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> obs.rmse(fc, fc_target)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
-<div id="be24c71d" class="cell" data-execution_count="10">
+<div id="515c7c71" class="cell" data-execution_count="10">
 <div class="cell-output cell-output-display">
 <div>
 <figure class="figure">
@@ -576,7 +576,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 <section id="parameter-exploration" class="level2">
 <h2 class="anchored" data-anchor-id="parameter-exploration">Parameter Exploration</h2>
-<div id="edaf4294" class="cell" data-execution_count="12">
+<div id="f7a72e78" class="cell" data-execution_count="12">
 <div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Set up parameter ranges for exploration</span></span>
 <span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>state.parameters.model.w.free <span class="op">=</span> <span class="va">True</span></span>
 <span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>state.parameters.model.w.low <span class="op">=</span> <span class="fl">0.001</span></span>
@@ -603,7 +603,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb7-24"><a href="#cb7-24" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb7-25"><a href="#cb7-25" aria-hidden="true" tabindex="-1"></a>results <span class="op">=</span> explore()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
-<div id="f08d0fdb" class="cell" data-execution_count="13">
+<div id="2d688dc8" class="cell" data-execution_count="13">
 <div class="cell-output cell-output-display">
 <div>
 <figure class="figure">
@@ -615,7 +615,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 <section id="run-optimization" class="level2">
 <h2 class="anchored" data-anchor-id="run-optimization">Run Optimization</h2>
-<div id="63f2f967" class="cell" data-execution_count="15">
+<div id="1a212274" class="cell" data-execution_count="15">
 <div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Create and run optimizer</span></span>
 <span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>cb <span class="op">=</span> MultiCallback([</span>
 <span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>    DefaultPrintCallback(every<span class="op">=</span><span class="dv">10</span>),</span>
@@ -630,7 +630,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a>fitted_state, fitting_data <span class="op">=</span> optimize()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
-<div id="d3e489c6" class="cell" data-execution_count="16">
+<div id="b902077d" class="cell" data-execution_count="16">
 <div class="cell-output cell-output-display">
 <div>
 <figure class="figure">
@@ -642,7 +642,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 <section id="refine-optimization-by-setting-regional-parameters" class="level2">
 <h2 class="anchored" data-anchor-id="refine-optimization-by-setting-regional-parameters">Refine Optimization by setting Regional Parameters</h2>
-<div id="866785e1" class="cell" data-execution_count="17">
+<div id="70018501" class="cell" data-execution_count="17">
 <div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Copy already optimized state and turn parameters regional</span></span>
 <span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>_fitted_state <span class="op">=</span> copy.deepcopy(fitted_state)</span>
 <span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -652,7 +652,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>_fitted_state.parameters.model.I_o.value <span class="op">=</span> jnp.broadcast_to(_fitted_state.parameters.model.I_o.value, (<span class="dv">84</span>,<span class="dv">1</span>))</span>
 <span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>_fitted_state.parameters.coupling.a.free <span class="op">=</span> <span class="va">False</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
-<div id="75dc9ce9" class="cell" data-execution_count="18">
+<div id="d8c65016" class="cell" data-execution_count="18">
 <div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="at">@cache</span>(<span class="st">"optimize_het"</span>, redo <span class="op">=</span> <span class="va">False</span>)</span>
 <span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> optimize():</span>
 <span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>    opt <span class="op">=</span> OptaxOptimizer(loss, optax.adam(<span class="fl">0.004</span>, b2 <span class="op">=</span> <span class="fl">0.999</span>), callback<span class="op">=</span>cb)</span>
@@ -664,7 +664,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <pre><code>Loading optimize_het from cache, last modified 2025-06-17 14:09:26.288373</code></pre>
 </div>
 </div>
-<div id="7e45653a" class="cell" data-execution_count="22">
+<div id="783fcac3" class="cell" data-execution_count="22">
 <div class="cell-output cell-output-display">
 <div>
 <figure class="figure">

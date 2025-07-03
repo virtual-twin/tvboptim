@@ -189,7 +189,7 @@ window.Quarto = {
 </ul>
             <ul class="navbar-nav navbar-nav-scroll ms-auto">
   <li class="nav-item compact">
-    <a class="nav-link" href="https://nono"> <i class="bi bi-github" role="img" aria-label="TVBOptim on GitHub">
+    <a class="nav-link" href="https://github.com/virtual-twin/tvboptim"> <i class="bi bi-github" role="img" aria-label="TVBOptim on GitHub">
 </i> 
 <span class="menu-text"></span></a>
   </li>  
@@ -266,7 +266,7 @@ window.Quarto = {
 <section id="create-a-tvbo-simulation-experiment" class="level2">
 <h2 class="anchored" data-anchor-id="create-a-tvbo-simulation-experiment">Create a TVBO Simulation Experiment</h2>
 <p>For all the details on TVBO, see its <a href="https://virtual-twin.github.io/tvbo">Documentation</a>. A simple experiment can be created like this:</p>
-<div id="d0346f0f" class="cell" data-execution_count="1">
+<div id="aa367fb6" class="cell" data-execution_count="1">
 <details class="code-fold">
 <summary>Imports</summary>
 <div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Set up environment</span></span>
@@ -309,7 +309,7 @@ window.Quarto = {
 <span id="cb3-38"><a href="#cb3-38" aria-hidden="true" tabindex="-1"></a>set_cache_path(<span class="st">"./example_cache_get_started"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </details>
 </div>
-<div id="f2837cf6" class="cell" data-execution_count="2">
+<div id="ba139bf6" class="cell" data-execution_count="2">
 <div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Create a brain simulation experiment using the Reduced Wong-Wang model</span></span>
 <span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="co"># This is a simplified neural mass model that captures excitatory dynamics</span></span>
 <span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>experiment <span class="op">=</span> SimulationExperiment(</span>
@@ -357,7 +357,7 @@ window.Quarto = {
 </div>
 <div id="callout-1" class="callout-1-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<div id="1b91fdf0" class="cell" data-execution_count="3">
+<div id="e33ed0b0" class="cell" data-execution_count="3">
 <div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>Markdown(experiment.model.generate_report())</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <section id="reducedwongwang" class="level1 cell-output cell-output-display cell-output-markdown" data-execution_count="3">
 <h1>ReducedWongWang</h1>
@@ -451,8 +451,8 @@ H = \frac{- b + a*x}{1 - e^{- d*\left(- b + a*x\right)}}
 </section>
 <section id="references" class="level2">
 <h2 class="anchored" data-anchor-id="references">References</h2>
-<p>Citation key ‘WongWang2006’ not found.</p>
 <p>Citation key ‘Deco2013’ not found.</p>
+<p>Citation key ‘WongWang2006’ not found.</p>
 </section>
 </section>
 </div>
@@ -471,7 +471,7 @@ H = \frac{- b + a*x}{1 - e^{- d*\left(- b + a*x\right)}}
 </div>
 <div id="callout-2" class="callout-2-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<div id="5e939fef" class="cell" data-execution_count="4">
+<div id="eeb6b387" class="cell" data-execution_count="4">
 <div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>numbered_print(experiment.render_code(<span class="bu">format</span> <span class="op">=</span> <span class="st">"jax"</span>, scalar_pre <span class="op">=</span> <span class="va">True</span>))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>001 
@@ -698,7 +698,7 @@ H = \frac{- b + a*x}{1 - e^{- d*\left(- b + a*x\right)}}
 <section id="get-model-and-state" class="level2">
 <h2 class="anchored" data-anchor-id="get-model-and-state">Get Model and State</h2>
 <p>The <code>jaxify</code> function converts the TVBO experiment into a JAX-compatible model function and state object. The <em>scalar_pre</em> option is used to improve performance when we have no delay (infinite conduction speed):</p>
-<div id="380d2256" class="cell" data-execution_count="5">
+<div id="96128097" class="cell" data-execution_count="5">
 <div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Convert TVBO experiment to JAX function and state</span></span>
 <span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="co"># scalar_pre=True optimizes for no-delay scenarios</span></span>
 <span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>model, state <span class="op">=</span> jaxify(experiment, scalar_pre <span class="op">=</span> <span class="va">True</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
@@ -719,7 +719,7 @@ H = \frac{- b + a*x}{1 - e^{- d*\left(- b + a*x\right)}}
 </div>
 <div id="callout-3" class="callout-3-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<div id="6909c261" class="cell" data-execution_count="6">
+<div id="abbae935" class="cell" data-execution_count="6">
 <div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>state</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-display" data-execution_count="6">
 <pre><code>SimulationState
@@ -914,7 +914,7 @@ H = \frac{- b + a*x}{1 - e^{- d*\left(- b + a*x\right)}}
 </div>
 </div>
 <p>Each leaf of the tree (in JAX, that is each JAX Array) is wrapped in the Parameter type. This enables additional convenience functionality. A Parameter can be declared free, making it available to Spaces or to gradients during optimization.</p>
-<div id="635bfbbc" class="cell" data-execution_count="7">
+<div id="457cb68b" class="cell" data-execution_count="7">
 <div class="sourceCode cell-code" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Mark the excitatory recurrence parameter as free for optimization</span></span>
 <span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>state.parameters.model.J_N.free <span class="op">=</span> <span class="va">True</span></span>
 <span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>show_free_parameters(state)  <span class="co"># Display all parameters marked as free</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
@@ -936,7 +936,7 @@ H = \frac{- b + a*x}{1 - e^{- d*\left(- b + a*x\right)}}
 </div>
 </div>
 <p>If your simulation needs additional Parameters or data, you can simply put a new leaf into the state:</p>
-<div id="bea6e63d" class="cell" data-execution_count="8">
+<div id="54cf3c17" class="cell" data-execution_count="8">
 <div class="sourceCode cell-code" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Example: Add a custom optimizable parameter to the state</span></span>
 <span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="co"># This demonstrates how to extend the state with additional parameters</span></span>
 <span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>state.parameters.important_extras <span class="op">=</span> Parameter(<span class="st">"Important"</span>, jnp.zeros(<span class="dv">10</span>), free <span class="op">=</span> <span class="va">True</span>)</span>
@@ -966,7 +966,7 @@ H = \frac{- b + a*x}{1 - e^{- d*\left(- b + a*x\right)}}
 <section id="simulate-the-model" class="level3">
 <h3 class="anchored" data-anchor-id="simulate-the-model">Simulate the Model</h3>
 <p>To run a simulation, you can simply call the model.</p>
-<div id="c505ac59" class="cell" data-execution_count="9">
+<div id="dbdc0e2e" class="cell" data-execution_count="9">
 <div class="sourceCode cell-code" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Run the simulation - model returns (raw_activity, bold_signal)</span></span>
 <span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>result <span class="op">=</span> model(state)</span>
 <span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>raw, bold <span class="op">=</span> result</span>
@@ -989,7 +989,7 @@ H = \frac{- b + a*x}{1 - e^{- d*\left(- b + a*x\right)}}
 <section id="wrap-the-model-to-create-observations" class="level3">
 <h3 class="anchored" data-anchor-id="wrap-the-model-to-create-observations">Wrap the Model to create observations</h3>
 <p>We look at the mean activity of the last 500 timesteps as an easy observation.</p>
-<div id="baed2d68" class="cell" data-execution_count="10">
+<div id="1424e8e0" class="cell" data-execution_count="10">
 <div class="sourceCode cell-code" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> observation(state):</span>
 <span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""</span></span>
 <span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a><span class="co">    Extract a simple observation from the simulation.</span></span>
@@ -1009,7 +1009,7 @@ H = \frac{- b + a*x}{1 - e^{- d*\left(- b + a*x\right)}}
 <section id="explore-that-across-a-parameter-space" class="level3">
 <h3 class="anchored" data-anchor-id="explore-that-across-a-parameter-space">Explore that across a parameter space</h3>
 <p>We can use a <code>GridSpace</code> to explore how parameters <code>J_N</code> (excitatory recurrence) and <code>a</code> (global coupling) affect the observation. We use the cache decorator to save computationally demanding operations. We also parallelize the exploration using the <code>ParallelExecution</code> class with <code>n_pmap = 8</code>, which is possible because we told JAX that our CPU has 8 devices - known as the pmap trick.</p>
-<div id="1d985bbe" class="cell" data-execution_count="11">
+<div id="b46e7276" class="cell" data-execution_count="11">
 <div class="sourceCode cell-code" id="cb18"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Clean up: disable the custom parameter we added earlier</span></span>
 <span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>state.parameters.important_extras.free <span class="op">=</span> <span class="va">False</span></span>
 <span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -1059,7 +1059,7 @@ H = \frac{- b + a*x}{1 - e^{- d*\left(- b + a*x\right)}}
 <section id="define-a-loss-and-optimize" class="level3">
 <h3 class="anchored" data-anchor-id="define-a-loss-and-optimize">Define a Loss and Optimize</h3>
 <p>Let’s say our goal is to have a mean activity of 0.5. We can define a loss function that penalizes deviations from this target.</p>
-<div id="fb33ce31" class="cell" data-execution_count="12">
+<div id="e3a5a5c5" class="cell" data-execution_count="12">
 <div class="sourceCode cell-code" id="cb20"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> loss(state):</span>
 <span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""</span></span>
 <span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a><span class="co">    Define a loss function that penalizes deviations from target activity.</span></span>
@@ -1077,7 +1077,7 @@ H = \frac{- b + a*x}{1 - e^{- d*\left(- b + a*x\right)}}
 </div>
 </div>
 <p>Then we optimize it with Optax and gradient descent:</p>
-<div id="e4f19cc7" class="cell" data-execution_count="13">
+<div id="77c89462" class="cell" data-execution_count="13">
 <div class="sourceCode cell-code" id="cb22"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Create an optimizer using Adam with automatic differentiation</span></span>
 <span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>optimizer <span class="op">=</span> OptaxOptimizer(</span>
 <span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>    loss,                           <span class="co"># Loss function to minimize</span></span>
@@ -1104,7 +1104,7 @@ Step 45: 0.073084</code></pre>
 </section>
 <section id="visualize-the-fitted-model" class="level3">
 <h3 class="anchored" data-anchor-id="visualize-the-fitted-model">Visualize the Fitted Model</h3>
-<div id="00b10b18" class="cell" data-execution_count="14">
+<div id="dbe28511" class="cell" data-execution_count="14">
 <div class="sourceCode cell-code" id="cb24"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Simulate with optimized parameters and visualize results</span></span>
 <span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>ts_optimized <span class="op">=</span> model(optimized_state)[<span class="dv">0</span>].data[:,<span class="dv">0</span>,:,<span class="dv">0</span>]</span>
 <span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -1131,7 +1131,7 @@ Step 45: 0.073084</code></pre>
 <section id="heterogeneous-parameters" class="level3">
 <h3 class="anchored" data-anchor-id="heterogeneous-parameters">Heterogeneous Parameters</h3>
 <p>The previous optimization used global parameters (same value for all brain regions). Now we’ll make parameters region-specific to achieve better control:</p>
-<div id="fa5d7d1a" class="cell" data-execution_count="15">
+<div id="fecbb526" class="cell" data-execution_count="15">
 <div class="sourceCode cell-code" id="cb25"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Make parameters heterogeneous: one value per brain region (87 regions)</span></span>
 <span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>optimized_state.parameters.model.J_N.shape <span class="op">=</span> (<span class="dv">87</span>,<span class="dv">1</span>)  <span class="co"># Excitatory recurrence per region</span></span>
 <span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"J_N parameter shape: </span><span class="sc">{</span>optimized_state<span class="sc">.</span>parameters<span class="sc">.</span>model<span class="sc">.</span>J_N<span class="sc">.</span>shape<span class="sc">}</span><span class="ss">"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
@@ -1140,7 +1140,7 @@ Step 45: 0.073084</code></pre>
 </div>
 </div>
 <p>We switch to reverse mode automatic differentiation, which is more efficient when we have many parameters (87 parameters):</p>
-<div id="485b8cc9" class="cell" data-execution_count="16">
+<div id="2448f75d" class="cell" data-execution_count="16">
 <div class="sourceCode cell-code" id="cb27"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Create optimizer for heterogeneous parameters</span></span>
 <span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>optimizer_het <span class="op">=</span> OptaxOptimizer(</span>
 <span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>    loss,                                    <span class="co"># Same loss function</span></span>
@@ -1174,7 +1174,7 @@ Step 190: 0.011850</code></pre>
 </div>
 </div>
 <p>Now most regions are close to the target level after passing the initial transient. Setting the initial conditions to the target activity could be a solution to this problem.</p>
-<div id="1acf39f0" class="cell" data-execution_count="17">
+<div id="45185f11" class="cell" data-execution_count="17">
 <div class="sourceCode cell-code" id="cb29"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Visualize results with heterogeneous parameters</span></span>
 <span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>ts_optimized_het <span class="op">=</span> model(optimized_state_het)[<span class="dv">0</span>].data[:,<span class="dv">0</span>,:,<span class="dv">0</span>]</span>
 <span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -1204,7 +1204,7 @@ Step 190: 0.011850</code></pre>
 <span id="cb29-27"><a href="#cb29-27" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb29-28"><a href="#cb29-28" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="cell-output cell-output-stderr">
-<pre><code>/tmp/ipykernel_152160/1020819468.py:26: UserWarning:
+<pre><code>/tmp/ipykernel_166174/1020819468.py:26: UserWarning:
 
 No artists with labels found to put in legend.  Note that artists whose label start with an underscore are ignored when legend() is called with no argument.
 </code></pre>
