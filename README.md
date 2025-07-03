@@ -8,6 +8,10 @@
 
 [JAX](https://jax.readthedocs.io/en/latest/)-based Optimization tools for [The Virtual Brain Ontology (TVBO)](https://github.com/virtual-twin/tvbo).
 
+## Documentation
+
+Have a look at the [documentation](https://virtual-twin.github.io/tvboptim/) for more information and example workflows.
+
 ## Features
 
 ✅ Fast Simulations on CPU and GPU
