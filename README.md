@@ -2,7 +2,7 @@
 > [!IMPORTANT]
 > **Repository Status:** This repository serves as a placeholder. The complete source code, documentation, and examples will be published here once our associated paper has been accepted and published. Please check back or watch this repository for updates.
 
-![](./docs/images/tvboptim_logo_long.svg)
+![](./images/tvboptim_logo_long.svg)
 
 # TVBOptim
 
