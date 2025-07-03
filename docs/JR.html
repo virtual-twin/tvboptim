@@ -1,0 +1,2138 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.8.9">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Marius Pille &amp; Leon Martin">
+
+<title>Jansen-Rit MEG Peak Frequency Optimization</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="site_libs/quarto-nav/headroom.min.js"></script>
+<script src="site_libs/clipboard/clipboard.min.js"></script>
+<script src="site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="site_libs/quarto-search/fuse.min.js"></script>
+<script src="site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="./">
+<script src="site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="site_libs/quarto-html/axe/axe-check.js" type="module"></script>
+<script src="site_libs/quarto-html/popper.min.js"></script>
+<script src="site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="site_libs/quarto-html/anchor.min.js"></script>
+<link href="site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="site_libs/quarto-html/quarto-syntax-highlighting-06f4ea4aeaed2a477ba1398aef8780a8.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="site_libs/bootstrap/bootstrap-eedbc41ce89a8f7825784d91a4a182bd.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "navbar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "end",
+  "type": "overlay",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+</head>
+
+<body class="nav-fixed quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+    <nav class="navbar navbar-expand-lg " data-bs-theme="dark">
+      <div class="navbar-container container-fluid">
+      <div class="navbar-brand-container mx-auto">
+    <a href="./index.html" class="navbar-brand navbar-brand-logo">
+    <img src="./images/tvboptim_logo_compact.svg" alt="" class="navbar-logo">
+    </a>
+  </div>
+            <div id="quarto-search" class="" title="Search"></div>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" role="menu" aria-expanded="false" aria-label="Toggle navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+  <span class="navbar-toggler-icon"></span>
+</button>
+          <div class="collapse navbar-collapse" id="navbarCollapse">
+            <ul class="navbar-nav navbar-nav-scroll me-auto">
+  <li class="nav-item">
+    <a class="nav-link" href="./get_started.html"> 
+<span class="menu-text">Get started</span></a>
+  </li>  
+  <li class="nav-item dropdown ">
+    <a class="nav-link dropdown-toggle" href="#" id="nav-menu-workflows" role="link" data-bs-toggle="dropdown" aria-expanded="false">
+ <span class="menu-text">Workflows</span>
+    </a>
+    <ul class="dropdown-menu" aria-labelledby="nav-menu-workflows">    
+        <li>
+    <a class="dropdown-item" href="./RWW.html">
+ <span class="dropdown-text">Reduced Wong Wang BOLD FC Optimization</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="./JR.html">
+ <span class="dropdown-text">Jansen-Rit MEG Peak Frequency Optimization</span></a>
+  </li>  
+        <li class="dropdown-header">EI Tuning</li>
+    </ul>
+  </li>
+  <li class="nav-item dropdown ">
+    <a class="nav-link dropdown-toggle" href="#" id="nav-menu-advanced-topics" role="link" data-bs-toggle="dropdown" aria-expanded="false">
+ <span class="menu-text">Advanced Topics</span>
+    </a>
+    <ul class="dropdown-menu" aria-labelledby="nav-menu-advanced-topics">    
+        <li class="dropdown-header">Performance Tips</li>
+        <li class="dropdown-header">Constraining Parameters</li>
+    </ul>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" href="./reference/index.html"> 
+<span class="menu-text">Reference</span></a>
+  </li>  
+</ul>
+            <ul class="navbar-nav navbar-nav-scroll ms-auto">
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://nono"> <i class="bi bi-github" role="img" aria-label="TVBOptim on GitHub">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+</ul>
+          </div> <!-- /navcollapse -->
+            <div class="quarto-navbar-tools">
+</div>
+      </div> <!-- /container-fluid -->
+    </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
+<!-- sidebar -->
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">On this page</h2>
+   
+  <ul>
+  <li><a href="#create-tvb-o-simulation-experiment" id="toc-create-tvb-o-simulation-experiment" class="nav-link active" data-scroll-target="#create-tvb-o-simulation-experiment">Create TVB-O Simulation Experiment</a></li>
+  <li><a href="#model-functions" id="toc-model-functions" class="nav-link" data-scroll-target="#model-functions">Model Functions</a></li>
+  <li><a href="#run-initial-simulation" id="toc-run-initial-simulation" class="nav-link" data-scroll-target="#run-initial-simulation">Run Initial Simulation</a></li>
+  <li><a href="#spectral-analysis-functions" id="toc-spectral-analysis-functions" class="nav-link" data-scroll-target="#spectral-analysis-functions">Spectral Analysis Functions</a></li>
+  <li><a href="#parameter-exploration" id="toc-parameter-exploration" class="nav-link" data-scroll-target="#parameter-exploration">Parameter Exploration</a></li>
+  <li><a href="#visualize-exploration-results" id="toc-visualize-exploration-results" class="nav-link" data-scroll-target="#visualize-exploration-results">Visualize Exploration Results</a></li>
+  <li><a href="#create-target-spectrum" id="toc-create-target-spectrum" class="nav-link" data-scroll-target="#create-target-spectrum">Create Target Spectrum</a></li>
+  <li><a href="#define-loss-function" id="toc-define-loss-function" class="nav-link" data-scroll-target="#define-loss-function">Define Loss Function</a></li>
+  <li><a href="#run-optimization" id="toc-run-optimization" class="nav-link" data-scroll-target="#run-optimization">Run Optimization</a></li>
+  <li><a href="#visualize-optimization-results" id="toc-visualize-optimization-results" class="nav-link" data-scroll-target="#visualize-optimization-results">Visualize Optimization Results</a></li>
+  <li><a href="#fit-the-grid" id="toc-fit-the-grid" class="nav-link" data-scroll-target="#fit-the-grid">Fit the Grid</a></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<div class="quarto-title-block"><div><h1 class="title">Jansen-Rit MEG Peak Frequency Optimization</h1><button type="button" class="btn code-tools-button" id="quarto-code-tools-source"><i class="bi"></i> Code</button></div></div>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>Marius Pille &amp; Leon Martin </p>
+          </div>
+  </div>
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="create-tvb-o-simulation-experiment" class="level2">
+<h2 class="anchored" data-anchor-id="create-tvb-o-simulation-experiment">Create TVB-O Simulation Experiment</h2>
+<div id="76036d32" class="cell" data-execution_count="2">
+<div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Create experiment</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>exp <span class="op">=</span> SimulationExperiment(</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    model <span class="op">=</span> {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>        <span class="st">"name"</span>: <span class="st">"JansenRit"</span>, </span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>        <span class="st">"parameters"</span>: {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>            <span class="st">"a"</span>: {<span class="st">"name"</span>: <span class="st">"a"</span>, <span class="st">"value"</span>: <span class="fl">0.04</span>}, </span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>            <span class="st">"b"</span>: {<span class="st">"name"</span>: <span class="st">"b"</span>, <span class="st">"value"</span>: <span class="fl">0.04</span>}, </span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>            <span class="st">"mu"</span>: {<span class="st">"name"</span>: <span class="st">"mu"</span>, <span class="st">"value"</span>: <span class="fl">0.15</span>}</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    },</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    connectivity <span class="op">=</span> {</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>        <span class="st">"parcellation"</span>: {<span class="st">"atlas"</span>: {<span class="st">"name"</span>: <span class="st">"DesikanKilliany"</span>}}, </span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>        <span class="st">"conduction_speed"</span>: {<span class="st">"name"</span>: <span class="st">"cs"</span>, <span class="st">"value"</span>: np.array([<span class="fl">3.0</span>])}</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    },</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    coupling <span class="op">=</span> {</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>        <span class="st">"name"</span>: <span class="st">"SigmoidalJansenRit"</span>, </span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>        <span class="st">"parameters"</span>: {<span class="st">"a"</span>: {<span class="st">"name"</span>: <span class="st">"a"</span>, <span class="st">"value"</span>: <span class="dv">20</span><span class="op">/</span><span class="dv">458885</span>}}</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    },</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    integration<span class="op">=</span>{</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>        <span class="st">"method"</span>: <span class="st">"Heun"</span>,</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>        <span class="st">"step_size"</span>: <span class="fl">1.0</span>,</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>        <span class="st">"noise"</span>: {<span class="st">"parameters"</span>: {<span class="st">"sigma"</span>: {<span class="st">'value'</span>: <span class="fl">0.001</span>}}},</span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>        <span class="st">"duration"</span>: <span class="dv">1_000</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>    },</span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>    monitors<span class="op">=</span>{<span class="st">"Raw"</span>: {<span class="st">"name"</span>: <span class="st">"Raw"</span>}},</span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a><span class="co"># Finalize configuration</span></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>exp.configure()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-1-contents" aria-controls="callout-1" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>TVB-O Model YAML specification
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-1" class="callout-1-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div id="c546a610" class="cell" data-execution_count="3">
+<div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(exp.render_yaml())</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>id: 1
+model:
+  name: JansenRit
+  parameters:
+    a:
+      name: a
+      value: 0.04
+      description: Reciprocal of the time constant of passive membrane and all other
+        spatially distributed delays in the dendritic network. Also called average
+        synaptic time constant.
+      unit: ms^-1
+    b:
+      name: b
+      value: 0.04
+      description: Rate constant of the inhibitory post-synaptic potential (IPSP)
+      unit: ms^-1
+    mu:
+      name: mu
+      value: 0.15
+      description: Mean excitatory external input to the derivative of the state-variable
+        y4_JR (PCs) represented by a pulse density, that consists of activity originating
+        from adjacent and more distant cortical columns, as well as from subcortical
+        structures (e
+      unit: ms^-1
+    A:
+      name: A
+      definition: Maximum amplitude of EPSP [mV]. Also called average synaptic gain.
+      value: 3.25
+      domain:
+        lo: 2.6
+        hi: 9.75
+        step: 0.05
+      description: Maximum amplitude of EPSP [mV]
+      unit: Millivolt
+    B:
+      name: B
+      definition: Maximum amplitude of IPSP [mV]. Also called average synaptic gain.
+      value: 22.0
+      domain:
+        lo: 17.6
+        hi: 110.0
+        step: 0.2
+      description: Maximum amplitude of IPSP [mV]
+      unit: Millivolt
+    J:
+      name: J
+      definition: Average number of synapses between three neuronal populations of
+        the model. It accounts for synaptic phenomena such as neurotransmitter depletion.
+      value: 135.0
+      domain:
+        lo: 65.0
+        hi: 1350.0
+        step: 1.0
+      description: Average number of synapses between three neuronal populations of
+        the model
+    a_1:
+      name: a_1
+      definition: Average probability constant of the number of synapses made by the
+        pyramidal cells to the dendrites of the excitatory interneurons  (feedback
+        excitatory loop). It characterizes the connectivity between the PCs and EINs.
+      value: 1.0
+      domain:
+        lo: 0.5
+        hi: 1.5
+        step: 0.1
+      description: Average probability constant of the number of synapses made by
+        the pyramidal cells to the dendrites of the excitatory interneurons  (feedback
+        excitatory loop)
+    a_2:
+      name: a_2
+      definition: Average probability constant of the number of synapses made by the
+        EINs to the dendrites of the PCs. It characterizes the excitatory connectivity
+        between the EINs and PCs.
+      value: 0.8
+      domain:
+        lo: 0.4
+        hi: 1.2
+        step: 0.1
+      description: Average probability constant of the number of synapses made by
+        the EINs to the dendrites of the PCs
+    a_3:
+      name: a_3
+      definition: Average probability constant of the number of synapses made by the
+        PCs to the dendrites of the IINs. It characterizes the connectivity between
+        the PCs and inhibitory IINs.
+      value: 0.25
+      domain:
+        lo: 0.125
+        hi: 0.375
+        step: 0.005
+      description: Average probability constant of the number of synapses made by
+        the PCs to the dendrites of the IINs
+    a_4:
+      name: a_4
+      definition: Average probability constant of the number of synapses made by the
+        IINs to the dendrites of the PCs. It characterizes the connectivity between
+        the IINs and  PCs.
+      value: 0.25
+      domain:
+        lo: 0.125
+        hi: 0.375
+        step: 0.005
+      description: Average probability constant of the number of synapses made by
+        the IINs to the dendrites of the PCs
+    nu_max:
+      name: nu_max
+      definition: Asymptotic of the sigmoid function Sigm_JR corresponds to the maximum
+        firing rate of the neural populations.
+      value: 0.0025
+      domain:
+        lo: 0.00125
+        hi: 0.00375
+        step: 1.0e-05
+      description: Asymptotic of the sigmoid function Sigm_JR corresponds to the maximum
+        firing rate of the neural populations
+      unit: ms^-1
+    r:
+      name: r
+      definition: Steepness (or gain) parameter of the sigmoid function Sigm_JR.
+      value: 0.56
+      domain:
+        lo: 0.28
+        hi: 0.84
+        step: 0.01
+      description: Steepness (or gain) parameter of the sigmoid function Sigm_JR
+      unit: mV^-1
+    v0:
+      name: v0
+      definition: 'Average firing threshold (PSP) for which half of the firing rate
+        is achieved.
+
+
+        Note:
+
+        - The usual value for this parameter is 6.0 (Jansen et al., 1993; Jansen &amp;
+        Rit, 1995).'
+      value: 5.52
+      domain:
+        lo: 3.12
+        hi: 6.0
+        step: 0.02
+      description: Average firing threshold (PSP) for which half of the firing rate
+        is achieved
+      unit: mV
+  description: 'The Jansen-Rit is a neurophysiologically-inspired neural mass model
+    of a cortical column (or area), developed to simulate the electrical brain activity,
+    i.e., the electroencephalogram (EEG), and evoked-potentials (EPs; Jansen et al.,
+    1993; Jansen &amp; Rit, 1995). It is a 6-dimensional, non-linear, model describing
+    the local average states of three interconnected neural populations: pyramidal
+    cells (PCs), excitatory and inhibitory interneurons (EINs and IINs), interacting
+    through positive and negative feedback loops. The main output of the model is
+    the average membrane potential of the pyramidal cell population, as the sum of
+    the potential of these cells is thought to be the source of the potential recorded
+    in the EEG.'
+  derived_variables:
+    sigma_y0_1:
+      name: sigma_y0_1
+      description: Sigmoid function that transforms the average membrane potential
+        of the PCs populations (y0) into an average firing rate to the excitatory
+        interneurons EINs.
+      equation:
+        lhs: sigma_y0_1
+        rhs: 2.0*nu_max/(exp(r*(-J*a_1*y0 + v0)) + 1.0)
+        latex: false
+      conditional: false
+    sigma_y0_3:
+      name: sigma_y0_3
+      description: Sigmoid function that transforms the average membrane potential
+        of the PCs populations (y0) into an average firing rate to the inhibitory
+        interneurons IINs.
+      equation:
+        lhs: sigma_y0_3
+        rhs: 2.0*nu_max/(exp(r*(-J*a_3*y0 + v0)) + 1.0)
+        latex: false
+      conditional: false
+    sigma_y1_y2:
+      name: sigma_y1_y2
+      description: 'Sigmoid function that transforms the average membrane potential
+        of the interneurons populations (y1-y2)
+
+        into an average firing rate to the PCs.'
+      equation:
+        lhs: sigma_y1_y2
+        rhs: 2.0*nu_max/(exp(r*(v0 - y1 + y2)) + 1.0)
+        latex: false
+      conditional: false
+  coupling_terms:
+    c_pop0:
+      name: c_pop0
+  state_variables:
+    y0:
+      name: y0
+      domain:
+        lo: -1.0
+        hi: 1.0
+      description: First state-variable of the first Jansen-Rit population
+      equation:
+        lhs: Derivative(y0, t)
+        rhs: y3
+        latex: false
+      variable_of_interest: true
+      coupling_variable: false
+      initial_value: 0.1
+    y1:
+      name: y1
+      domain:
+        lo: -500.0
+        hi: 500.0
+      description: First state-variable of the second Jansen-Rit population (EINs)
+      equation:
+        lhs: Derivative(y1, t)
+        rhs: y4
+        latex: false
+      variable_of_interest: true
+      coupling_variable: true
+      initial_value: 0.1
+    y2:
+      name: y2
+      domain:
+        lo: -50.0
+        hi: 50.0
+      description: First state-variable of the third Jansen-Rit population (IINs)
+      equation:
+        lhs: Derivative(y2, t)
+        rhs: y5
+        latex: false
+      variable_of_interest: true
+      coupling_variable: true
+      initial_value: 0.1
+    y3:
+      name: y3
+      domain:
+        lo: -6.0
+        hi: 6.0
+      description: Second state-variable of the first Jansen-Rit population (excitatory
+        PCs)
+      equation:
+        lhs: Derivative(y3, t)
+        rhs: A*a*sigma_y1_y2 - a**2*y0 - 2.0*a*y3
+        latex: false
+      variable_of_interest: true
+      coupling_variable: false
+      initial_value: 0.1
+    y4:
+      name: y4
+      domain:
+        lo: -20.0
+        hi: 20.0
+      description: Second state-variable of the second excitatory Jansen-Rit population
+        (excitatory EINs)
+      equation:
+        lhs: Derivative(y4, t)
+        rhs: A*a*(J*a_2*sigma_y0_1 + c_pop0 + local_coupling*(y1 - y2) + mu) - a**2*y1
+          - 2.0*a*y4
+        latex: false
+      variable_of_interest: true
+      coupling_variable: false
+      initial_value: 0.1
+    y5:
+      name: y5
+      domain:
+        lo: -500.0
+        hi: 500.0
+      description: Second state-variable of the third (inhibitory) Jansen-Rit population
+        (IINs)
+      equation:
+        lhs: Derivative(y5, t)
+        rhs: B*J*a_4*b*sigma_y0_3 - b**2*y2 - 2.0*b*y5
+        latex: false
+      variable_of_interest: true
+      coupling_variable: false
+      initial_value: 0.1
+  number_of_modes: 1
+integration:
+  duration: 1000.0
+  method: Heun
+  step_size: 1.0
+  noise:
+    parameters:
+      sigma:
+        name: sigma
+        value: 0.001
+    correlated: false
+    gaussian: false
+    additive: true
+    seed: 42
+  transient_time: 0.0
+  scipy_ode_base: false
+  number_of_stages: 1
+  intermediate_expressions:
+    X1:
+      name: X1
+      equation:
+        lhs: X1
+        rhs: X + dX0 * dt + noise + stimulus * dt
+        latex: false
+      conditional: false
+  update_expression:
+    name: dX
+    equation:
+      lhs: X_{t+1}
+      rhs: (dX0 + dX1) * (dt / 2)
+      latex: false
+    conditional: false
+  delayed: true
+connectivity:
+  number_of_regions: 87
+  parcellation:
+    atlas:
+      name: DesikanKilliany
+  weights:
+    dataLocation: /home/marius/Documents/Projekte/Inversion/tvb-o/tvbo/data/tvbo_data/connectome/space-MNI152Nlin2009c_atlas-DesikanKilliany_desc-dTOR_weights.csv
+  lengths:
+    dataLocation: /home/marius/Documents/Projekte/Inversion/tvb-o/tvbo/data/tvbo_data/connectome/space-MNI152Nlin2009c_atlas-DesikanKilliany_desc-dTOR_lengths.csv
+  conduction_speed:
+    name: cs
+    value: 3.0
+coupling:
+  name: SigmoidalJansenRit
+  parameters:
+    a:
+      name: a
+      value: 4.3583904464081416e-05
+      description: Scaling of the coupling term
+    cmax:
+      name: cmax
+      value: 0.005
+      description: Maximum of the Sigmoid function
+    r:
+      name: r
+      value: 0.56
+      description: The steepness of the sigmoidal transformation
+    cmin:
+      name: cmin
+      value: 0.0
+      description: minimum of the Sigmoid function
+    midpoint:
+      name: midpoint
+      value: 6.0
+      description: Midpoint of the linear portion of the sigmoid
+  sparse: false
+  pre_expression:
+    rhs: cmin + (cmax - cmin)/(exp(r*(midpoint - (x_j[0] - x_j[1]))) + 1.0)
+    latex: false
+  post_expression:
+    rhs: a*gx
+    latex: false
+monitors:
+  Raw:
+    name: Raw
+</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-2-contents" aria-controls="callout-2" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Rendered JAX Code
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-2" class="callout-2-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div id="f4437053" class="cell" data-execution_count="4">
+<div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>numbered_print(exp.render_code(<span class="bu">format</span> <span class="op">=</span> <span class="st">"jax"</span>))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>001 
+002 from collections import namedtuple
+003 import jax
+004 from tvbo.data.types import TimeSeries
+005 import jax.numpy as jnp
+006 import jax.scipy as jsp
+007 
+008 
+009 def cfun(weights, history, current_state, p, delay_indices, t):
+010     n_node = weights.shape[0]
+011     a, cmax, r, cmin, midpoint = p.a, p.cmax, p.r, p.cmin, p.midpoint
+012 
+013     x_j = jnp.array([
+014 
+015         history[0, delay_indices[0].T, delay_indices[1]],
+016 
+017         history[1, delay_indices[0].T, delay_indices[1]],
+018 
+019     ])
+020 
+021     pre = cmin + (cmax - cmin)/(1.0 + jnp.exp(r*(midpoint - x_j[0] + x_j[1])))
+022     # Restore collapsed dimension if necessary
+023     pre = pre.reshape(-1, n_node, n_node)
+024 
+025     def op(x): return jnp.sum(weights * x, axis=-1)
+026     gx = jax.vmap(op, in_axes=0)(pre)
+027     return a*gx
+028 
+029 
+030 def dfun(current_state, cX, _p, local_coupling=0):
+031     a, b, mu, A, B, J, a_1, a_2, a_3, a_4, nu_max, r, v0 = _p.a, _p.b, _p.mu, _p.A, _p.B, _p.J, _p.a_1, _p.a_2, _p.a_3, _p.a_4, _p.nu_max, _p.r, _p.v0
+032     # unpack coupling terms and states as in dfun
+033     c_pop0 = cX[0]
+034 
+035     y0 = current_state[0]
+036     y1 = current_state[1]
+037     y2 = current_state[2]
+038     y3 = current_state[3]
+039     y4 = current_state[4]
+040     y5 = current_state[5]
+041 
+042     # compute internal states for dfun
+043     sigma_y0_1 = 2.0*nu_max/(1.0 + jnp.exp(r*(v0 - J*a_1*y0)))
+044     sigma_y0_3 = 2.0*nu_max/(1.0 + jnp.exp(r*(v0 - J*a_3*y0)))
+045     sigma_y1_y2 = 2.0*nu_max/(1.0 + jnp.exp(r*(v0 + y2 - y1)))
+046 
+047     return jnp.array([
+048         y3,  # y0
+049         y4,  # y1
+050         y5,  # y2
+051         -y0*a**2 - 2.0*a*y3 + A*a*sigma_y1_y2,  # y3
+052         -y1*a**2 - 2.0*a*y4 + A*a *
+053         (c_pop0 + mu + local_coupling*(y1 - y2) + J*a_2*sigma_y0_1),  # y4
+054         -y2*b**2 - 2.0*b*y5 + B*J*a_4*b*sigma_y0_3,  # y5
+055     ])
+056 
+057 
+058 def integrate(state, weights, dt, params_integrate, delay_indices, external_input):
+059     """
+060     Heun Integration
+061     ================
+062     """
+063     t, noise = external_input
+064 
+065     params_dfun, params_cfun, params_stimulus = params_integrate
+066 
+067     history, current_state = state
+068     stimulus = 0
+069 
+070     cX = jax.vmap(cfun, in_axes=(None, -1, -1, None, None, None), out_axes=-
+071                   1)(weights, history, current_state, params_cfun, delay_indices, t)
+072 
+073     dX0 = dfun(current_state, cX, params_dfun)
+074 
+075     X = current_state
+076 
+077     # Calculate intermediate step X1
+078     X1 = X + dX0 * dt + noise + stimulus * dt
+079 
+080     # Calculate derivative X1
+081     dX1 = dfun(X1, cX, params_dfun)
+082     # Calculate the state change dX
+083     dX = (dX0 + dX1) * (dt / 2)
+084     next_state = current_state + (dX) + noise
+085 
+086     cvar = jnp.array([1, 2])
+087     _h = jnp.roll(history, -1, axis=1)
+088     history = _h.at[:, -1, :].set(next_state[cvar, :])
+089     return (history, next_state), next_state
+090 
+091 
+092 timeseries = namedtuple("timeseries", ["time", "trace"])
+093 
+094 
+095 def monitor_raw_0(time_steps, trace, params, t_offset=0):
+096     dt = 1.0
+097     return TimeSeries(time=(time_steps + t_offset) * dt, data=trace, title="Raw")
+098 
+099 
+100 def transform_parameters(_p):
+101     a, b, mu, A, B, J, a_1, a_2, a_3, a_4, nu_max, r, v0 = _p.a, _p.b, _p.mu, _p.A, _p.B, _p.J, _p.a_1, _p.a_2, _p.a_3, _p.a_4, _p.nu_max, _p.r, _p.v0
+102 
+103     return _p
+104 
+105 
+106 c_vars = jnp.array([1, 2])
+107 
+108 
+109 def kernel(state):
+110     # problem dimensions
+111     n_nodes = 87
+112     n_svar = 6
+113     n_cvar = 2
+114     n_modes = 1
+115     nh = 110
+116 
+117     current_state, history = (
+118         state.initial_conditions.data[-1], state.initial_conditions.data[-nh:, c_vars].transpose(1, 0, 2, 3))
+119 
+120     ics = (history, current_state)
+121     weights = state.connectivity.weights
+122 
+123     dn = jnp.arange(n_nodes) * jnp.ones((n_nodes, n_nodes)).astype(int)
+124     idelays = jnp.round(state.connectivity.lengths /
+125                         state.connectivity.metadata.conduction_speed.value / state.dt).astype(int)
+126     di = -1 * idelays - 1
+127     delay_indices = (di, dn)
+128 
+129     dt = state.dt
+130     nt = state.nt
+131     time_steps = jnp.arange(0, nt)
+132 
+133     key = jax.random.PRNGKey(state.noise.metadata.seed)
+134     _noise = jax.random.normal(key, (nt, n_svar, n_nodes, n_modes))
+135     noise = (jnp.sqrt(dt) * state.noise.sigma[None, ..., None, None]) * _noise
+136 
+137     p = transform_parameters(state.parameters.model)
+138     params_integrate = (p, state.parameters.coupling, state.stimulus)
+139 
+140     def op(ics, external_input): return integrate(ics, weights,
+141                                                   dt, params_integrate, delay_indices, external_input)
+142 
+143     latest_carry, res = jax.lax.scan(op, ics, (time_steps, noise))
+144 
+145     trace = res
+146 
+147     t_offset = 0
+148     time_steps = time_steps + 1
+149 
+150     params_monitors = state.monitor_parameters
+151     result = monitor_raw_0(
+152         time_steps, trace, params_monitors[0], t_offset=t_offset),
+153 
+154     result = [result[0]]
+155     return result</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>TVB-O Model Report
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-3" class="callout-3-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div id="4c1451bf" class="cell" data-execution_count="5">
+<div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>display(Markdown(exp.model.generate_report()))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<section id="jansenrit" class="level1 cell-output cell-output-display cell-output-markdown">
+<h1>JansenRit</h1>
+<p>The Jansen-Rit is a neurophysiologically-inspired neural mass model of a cortical column (or area), developed to simulate the electrical brain activity, i.e., the electroencephalogram (EEG), and evoked-potentials (EPs; Jansen et al., 1993; Jansen &amp; Rit, 1995). It is a 6-dimensional, non-linear, model describing the local average states of three interconnected neural populations: pyramidal cells (PCs), excitatory and inhibitory interneurons (EINs and IINs), interacting through positive and negative feedback loops. The main output of the model is the average membrane potential of the pyramidal cell population, as the sum of the potential of these cells is thought to be the source of the potential recorded in the EEG.</p>
+<section id="equations" class="level2">
+<h2 class="anchored" data-anchor-id="equations">Equations</h2>
+<section id="derived-variables" class="level3">
+<h3 class="anchored" data-anchor-id="derived-variables">Derived Variables</h3>
+<p><span class="math display">\[
+\sigma_{y0 1} = \frac{2.0*\nu_{max}}{1.0 + e^{r*\left(v_{0} - J*a_{1}*y_{0}\right)}}
+\]</span> <span class="math display">\[
+\sigma_{y0 3} = \frac{2.0*\nu_{max}}{1.0 + e^{r*\left(v_{0} - J*a_{3}*y_{0}\right)}}
+\]</span> <span class="math display">\[
+\sigma_{y1 y2} = \frac{2.0*\nu_{max}}{1.0 + e^{r*\left(v_{0} + y_{2} - y_{1}\right)}}
+\]</span></p>
+</section>
+<section id="state-equations" class="level3">
+<h3 class="anchored" data-anchor-id="state-equations">State Equations</h3>
+<p><span class="math display">\[
+\frac{d}{d t} y_{0} = y_{3}
+\]</span> <span class="math display">\[
+\frac{d}{d t} y_{1} = y_{4}
+\]</span> <span class="math display">\[
+\frac{d}{d t} y_{2} = y_{5}
+\]</span> <span class="math display">\[
+\frac{d}{d t} y_{3} = - y_{0}*a^{2} - 2.0*a*y_{3} + A*a*\sigma_{y1 y2}
+\]</span> <span class="math display">\[
+\frac{d}{d t} y_{4} = - y_{1}*a^{2} - 2.0*a*y_{4} + A*a*\left(c_{global} + \mu + c_{local}*\left(y_{1} - y_{2}\right) + J*a_{2}*\sigma_{y0 1}\right)
+\]</span> <span class="math display">\[
+\frac{d}{d t} y_{5} = - y_{2}*b^{2} - 2.0*b*y_{5} + B*J*a_{4}*b*\sigma_{y0 3}
+\]</span></p>
+</section>
+</section>
+<section id="parameters" class="level2">
+<h2 class="anchored" data-anchor-id="parameters">Parameters</h2>
+<table class="caption-top table table-sm table-striped small">
+<colgroup>
+<col style="width: 28%">
+<col style="width: 20%">
+<col style="width: 18%">
+<col style="width: 32%">
+</colgroup>
+<thead>
+<tr class="header">
+<th><strong>Parameter</strong></th>
+<th><strong>Value</strong></th>
+<th><strong>Unit</strong></th>
+<th><strong>Description</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><span class="math inline">\(a\)</span></td>
+<td>0.04</td>
+<td>ms^-1</td>
+<td>Reciprocal of the time constant of passive membrane and all other spatially distributed delays in the dendritic network. Also called average synaptic time constant.</td>
+</tr>
+<tr class="even">
+<td><span class="math inline">\(b\)</span></td>
+<td>0.04</td>
+<td>ms^-1</td>
+<td>Rate constant of the inhibitory post-synaptic potential (IPSP)</td>
+</tr>
+<tr class="odd">
+<td><span class="math inline">\(\mu\)</span></td>
+<td>0.15</td>
+<td>ms^-1</td>
+<td>Mean excitatory external input to the derivative of the state-variable y4_JR (PCs) represented by a pulse density, that consists of activity originating from adjacent and more distant cortical columns, as well as from subcortical structures (e</td>
+</tr>
+<tr class="even">
+<td><span class="math inline">\(A\)</span></td>
+<td>3.25</td>
+<td>Millivolt</td>
+<td>Maximum amplitude of EPSP [mV]</td>
+</tr>
+<tr class="odd">
+<td><span class="math inline">\(B\)</span></td>
+<td>22.0</td>
+<td>Millivolt</td>
+<td>Maximum amplitude of IPSP [mV]</td>
+</tr>
+<tr class="even">
+<td><span class="math inline">\(J\)</span></td>
+<td>135.0</td>
+<td>N/A</td>
+<td>Average number of synapses between three neuronal populations of the model</td>
+</tr>
+<tr class="odd">
+<td><span class="math inline">\(a_{1}\)</span></td>
+<td>1.0</td>
+<td>N/A</td>
+<td>Average probability constant of the number of synapses made by the pyramidal cells to the dendrites of the excitatory interneurons (feedback excitatory loop)</td>
+</tr>
+<tr class="even">
+<td><span class="math inline">\(a_{2}\)</span></td>
+<td>0.8</td>
+<td>N/A</td>
+<td>Average probability constant of the number of synapses made by the EINs to the dendrites of the PCs</td>
+</tr>
+<tr class="odd">
+<td><span class="math inline">\(a_{3}\)</span></td>
+<td>0.25</td>
+<td>N/A</td>
+<td>Average probability constant of the number of synapses made by the PCs to the dendrites of the IINs</td>
+</tr>
+<tr class="even">
+<td><span class="math inline">\(a_{4}\)</span></td>
+<td>0.25</td>
+<td>N/A</td>
+<td>Average probability constant of the number of synapses made by the IINs to the dendrites of the PCs</td>
+</tr>
+<tr class="odd">
+<td><span class="math inline">\(\nu_{max}\)</span></td>
+<td>0.0025</td>
+<td>ms^-1</td>
+<td>Asymptotic of the sigmoid function Sigm_JR corresponds to the maximum firing rate of the neural populations</td>
+</tr>
+<tr class="even">
+<td><span class="math inline">\(r\)</span></td>
+<td>0.56</td>
+<td>mV^-1</td>
+<td>Steepness (or gain) parameter of the sigmoid function Sigm_JR</td>
+</tr>
+<tr class="odd">
+<td><span class="math inline">\(v_{0}\)</span></td>
+<td>5.52</td>
+<td>mV</td>
+<td>Average firing threshold (PSP) for which half of the firing rate is achieved</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="references" class="level2">
+<h2 class="anchored" data-anchor-id="references">References</h2>
+<p>Jansen, B., Zouridakis, G., &amp; Brandt, M. (1993). A neurophysiologically-based mathematical model of flash visual evoked potentials. <em>Biological Cybernetics</em>, 68(3), 275-283.</p>
+<p>Jansen, B. &amp; Rit, V. (1995). Electroencephalogram and visual evoked potential generation in a mathematical model of coupled cortical columns. <em>Biological Cybernetics</em>, 73(4), 357-366.</p>
+</section>
+</section>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section id="model-functions" class="level2">
+<h2 class="anchored" data-anchor-id="model-functions">Model Functions</h2>
+<div id="766374cd" class="cell" data-execution_count="6">
+<div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Get model and parameters</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>model, state <span class="op">=</span> jaxify(exp)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+</section>
+<section id="run-initial-simulation" class="level2">
+<h2 class="anchored" data-anchor-id="run-initial-simulation">Run Initial Simulation</h2>
+<div id="8b5781ae" class="cell" data-execution_count="7">
+<div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Run the model and get results</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>result <span class="op">=</span> model(state)</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Use first result as initial conditions for second run</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>state.initial_conditions <span class="op">=</span> result[<span class="dv">0</span>]</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>result2 <span class="op">=</span> model(state)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="c10f3617" class="cell" data-execution_count="8">
+<div class="cell-output cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="JR_files/figure-html/cell-9-output-1.png" class="img-fluid figure-img"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="spectral-analysis-functions" class="level2">
+<h2 class="anchored" data-anchor-id="spectral-analysis-functions">Spectral Analysis Functions</h2>
+<div id="ee57c9cb" class="cell" data-execution_count="9">
+<div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> avg_spectrum(state):</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>    raw <span class="op">=</span> model(state)[<span class="dv">0</span>]</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Subsample by a factor of 10</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>    f, Pxx <span class="op">=</span> jax.scipy.signal.welch(raw.data[::<span class="dv">10</span>, <span class="dv">0</span>, :, <span class="dv">0</span>].T, fs<span class="op">=</span><span class="dv">100</span>)</span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>    avg_spectrum <span class="op">=</span> jnp.mean(Pxx, axis<span class="op">=</span><span class="dv">0</span>)</span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> f, avg_spectrum</span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> peak_freq(state):</span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a>    f, S <span class="op">=</span> avg_spectrum(state)</span>
+<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a>    idx <span class="op">=</span> jnp.argmax(S)</span>
+<span id="cb9-11"><a href="#cb9-11" aria-hidden="true" tabindex="-1"></a>    f_max <span class="op">=</span> f[idx]</span>
+<span id="cb9-12"><a href="#cb9-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> f_max</span>
+<span id="cb9-13"><a href="#cb9-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-14"><a href="#cb9-14" aria-hidden="true" tabindex="-1"></a><span class="co"># Calculate and display spectrum</span></span>
+<span id="cb9-15"><a href="#cb9-15" aria-hidden="true" tabindex="-1"></a>f, S <span class="op">=</span> jax.block_until_ready(avg_spectrum(state))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="ede6f4b8" class="cell" data-execution_count="10">
+<div class="cell-output cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="JR_files/figure-html/cell-11-output-1.png" class="img-fluid figure-img"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="parameter-exploration" class="level2">
+<h2 class="anchored" data-anchor-id="parameter-exploration">Parameter Exploration</h2>
+<div id="229ebea6" class="cell" data-execution_count="11">
+<div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Set up parameter ranges for exploration</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>state.parameters.model.a.free <span class="op">=</span> <span class="va">True</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>state.parameters.model.a.low <span class="op">=</span> <span class="fl">0.001</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>state.parameters.model.a.high <span class="op">=</span> <span class="fl">0.2</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>state.parameters.model.b.free <span class="op">=</span> <span class="va">True</span></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>state.parameters.model.b.low <span class="op">=</span> <span class="fl">0.001</span></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>state.parameters.model.b.high <span class="op">=</span> <span class="fl">0.2</span></span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>show_free_parameters(state)</span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a><span class="co"># Create grid for parameter exploration</span></span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a>n <span class="op">=</span> <span class="dv">32</span></span>
+<span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a>_params <span class="op">=</span> copy.deepcopy(state)</span>
+<span id="cb10-14"><a href="#cb10-14" aria-hidden="true" tabindex="-1"></a>_params.nt <span class="op">=</span> <span class="dv">10_000</span>  <span class="co"># 10s simulation for better frequency resolution</span></span>
+<span id="cb10-15"><a href="#cb10-15" aria-hidden="true" tabindex="-1"></a>params_set <span class="op">=</span> GridSpace(_params, n<span class="op">=</span>n)</span>
+<span id="cb10-16"><a href="#cb10-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-17"><a href="#cb10-17" aria-hidden="true" tabindex="-1"></a><span class="at">@cache</span>(<span class="st">"explore"</span>, redo <span class="op">=</span> <span class="va">False</span>)</span>
+<span id="cb10-18"><a href="#cb10-18" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> explore():</span>
+<span id="cb10-19"><a href="#cb10-19" aria-hidden="true" tabindex="-1"></a>    parexec <span class="op">=</span> zarallelExecution(peak_freq, params_set, n_pmap<span class="op">=</span><span class="dv">8</span>)</span>
+<span id="cb10-20"><a href="#cb10-20" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> parexec.run()</span>
+<span id="cb10-21"><a href="#cb10-21" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Alternative: Sequential execution</span></span>
+<span id="cb10-22"><a href="#cb10-22" aria-hidden="true" tabindex="-1"></a>    <span class="co"># sqexec = SequentialExecution(jax.jit(peak_freq), params_set)</span></span>
+<span id="cb10-23"><a href="#cb10-23" aria-hidden="true" tabindex="-1"></a>    <span class="co"># return sqexec.run()</span></span>
+<span id="cb10-24"><a href="#cb10-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-25"><a href="#cb10-25" aria-hidden="true" tabindex="-1"></a>exploration_result <span class="op">=</span> explore()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+</section>
+<section id="visualize-exploration-results" class="level2">
+<h2 class="anchored" data-anchor-id="visualize-exploration-results">Visualize Exploration Results</h2>
+<div id="76b3746c" class="cell" data-execution_count="12">
+<div class="cell-output cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="JR_files/figure-html/cell-13-output-1.png" class="img-fluid figure-img"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="create-target-spectrum" class="level2">
+<h2 class="anchored" data-anchor-id="create-target-spectrum">Create Target Spectrum</h2>
+<div id="ccb12a61" class="cell" data-execution_count="13">
+<div class="cell-output cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="JR_files/figure-html/cell-14-output-1.png" class="img-fluid figure-img"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="define-loss-function" class="level2">
+<h2 class="anchored" data-anchor-id="define-loss-function">Define Loss Function</h2>
+<div id="36a505e7" class="cell" data-execution_count="14">
+<div class="sourceCode cell-code" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Define loss function as 1 minus correlation coefficient</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> loss(state):</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>    f, S <span class="op">=</span> avg_spectrum(state)</span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="dv">1</span><span class="op">-</span>jnp.corrcoef(S, target)[<span class="dv">0</span>, <span class="dv">1</span>]</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a><span class="co"># Test loss function</span></span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>loss(state)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display" data-execution_count="14">
+<pre><code>Array(1.06076007, dtype=float64)</code></pre>
+</div>
+</div>
+</section>
+<section id="run-optimization" class="level2">
+<h2 class="anchored" data-anchor-id="run-optimization">Run Optimization</h2>
+<div id="1c2f8ed0" class="cell" data-execution_count="15">
+<div class="sourceCode cell-code" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Create and run optimizer</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>cb <span class="op">=</span> MultiCallback([</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>    DefaultPrintCallback(),</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>    SavingCallback(key <span class="op">=</span> <span class="st">"state"</span>, save_fun <span class="op">=</span> <span class="kw">lambda</span> <span class="op">*</span>args: args[<span class="dv">1</span>]) <span class="co"># save updated state</span></span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>])</span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a><span class="at">@cache</span>(<span class="st">"optimize"</span>, redo <span class="op">=</span> <span class="va">False</span>)</span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> optimize():</span>
+<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a>    opt <span class="op">=</span> OptaxOptimizer(loss, optax.adam(<span class="fl">0.005</span>), callback <span class="op">=</span> cb)</span>
+<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a>    fitted_params, fitting_data <span class="op">=</span> opt.run(state, max_steps<span class="op">=</span><span class="dv">15</span>)</span>
+<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> fitted_params, fitting_data</span>
+<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a>fitted_params, fitting_data <span class="op">=</span> optimize()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+</section>
+<section id="visualize-optimization-results" class="level2">
+<h2 class="anchored" data-anchor-id="visualize-optimization-results">Visualize Optimization Results</h2>
+<div id="0e548261" class="cell" data-execution_count="16">
+<div class="cell-output cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="JR_files/figure-html/cell-17-output-1.png" class="img-fluid figure-img"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="fit-the-grid" class="level2">
+<h2 class="anchored" data-anchor-id="fit-the-grid">Fit the Grid</h2>
+<div id="9c2d80b4" class="cell" data-execution_count="17">
+<div class="sourceCode cell-code" id="cb14"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Create grid for parameter exploration</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>n_grid <span class="op">=</span> <span class="dv">8</span></span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>params_set <span class="op">=</span> GridSpace(state, n<span class="op">=</span>n_grid)</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a><span class="at">@cache</span>(<span class="st">"optimize_grid"</span>, redo <span class="op">=</span> <span class="va">False</span>)</span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> optimize_grid():</span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>    opt <span class="op">=</span> OptaxOptimizer(loss, optax.adam(<span class="fl">0.0025</span>))</span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>    <span class="co"># exec = SequentialExecution(opt.run, params_set, max_steps=20)</span></span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>    t1 <span class="op">=</span> time.time()</span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a>    <span class="bu">exec</span> <span class="op">=</span> ParallelExecution(opt.run, params_set, n_pmap<span class="op">=</span><span class="dv">4</span>, max_steps<span class="op">=</span><span class="dv">20</span>)</span>
+<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a>    res <span class="op">=</span> <span class="bu">exec</span>.run()</span>
+<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a>    t2 <span class="op">=</span> time.time()</span>
+<span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> (t2<span class="op">-</span>t1), res</span>
+<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a>t, res <span class="op">=</span> optimize_grid()</span>
+<span id="cb14-16"><a href="#cb14-16" aria-hidden="true" tabindex="-1"></a>t</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="fcb3ff9e" class="cell" data-execution_count="19">
+<div class="cell-output cell-output-stderr">
+<pre><code>/tmp/ipykernel_152823/1938800275.py:72: UserWarning:
+
+This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+</code></pre>
+</div>
+<div class="cell-output cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="JR_files/figure-html/cell-20-output-2.png" class="img-fluid figure-img"></p>
+</figure>
+</div>
+</div>
+</div>
+
+
+<!-- -->
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+        const codeEl = trigger.previousElementSibling.cloneNode(true);
+        for (const childEl of codeEl.children) {
+          if (isCodeAnnotation(childEl)) {
+            childEl.remove();
+          }
+        }
+        return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+    const viewSource = window.document.getElementById('quarto-view-source') ||
+                       window.document.getElementById('quarto-code-tools-source');
+    if (viewSource) {
+      const sourceUrl = viewSource.getAttribute("data-quarto-source-url");
+      viewSource.addEventListener("click", function(e) {
+        if (sourceUrl) {
+          // rstudio viewer pane
+          if (/\bcapabilities=\b/.test(window.location)) {
+            window.open(sourceUrl);
+          } else {
+            window.location.href = sourceUrl;
+          }
+        } else {
+          const modal = new bootstrap.Modal(document.getElementById('quarto-embedded-source-code-modal'));
+          modal.show();
+        }
+        return false;
+      });
+    }
+    function toggleCodeHandler(show) {
+      return function(e) {
+        const detailsSrc = window.document.querySelectorAll(".cell > details > .sourceCode");
+        for (let i=0; i<detailsSrc.length; i++) {
+          const details = detailsSrc[i].parentElement;
+          if (show) {
+            details.open = true;
+          } else {
+            details.removeAttribute("open");
+          }
+        }
+        const cellCodeDivs = window.document.querySelectorAll(".cell > .sourceCode");
+        const fromCls = show ? "hidden" : "unhidden";
+        const toCls = show ? "unhidden" : "hidden";
+        for (let i=0; i<cellCodeDivs.length; i++) {
+          const codeDiv = cellCodeDivs[i];
+          if (codeDiv.classList.contains(fromCls)) {
+            codeDiv.classList.remove(fromCls);
+            codeDiv.classList.add(toCls);
+          } 
+        }
+        return false;
+      }
+    }
+    const hideAllCode = window.document.getElementById("quarto-hide-all-code");
+    if (hideAllCode) {
+      hideAllCode.addEventListener("click", toggleCodeHandler(false));
+    }
+    const showAllCode = window.document.getElementById("quarto-show-all-code");
+    if (showAllCode) {
+      showAllCode.addEventListener("click", toggleCodeHandler(true));
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script><div class="modal fade" id="quarto-embedded-source-code-modal" tabindex="-1" aria-labelledby="quarto-embedded-source-code-modal-label" aria-hidden="true"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="quarto-embedded-source-code-modal-label">Source Code</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="">
+<div class="sourceCode" id="cb16" data-shortcodes="false"><pre class="sourceCode markdown code-with-copy"><code class="sourceCode markdown"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="an">title:</span><span class="co"> "Jansen-Rit MEG Peak Frequency Optimization"</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a><span class="an">author:</span><span class="co"> "Marius Pille &amp; Leon Martin"</span></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="an">format:</span><span class="co"> </span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a><span class="co">  html:</span></span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a><span class="co">    code-fold: false</span></span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a><span class="co">    toc: true</span></span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a><span class="co">    echo: false</span></span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a><span class="an">jupyter:</span><span class="co"> python3</span></span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-14"><a href="#cb16-14" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb16-15"><a href="#cb16-15" aria-hidden="true" tabindex="-1"></a><span class="co">#| output: false</span></span>
+<span id="cb16-16"><a href="#cb16-16" aria-hidden="true" tabindex="-1"></a><span class="co"># Set up environment</span></span>
+<span id="cb16-17"><a href="#cb16-17" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> os</span>
+<span id="cb16-18"><a href="#cb16-18" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> time</span>
+<span id="cb16-19"><a href="#cb16-19" aria-hidden="true" tabindex="-1"></a>cpu <span class="op">=</span> <span class="va">True</span></span>
+<span id="cb16-20"><a href="#cb16-20" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> cpu:</span>
+<span id="cb16-21"><a href="#cb16-21" aria-hidden="true" tabindex="-1"></a>    N <span class="op">=</span> <span class="dv">8</span></span>
+<span id="cb16-22"><a href="#cb16-22" aria-hidden="true" tabindex="-1"></a>    os.environ[<span class="st">'XLA_FLAGS'</span>] <span class="op">=</span> <span class="ss">f'--xla_force_host_platform_device_count=</span><span class="sc">{</span>N<span class="sc">}</span><span class="ss">'</span></span>
+<span id="cb16-23"><a href="#cb16-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-24"><a href="#cb16-24" aria-hidden="true" tabindex="-1"></a><span class="co"># Import all required libraries</span></span>
+<span id="cb16-25"><a href="#cb16-25" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb16-26"><a href="#cb16-26" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
+<span id="cb16-27"><a href="#cb16-27" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> jax</span>
+<span id="cb16-28"><a href="#cb16-28" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> jax.numpy <span class="im">as</span> jnp</span>
+<span id="cb16-29"><a href="#cb16-29" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> copy</span>
+<span id="cb16-30"><a href="#cb16-30" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> equinox <span class="im">as</span> eqx</span>
+<span id="cb16-31"><a href="#cb16-31" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> optax</span>
+<span id="cb16-32"><a href="#cb16-32" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> IPython.display <span class="im">import</span> Markdown, display</span>
+<span id="cb16-33"><a href="#cb16-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-34"><a href="#cb16-34" aria-hidden="true" tabindex="-1"></a><span class="co"># Import from tvboptim</span></span>
+<span id="cb16-35"><a href="#cb16-35" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim.types <span class="im">import</span> Parameter, Value, GridSpace</span>
+<span id="cb16-36"><a href="#cb16-36" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim.types.stateutils <span class="im">import</span> show_free_parameters</span>
+<span id="cb16-37"><a href="#cb16-37" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim.utils <span class="im">import</span> set_cache_path, cache</span>
+<span id="cb16-38"><a href="#cb16-38" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim.execution <span class="im">import</span> ParallelExecution, SequentialExecution</span>
+<span id="cb16-39"><a href="#cb16-39" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim.model <span class="im">import</span> jaxify</span>
+<span id="cb16-40"><a href="#cb16-40" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim.optim.optax <span class="im">import</span> OptaxOptimizer</span>
+<span id="cb16-41"><a href="#cb16-41" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim.optim.callbacks <span class="im">import</span> MultiCallback, DefaultPrintCallback, SavingCallback</span>
+<span id="cb16-42"><a href="#cb16-42" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-43"><a href="#cb16-43" aria-hidden="true" tabindex="-1"></a><span class="co"># Import from tvbo</span></span>
+<span id="cb16-44"><a href="#cb16-44" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvbo.export.experiment <span class="im">import</span> SimulationExperiment</span>
+<span id="cb16-45"><a href="#cb16-45" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvbo.datamodel <span class="im">import</span> tvbo_datamodel</span>
+<span id="cb16-46"><a href="#cb16-46" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvbo.knowledge.simulation.observation <span class="im">import</span> Function, ObservationModel</span>
+<span id="cb16-47"><a href="#cb16-47" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvbo.data.types <span class="im">import</span> TimeSeries</span>
+<span id="cb16-48"><a href="#cb16-48" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvbo.knowledge <span class="im">import</span> ontology, Model</span>
+<span id="cb16-49"><a href="#cb16-49" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvbo.utils <span class="im">import</span> numbered_print, format_pytree_as_string</span>
+<span id="cb16-50"><a href="#cb16-50" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-51"><a href="#cb16-51" aria-hidden="true" tabindex="-1"></a><span class="co"># Set cache path for tvboptim</span></span>
+<span id="cb16-52"><a href="#cb16-52" aria-hidden="true" tabindex="-1"></a>set_cache_path(<span class="st">"./example_cache_jr"</span>)</span>
+<span id="cb16-53"><a href="#cb16-53" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-54"><a href="#cb16-54" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-55"><a href="#cb16-55" aria-hidden="true" tabindex="-1"></a><span class="fu">## Create TVB-O Simulation Experiment</span></span>
+<span id="cb16-56"><a href="#cb16-56" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-59"><a href="#cb16-59" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb16-60"><a href="#cb16-60" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb16-61"><a href="#cb16-61" aria-hidden="true" tabindex="-1"></a><span class="co">#| output: false</span></span>
+<span id="cb16-62"><a href="#cb16-62" aria-hidden="true" tabindex="-1"></a><span class="co"># Create experiment</span></span>
+<span id="cb16-63"><a href="#cb16-63" aria-hidden="true" tabindex="-1"></a>exp <span class="op">=</span> SimulationExperiment(</span>
+<span id="cb16-64"><a href="#cb16-64" aria-hidden="true" tabindex="-1"></a>    model <span class="op">=</span> {</span>
+<span id="cb16-65"><a href="#cb16-65" aria-hidden="true" tabindex="-1"></a>        <span class="st">"name"</span>: <span class="st">"JansenRit"</span>, </span>
+<span id="cb16-66"><a href="#cb16-66" aria-hidden="true" tabindex="-1"></a>        <span class="st">"parameters"</span>: {</span>
+<span id="cb16-67"><a href="#cb16-67" aria-hidden="true" tabindex="-1"></a>            <span class="st">"a"</span>: {<span class="st">"name"</span>: <span class="st">"a"</span>, <span class="st">"value"</span>: <span class="fl">0.04</span>}, </span>
+<span id="cb16-68"><a href="#cb16-68" aria-hidden="true" tabindex="-1"></a>            <span class="st">"b"</span>: {<span class="st">"name"</span>: <span class="st">"b"</span>, <span class="st">"value"</span>: <span class="fl">0.04</span>}, </span>
+<span id="cb16-69"><a href="#cb16-69" aria-hidden="true" tabindex="-1"></a>            <span class="st">"mu"</span>: {<span class="st">"name"</span>: <span class="st">"mu"</span>, <span class="st">"value"</span>: <span class="fl">0.15</span>}</span>
+<span id="cb16-70"><a href="#cb16-70" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb16-71"><a href="#cb16-71" aria-hidden="true" tabindex="-1"></a>    },</span>
+<span id="cb16-72"><a href="#cb16-72" aria-hidden="true" tabindex="-1"></a>    connectivity <span class="op">=</span> {</span>
+<span id="cb16-73"><a href="#cb16-73" aria-hidden="true" tabindex="-1"></a>        <span class="st">"parcellation"</span>: {<span class="st">"atlas"</span>: {<span class="st">"name"</span>: <span class="st">"DesikanKilliany"</span>}}, </span>
+<span id="cb16-74"><a href="#cb16-74" aria-hidden="true" tabindex="-1"></a>        <span class="st">"conduction_speed"</span>: {<span class="st">"name"</span>: <span class="st">"cs"</span>, <span class="st">"value"</span>: np.array([<span class="fl">3.0</span>])}</span>
+<span id="cb16-75"><a href="#cb16-75" aria-hidden="true" tabindex="-1"></a>    },</span>
+<span id="cb16-76"><a href="#cb16-76" aria-hidden="true" tabindex="-1"></a>    coupling <span class="op">=</span> {</span>
+<span id="cb16-77"><a href="#cb16-77" aria-hidden="true" tabindex="-1"></a>        <span class="st">"name"</span>: <span class="st">"SigmoidalJansenRit"</span>, </span>
+<span id="cb16-78"><a href="#cb16-78" aria-hidden="true" tabindex="-1"></a>        <span class="st">"parameters"</span>: {<span class="st">"a"</span>: {<span class="st">"name"</span>: <span class="st">"a"</span>, <span class="st">"value"</span>: <span class="dv">20</span><span class="op">/</span><span class="dv">458885</span>}}</span>
+<span id="cb16-79"><a href="#cb16-79" aria-hidden="true" tabindex="-1"></a>    },</span>
+<span id="cb16-80"><a href="#cb16-80" aria-hidden="true" tabindex="-1"></a>    integration<span class="op">=</span>{</span>
+<span id="cb16-81"><a href="#cb16-81" aria-hidden="true" tabindex="-1"></a>        <span class="st">"method"</span>: <span class="st">"Heun"</span>,</span>
+<span id="cb16-82"><a href="#cb16-82" aria-hidden="true" tabindex="-1"></a>        <span class="st">"step_size"</span>: <span class="fl">1.0</span>,</span>
+<span id="cb16-83"><a href="#cb16-83" aria-hidden="true" tabindex="-1"></a>        <span class="st">"noise"</span>: {<span class="st">"parameters"</span>: {<span class="st">"sigma"</span>: {<span class="st">'value'</span>: <span class="fl">0.001</span>}}},</span>
+<span id="cb16-84"><a href="#cb16-84" aria-hidden="true" tabindex="-1"></a>        <span class="st">"duration"</span>: <span class="dv">1_000</span></span>
+<span id="cb16-85"><a href="#cb16-85" aria-hidden="true" tabindex="-1"></a>    },</span>
+<span id="cb16-86"><a href="#cb16-86" aria-hidden="true" tabindex="-1"></a>    monitors<span class="op">=</span>{<span class="st">"Raw"</span>: {<span class="st">"name"</span>: <span class="st">"Raw"</span>}},</span>
+<span id="cb16-87"><a href="#cb16-87" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb16-88"><a href="#cb16-88" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-89"><a href="#cb16-89" aria-hidden="true" tabindex="-1"></a><span class="co"># Finalize configuration</span></span>
+<span id="cb16-90"><a href="#cb16-90" aria-hidden="true" tabindex="-1"></a>exp.configure()</span>
+<span id="cb16-91"><a href="#cb16-91" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-92"><a href="#cb16-92" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-93"><a href="#cb16-93" aria-hidden="true" tabindex="-1"></a>::: {.callout-note collapse="true"}</span>
+<span id="cb16-94"><a href="#cb16-94" aria-hidden="true" tabindex="-1"></a><span class="fu">## TVB-O Model YAML specification</span></span>
+<span id="cb16-97"><a href="#cb16-97" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb16-98"><a href="#cb16-98" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb16-99"><a href="#cb16-99" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(exp.render_yaml())</span>
+<span id="cb16-100"><a href="#cb16-100" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-101"><a href="#cb16-101" aria-hidden="true" tabindex="-1"></a>:::</span>
+<span id="cb16-102"><a href="#cb16-102" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-103"><a href="#cb16-103" aria-hidden="true" tabindex="-1"></a>::: {.callout-note collapse="true"}</span>
+<span id="cb16-104"><a href="#cb16-104" aria-hidden="true" tabindex="-1"></a><span class="fu">## Rendered JAX Code</span></span>
+<span id="cb16-107"><a href="#cb16-107" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb16-108"><a href="#cb16-108" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb16-109"><a href="#cb16-109" aria-hidden="true" tabindex="-1"></a>numbered_print(exp.render_code(<span class="bu">format</span> <span class="op">=</span> <span class="st">"jax"</span>))</span>
+<span id="cb16-110"><a href="#cb16-110" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-111"><a href="#cb16-111" aria-hidden="true" tabindex="-1"></a>:::</span>
+<span id="cb16-112"><a href="#cb16-112" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-113"><a href="#cb16-113" aria-hidden="true" tabindex="-1"></a>::: {.callout-note collapse="true"}</span>
+<span id="cb16-114"><a href="#cb16-114" aria-hidden="true" tabindex="-1"></a><span class="fu">## TVB-O Model Report</span></span>
+<span id="cb16-117"><a href="#cb16-117" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb16-118"><a href="#cb16-118" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb16-119"><a href="#cb16-119" aria-hidden="true" tabindex="-1"></a>display(Markdown(exp.model.generate_report()))</span>
+<span id="cb16-120"><a href="#cb16-120" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-121"><a href="#cb16-121" aria-hidden="true" tabindex="-1"></a>:::</span>
+<span id="cb16-122"><a href="#cb16-122" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-123"><a href="#cb16-123" aria-hidden="true" tabindex="-1"></a><span class="fu">## Model Functions</span></span>
+<span id="cb16-124"><a href="#cb16-124" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-127"><a href="#cb16-127" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb16-128"><a href="#cb16-128" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb16-129"><a href="#cb16-129" aria-hidden="true" tabindex="-1"></a><span class="co"># Get model and parameters</span></span>
+<span id="cb16-130"><a href="#cb16-130" aria-hidden="true" tabindex="-1"></a>model, state <span class="op">=</span> jaxify(exp)</span>
+<span id="cb16-131"><a href="#cb16-131" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-132"><a href="#cb16-132" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-133"><a href="#cb16-133" aria-hidden="true" tabindex="-1"></a><span class="fu">## Run Initial Simulation</span></span>
+<span id="cb16-134"><a href="#cb16-134" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-137"><a href="#cb16-137" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb16-138"><a href="#cb16-138" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb16-139"><a href="#cb16-139" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-140"><a href="#cb16-140" aria-hidden="true" tabindex="-1"></a><span class="co"># Run the model and get results</span></span>
+<span id="cb16-141"><a href="#cb16-141" aria-hidden="true" tabindex="-1"></a>result <span class="op">=</span> model(state)</span>
+<span id="cb16-142"><a href="#cb16-142" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-143"><a href="#cb16-143" aria-hidden="true" tabindex="-1"></a><span class="co"># Use first result as initial conditions for second run</span></span>
+<span id="cb16-144"><a href="#cb16-144" aria-hidden="true" tabindex="-1"></a>state.initial_conditions <span class="op">=</span> result[<span class="dv">0</span>]</span>
+<span id="cb16-145"><a href="#cb16-145" aria-hidden="true" tabindex="-1"></a>result2 <span class="op">=</span> model(state)</span>
+<span id="cb16-146"><a href="#cb16-146" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-147"><a href="#cb16-147" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-150"><a href="#cb16-150" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb16-151"><a href="#cb16-151" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot time series from both simulations</span></span>
+<span id="cb16-152"><a href="#cb16-152" aria-hidden="true" tabindex="-1"></a>fig, (ax1, ax2) <span class="op">=</span> plt.subplots(<span class="dv">2</span>, <span class="dv">1</span>, figsize<span class="op">=</span>(<span class="dv">12</span>, <span class="dv">8</span>), sharex<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb16-153"><a href="#cb16-153" aria-hidden="true" tabindex="-1"></a>ax1.plot(result[<span class="dv">0</span>].data[:,<span class="dv">0</span>,:,<span class="dv">0</span>])</span>
+<span id="cb16-154"><a href="#cb16-154" aria-hidden="true" tabindex="-1"></a>ax1.set_title(<span class="st">"Transient"</span>)</span>
+<span id="cb16-155"><a href="#cb16-155" aria-hidden="true" tabindex="-1"></a>ax2.plot(result2[<span class="dv">0</span>].data[:,<span class="dv">0</span>,:,<span class="dv">0</span>])</span>
+<span id="cb16-156"><a href="#cb16-156" aria-hidden="true" tabindex="-1"></a>ax2.set_title(<span class="st">"Updated Initial Conditions"</span>)</span>
+<span id="cb16-157"><a href="#cb16-157" aria-hidden="true" tabindex="-1"></a>ax2.set_xlabel(<span class="st">"Time [ms]"</span>)</span>
+<span id="cb16-158"><a href="#cb16-158" aria-hidden="true" tabindex="-1"></a><span class="co"># ax3.plot(np.vstack([result[0].data[:,0,:,0], result2[0].data[:,0,:,0]]))</span></span>
+<span id="cb16-159"><a href="#cb16-159" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb16-160"><a href="#cb16-160" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-161"><a href="#cb16-161" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-162"><a href="#cb16-162" aria-hidden="true" tabindex="-1"></a><span class="fu">## Spectral Analysis Functions</span></span>
+<span id="cb16-163"><a href="#cb16-163" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-166"><a href="#cb16-166" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb16-167"><a href="#cb16-167" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb16-168"><a href="#cb16-168" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-169"><a href="#cb16-169" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> avg_spectrum(state):</span>
+<span id="cb16-170"><a href="#cb16-170" aria-hidden="true" tabindex="-1"></a>    raw <span class="op">=</span> model(state)[<span class="dv">0</span>]</span>
+<span id="cb16-171"><a href="#cb16-171" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Subsample by a factor of 10</span></span>
+<span id="cb16-172"><a href="#cb16-172" aria-hidden="true" tabindex="-1"></a>    f, Pxx <span class="op">=</span> jax.scipy.signal.welch(raw.data[::<span class="dv">10</span>, <span class="dv">0</span>, :, <span class="dv">0</span>].T, fs<span class="op">=</span><span class="dv">100</span>)</span>
+<span id="cb16-173"><a href="#cb16-173" aria-hidden="true" tabindex="-1"></a>    avg_spectrum <span class="op">=</span> jnp.mean(Pxx, axis<span class="op">=</span><span class="dv">0</span>)</span>
+<span id="cb16-174"><a href="#cb16-174" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> f, avg_spectrum</span>
+<span id="cb16-175"><a href="#cb16-175" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-176"><a href="#cb16-176" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> peak_freq(state):</span>
+<span id="cb16-177"><a href="#cb16-177" aria-hidden="true" tabindex="-1"></a>    f, S <span class="op">=</span> avg_spectrum(state)</span>
+<span id="cb16-178"><a href="#cb16-178" aria-hidden="true" tabindex="-1"></a>    idx <span class="op">=</span> jnp.argmax(S)</span>
+<span id="cb16-179"><a href="#cb16-179" aria-hidden="true" tabindex="-1"></a>    f_max <span class="op">=</span> f[idx]</span>
+<span id="cb16-180"><a href="#cb16-180" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> f_max</span>
+<span id="cb16-181"><a href="#cb16-181" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-182"><a href="#cb16-182" aria-hidden="true" tabindex="-1"></a><span class="co"># Calculate and display spectrum</span></span>
+<span id="cb16-183"><a href="#cb16-183" aria-hidden="true" tabindex="-1"></a>f, S <span class="op">=</span> jax.block_until_ready(avg_spectrum(state))</span>
+<span id="cb16-184"><a href="#cb16-184" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-185"><a href="#cb16-185" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-188"><a href="#cb16-188" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb16-189"><a href="#cb16-189" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot the spectrum</span></span>
+<span id="cb16-190"><a href="#cb16-190" aria-hidden="true" tabindex="-1"></a>fig, axs <span class="op">=</span> plt.subplots(<span class="dv">1</span>, <span class="dv">1</span>, figsize<span class="op">=</span>(<span class="dv">12</span>, <span class="dv">4</span>))</span>
+<span id="cb16-191"><a href="#cb16-191" aria-hidden="true" tabindex="-1"></a>plt.plot(f, S)</span>
+<span id="cb16-192"><a href="#cb16-192" aria-hidden="true" tabindex="-1"></a>plt.xlabel(<span class="st">'Frequency [Hz]'</span>)</span>
+<span id="cb16-193"><a href="#cb16-193" aria-hidden="true" tabindex="-1"></a>plt.ylabel(<span class="st">'Power'</span>)</span>
+<span id="cb16-194"><a href="#cb16-194" aria-hidden="true" tabindex="-1"></a>plt.title(<span class="ss">f'Power Spectrum - Peak @ </span><span class="sc">{</span>peak_freq(state)<span class="sc">}</span><span class="ss"> Hz'</span>)</span>
+<span id="cb16-195"><a href="#cb16-195" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb16-196"><a href="#cb16-196" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-197"><a href="#cb16-197" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-198"><a href="#cb16-198" aria-hidden="true" tabindex="-1"></a><span class="fu">## Parameter Exploration</span></span>
+<span id="cb16-199"><a href="#cb16-199" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-202"><a href="#cb16-202" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb16-203"><a href="#cb16-203" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb16-204"><a href="#cb16-204" aria-hidden="true" tabindex="-1"></a><span class="co">#| output: false</span></span>
+<span id="cb16-205"><a href="#cb16-205" aria-hidden="true" tabindex="-1"></a><span class="co"># Set up parameter ranges for exploration</span></span>
+<span id="cb16-206"><a href="#cb16-206" aria-hidden="true" tabindex="-1"></a>state.parameters.model.a.free <span class="op">=</span> <span class="va">True</span></span>
+<span id="cb16-207"><a href="#cb16-207" aria-hidden="true" tabindex="-1"></a>state.parameters.model.a.low <span class="op">=</span> <span class="fl">0.001</span></span>
+<span id="cb16-208"><a href="#cb16-208" aria-hidden="true" tabindex="-1"></a>state.parameters.model.a.high <span class="op">=</span> <span class="fl">0.2</span></span>
+<span id="cb16-209"><a href="#cb16-209" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-210"><a href="#cb16-210" aria-hidden="true" tabindex="-1"></a>state.parameters.model.b.free <span class="op">=</span> <span class="va">True</span></span>
+<span id="cb16-211"><a href="#cb16-211" aria-hidden="true" tabindex="-1"></a>state.parameters.model.b.low <span class="op">=</span> <span class="fl">0.001</span></span>
+<span id="cb16-212"><a href="#cb16-212" aria-hidden="true" tabindex="-1"></a>state.parameters.model.b.high <span class="op">=</span> <span class="fl">0.2</span></span>
+<span id="cb16-213"><a href="#cb16-213" aria-hidden="true" tabindex="-1"></a>show_free_parameters(state)</span>
+<span id="cb16-214"><a href="#cb16-214" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-215"><a href="#cb16-215" aria-hidden="true" tabindex="-1"></a><span class="co"># Create grid for parameter exploration</span></span>
+<span id="cb16-216"><a href="#cb16-216" aria-hidden="true" tabindex="-1"></a>n <span class="op">=</span> <span class="dv">32</span></span>
+<span id="cb16-217"><a href="#cb16-217" aria-hidden="true" tabindex="-1"></a>_params <span class="op">=</span> copy.deepcopy(state)</span>
+<span id="cb16-218"><a href="#cb16-218" aria-hidden="true" tabindex="-1"></a>_params.nt <span class="op">=</span> <span class="dv">10_000</span>  <span class="co"># 10s simulation for better frequency resolution</span></span>
+<span id="cb16-219"><a href="#cb16-219" aria-hidden="true" tabindex="-1"></a>params_set <span class="op">=</span> GridSpace(_params, n<span class="op">=</span>n)</span>
+<span id="cb16-220"><a href="#cb16-220" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-221"><a href="#cb16-221" aria-hidden="true" tabindex="-1"></a><span class="at">@cache</span>(<span class="st">"explore"</span>, redo <span class="op">=</span> <span class="va">False</span>)</span>
+<span id="cb16-222"><a href="#cb16-222" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> explore():</span>
+<span id="cb16-223"><a href="#cb16-223" aria-hidden="true" tabindex="-1"></a>    parexec <span class="op">=</span> zarallelExecution(peak_freq, params_set, n_pmap<span class="op">=</span><span class="dv">8</span>)</span>
+<span id="cb16-224"><a href="#cb16-224" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> parexec.run()</span>
+<span id="cb16-225"><a href="#cb16-225" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Alternative: Sequential execution</span></span>
+<span id="cb16-226"><a href="#cb16-226" aria-hidden="true" tabindex="-1"></a>    <span class="co"># sqexec = SequentialExecution(jax.jit(peak_freq), params_set)</span></span>
+<span id="cb16-227"><a href="#cb16-227" aria-hidden="true" tabindex="-1"></a>    <span class="co"># return sqexec.run()</span></span>
+<span id="cb16-228"><a href="#cb16-228" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-229"><a href="#cb16-229" aria-hidden="true" tabindex="-1"></a>exploration_result <span class="op">=</span> explore()</span>
+<span id="cb16-230"><a href="#cb16-230" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-231"><a href="#cb16-231" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-232"><a href="#cb16-232" aria-hidden="true" tabindex="-1"></a><span class="fu">## Visualize Exploration Results</span></span>
+<span id="cb16-233"><a href="#cb16-233" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-236"><a href="#cb16-236" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb16-237"><a href="#cb16-237" aria-hidden="true" tabindex="-1"></a><span class="co"># Prepare data for visualization</span></span>
+<span id="cb16-238"><a href="#cb16-238" aria-hidden="true" tabindex="-1"></a>pc <span class="op">=</span> params_set.collect()</span>
+<span id="cb16-239"><a href="#cb16-239" aria-hidden="true" tabindex="-1"></a>a <span class="op">=</span> pc.parameters.model.a.value</span>
+<span id="cb16-240"><a href="#cb16-240" aria-hidden="true" tabindex="-1"></a>b <span class="op">=</span> pc.parameters.model.b.value</span>
+<span id="cb16-241"><a href="#cb16-241" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-242"><a href="#cb16-242" aria-hidden="true" tabindex="-1"></a><span class="co"># Get parameter ranges</span></span>
+<span id="cb16-243"><a href="#cb16-243" aria-hidden="true" tabindex="-1"></a>a_min, a_max <span class="op">=</span> <span class="bu">min</span>(a), <span class="bu">max</span>(a)</span>
+<span id="cb16-244"><a href="#cb16-244" aria-hidden="true" tabindex="-1"></a>b_min, b_max <span class="op">=</span> <span class="bu">min</span>(b), <span class="bu">max</span>(b)</span>
+<span id="cb16-245"><a href="#cb16-245" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-246"><a href="#cb16-246" aria-hidden="true" tabindex="-1"></a><span class="co"># Create figure and axis</span></span>
+<span id="cb16-247"><a href="#cb16-247" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">10</span>, <span class="dv">6</span>))</span>
+<span id="cb16-248"><a href="#cb16-248" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-249"><a href="#cb16-249" aria-hidden="true" tabindex="-1"></a><span class="co"># Create the heatmap</span></span>
+<span id="cb16-250"><a href="#cb16-250" aria-hidden="true" tabindex="-1"></a>im <span class="op">=</span> ax.imshow(jnp.stack(exploration_result).reshape(n, n),</span>
+<span id="cb16-251"><a href="#cb16-251" aria-hidden="true" tabindex="-1"></a>              cmap<span class="op">=</span><span class="st">'viridis_r'</span>,</span>
+<span id="cb16-252"><a href="#cb16-252" aria-hidden="true" tabindex="-1"></a>              extent<span class="op">=</span>[a_min, a_max, b_min, b_max],</span>
+<span id="cb16-253"><a href="#cb16-253" aria-hidden="true" tabindex="-1"></a>              origin<span class="op">=</span><span class="st">'lower'</span>,</span>
+<span id="cb16-254"><a href="#cb16-254" aria-hidden="true" tabindex="-1"></a>              aspect<span class="op">=</span><span class="st">'auto'</span>)</span>
+<span id="cb16-255"><a href="#cb16-255" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-256"><a href="#cb16-256" aria-hidden="true" tabindex="-1"></a><span class="co"># Add colorbar and labels</span></span>
+<span id="cb16-257"><a href="#cb16-257" aria-hidden="true" tabindex="-1"></a>cbar <span class="op">=</span> plt.colorbar(im, label<span class="op">=</span><span class="st">'Peak Frequency [Hz]'</span>)</span>
+<span id="cb16-258"><a href="#cb16-258" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="st">'a [ms]'</span>)</span>
+<span id="cb16-259"><a href="#cb16-259" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="st">'b [ms]'</span>)</span>
+<span id="cb16-260"><a href="#cb16-260" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-261"><a href="#cb16-261" aria-hidden="true" tabindex="-1"></a><span class="co"># Mark initial value</span></span>
+<span id="cb16-262"><a href="#cb16-262" aria-hidden="true" tabindex="-1"></a>a_init <span class="op">=</span> state.parameters.model.a.value</span>
+<span id="cb16-263"><a href="#cb16-263" aria-hidden="true" tabindex="-1"></a>b_init <span class="op">=</span> state.parameters.model.b.value</span>
+<span id="cb16-264"><a href="#cb16-264" aria-hidden="true" tabindex="-1"></a>ax.scatter(a_init, b_init, color<span class="op">=</span><span class="st">'black'</span>, s<span class="op">=</span><span class="dv">100</span>, marker<span class="op">=</span><span class="st">'o'</span>, </span>
+<span id="cb16-265"><a href="#cb16-265" aria-hidden="true" tabindex="-1"></a>           edgecolors<span class="op">=</span><span class="st">'white'</span>, linewidths<span class="op">=</span><span class="dv">1</span>, zorder<span class="op">=</span><span class="dv">5</span>)</span>
+<span id="cb16-266"><a href="#cb16-266" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-267"><a href="#cb16-267" aria-hidden="true" tabindex="-1"></a><span class="co"># Add annotation</span></span>
+<span id="cb16-268"><a href="#cb16-268" aria-hidden="true" tabindex="-1"></a>ax.annotate(<span class="st">'Initial Value'</span>, xy<span class="op">=</span>(a_init, b_init), </span>
+<span id="cb16-269"><a href="#cb16-269" aria-hidden="true" tabindex="-1"></a>            xytext<span class="op">=</span>(a_init, b_init<span class="op">+</span><span class="fl">0.03</span><span class="op">*</span>(b_max<span class="op">-</span>b_min)),</span>
+<span id="cb16-270"><a href="#cb16-270" aria-hidden="true" tabindex="-1"></a>            color<span class="op">=</span><span class="st">'white'</span>, fontweight<span class="op">=</span><span class="st">'bold'</span>, ha<span class="op">=</span><span class="st">'center'</span>)</span>
+<span id="cb16-271"><a href="#cb16-271" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-272"><a href="#cb16-272" aria-hidden="true" tabindex="-1"></a>ax.set_title(<span class="st">"Parameter Exploration"</span>)</span>
+<span id="cb16-273"><a href="#cb16-273" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb16-274"><a href="#cb16-274" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-275"><a href="#cb16-275" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-276"><a href="#cb16-276" aria-hidden="true" tabindex="-1"></a><span class="fu">## Create Target Spectrum</span></span>
+<span id="cb16-277"><a href="#cb16-277" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-280"><a href="#cb16-280" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb16-281"><a href="#cb16-281" aria-hidden="true" tabindex="-1"></a><span class="co"># Create a target spectrum with peak at 12 Hz</span></span>
+<span id="cb16-282"><a href="#cb16-282" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> gaussian(f, f_max, sigma<span class="op">=</span><span class="fl">1.0</span>, amplitude<span class="op">=</span><span class="fl">.01</span>):</span>
+<span id="cb16-283"><a href="#cb16-283" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> amplitude <span class="op">*</span> np.exp(<span class="op">-</span><span class="fl">0.5</span> <span class="op">*</span> ((f <span class="op">-</span> f_max) <span class="op">/</span> sigma)<span class="op">**</span><span class="dv">2</span>)</span>
+<span id="cb16-284"><a href="#cb16-284" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-285"><a href="#cb16-285" aria-hidden="true" tabindex="-1"></a>target <span class="op">=</span> gaussian(f, f_max<span class="op">=</span><span class="dv">12</span>, sigma<span class="op">=</span><span class="fl">1.0</span>, amplitude<span class="op">=</span><span class="fl">0.01</span>)</span>
+<span id="cb16-286"><a href="#cb16-286" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-287"><a href="#cb16-287" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot comparison</span></span>
+<span id="cb16-288"><a href="#cb16-288" aria-hidden="true" tabindex="-1"></a>plt.figure(figsize<span class="op">=</span>(<span class="dv">10</span>, <span class="dv">6</span>))</span>
+<span id="cb16-289"><a href="#cb16-289" aria-hidden="true" tabindex="-1"></a>plt.plot(f, S, <span class="st">'b-'</span>, linewidth<span class="op">=</span><span class="dv">2</span>, label<span class="op">=</span><span class="st">'Predicted'</span>)</span>
+<span id="cb16-290"><a href="#cb16-290" aria-hidden="true" tabindex="-1"></a>plt.plot(f, target, <span class="st">'r--'</span>, linewidth<span class="op">=</span><span class="dv">2</span>, label<span class="op">=</span><span class="st">'Gaussian Target @ 12Hz'</span>)</span>
+<span id="cb16-291"><a href="#cb16-291" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-292"><a href="#cb16-292" aria-hidden="true" tabindex="-1"></a><span class="co"># Add labels and title</span></span>
+<span id="cb16-293"><a href="#cb16-293" aria-hidden="true" tabindex="-1"></a>plt.xlabel(<span class="st">'Frequency (Hz)'</span>, fontsize<span class="op">=</span><span class="dv">12</span>)</span>
+<span id="cb16-294"><a href="#cb16-294" aria-hidden="true" tabindex="-1"></a>plt.ylabel(<span class="st">'Amplitude'</span>, fontsize<span class="op">=</span><span class="dv">12</span>)</span>
+<span id="cb16-295"><a href="#cb16-295" aria-hidden="true" tabindex="-1"></a>plt.title(<span class="ss">f'Comparison of Target and Predicted r = </span><span class="sc">{</span>jnp<span class="sc">.</span>corrcoef(S, target)[<span class="dv">0</span>, <span class="dv">1</span>]<span class="sc">:.2f}</span><span class="ss">'</span>)</span>
+<span id="cb16-296"><a href="#cb16-296" aria-hidden="true" tabindex="-1"></a>plt.legend()</span>
+<span id="cb16-297"><a href="#cb16-297" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-298"><a href="#cb16-298" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-299"><a href="#cb16-299" aria-hidden="true" tabindex="-1"></a><span class="fu">## Define Loss Function</span></span>
+<span id="cb16-300"><a href="#cb16-300" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-303"><a href="#cb16-303" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb16-304"><a href="#cb16-304" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb16-305"><a href="#cb16-305" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-306"><a href="#cb16-306" aria-hidden="true" tabindex="-1"></a><span class="co"># Define loss function as 1 minus correlation coefficient</span></span>
+<span id="cb16-307"><a href="#cb16-307" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> loss(state):</span>
+<span id="cb16-308"><a href="#cb16-308" aria-hidden="true" tabindex="-1"></a>    f, S <span class="op">=</span> avg_spectrum(state)</span>
+<span id="cb16-309"><a href="#cb16-309" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="dv">1</span><span class="op">-</span>jnp.corrcoef(S, target)[<span class="dv">0</span>, <span class="dv">1</span>]</span>
+<span id="cb16-310"><a href="#cb16-310" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-311"><a href="#cb16-311" aria-hidden="true" tabindex="-1"></a><span class="co"># Test loss function</span></span>
+<span id="cb16-312"><a href="#cb16-312" aria-hidden="true" tabindex="-1"></a>loss(state)</span>
+<span id="cb16-313"><a href="#cb16-313" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-314"><a href="#cb16-314" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-315"><a href="#cb16-315" aria-hidden="true" tabindex="-1"></a><span class="fu">## Run Optimization</span></span>
+<span id="cb16-316"><a href="#cb16-316" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-319"><a href="#cb16-319" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb16-320"><a href="#cb16-320" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb16-321"><a href="#cb16-321" aria-hidden="true" tabindex="-1"></a><span class="co">#| output: false</span></span>
+<span id="cb16-322"><a href="#cb16-322" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-323"><a href="#cb16-323" aria-hidden="true" tabindex="-1"></a><span class="co"># Create and run optimizer</span></span>
+<span id="cb16-324"><a href="#cb16-324" aria-hidden="true" tabindex="-1"></a>cb <span class="op">=</span> MultiCallback([</span>
+<span id="cb16-325"><a href="#cb16-325" aria-hidden="true" tabindex="-1"></a>    DefaultPrintCallback(),</span>
+<span id="cb16-326"><a href="#cb16-326" aria-hidden="true" tabindex="-1"></a>    SavingCallback(key <span class="op">=</span> <span class="st">"state"</span>, save_fun <span class="op">=</span> <span class="kw">lambda</span> <span class="op">*</span>args: args[<span class="dv">1</span>]) <span class="co"># save updated state</span></span>
+<span id="cb16-327"><a href="#cb16-327" aria-hidden="true" tabindex="-1"></a>])</span>
+<span id="cb16-328"><a href="#cb16-328" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-329"><a href="#cb16-329" aria-hidden="true" tabindex="-1"></a><span class="at">@cache</span>(<span class="st">"optimize"</span>, redo <span class="op">=</span> <span class="va">False</span>)</span>
+<span id="cb16-330"><a href="#cb16-330" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> optimize():</span>
+<span id="cb16-331"><a href="#cb16-331" aria-hidden="true" tabindex="-1"></a>    opt <span class="op">=</span> OptaxOptimizer(loss, optax.adam(<span class="fl">0.005</span>), callback <span class="op">=</span> cb)</span>
+<span id="cb16-332"><a href="#cb16-332" aria-hidden="true" tabindex="-1"></a>    fitted_params, fitting_data <span class="op">=</span> opt.run(state, max_steps<span class="op">=</span><span class="dv">15</span>)</span>
+<span id="cb16-333"><a href="#cb16-333" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> fitted_params, fitting_data</span>
+<span id="cb16-334"><a href="#cb16-334" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-335"><a href="#cb16-335" aria-hidden="true" tabindex="-1"></a>fitted_params, fitting_data <span class="op">=</span> optimize()</span>
+<span id="cb16-336"><a href="#cb16-336" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-337"><a href="#cb16-337" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-338"><a href="#cb16-338" aria-hidden="true" tabindex="-1"></a><span class="fu">## Visualize Optimization Results</span></span>
+<span id="cb16-339"><a href="#cb16-339" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-342"><a href="#cb16-342" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb16-343"><a href="#cb16-343" aria-hidden="true" tabindex="-1"></a><span class="co"># Prepare data for visualization</span></span>
+<span id="cb16-344"><a href="#cb16-344" aria-hidden="true" tabindex="-1"></a>pc <span class="op">=</span> params_set.collect()</span>
+<span id="cb16-345"><a href="#cb16-345" aria-hidden="true" tabindex="-1"></a>a <span class="op">=</span> pc.parameters.model.a.value</span>
+<span id="cb16-346"><a href="#cb16-346" aria-hidden="true" tabindex="-1"></a>b <span class="op">=</span> pc.parameters.model.b.value</span>
+<span id="cb16-347"><a href="#cb16-347" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-348"><a href="#cb16-348" aria-hidden="true" tabindex="-1"></a><span class="co"># Get parameter ranges</span></span>
+<span id="cb16-349"><a href="#cb16-349" aria-hidden="true" tabindex="-1"></a>a_min, a_max <span class="op">=</span> <span class="bu">min</span>(a), <span class="bu">max</span>(a)</span>
+<span id="cb16-350"><a href="#cb16-350" aria-hidden="true" tabindex="-1"></a>b_min, b_max <span class="op">=</span> <span class="bu">min</span>(b), <span class="bu">max</span>(b)</span>
+<span id="cb16-351"><a href="#cb16-351" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-352"><a href="#cb16-352" aria-hidden="true" tabindex="-1"></a><span class="co"># Create figure and axis</span></span>
+<span id="cb16-353"><a href="#cb16-353" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">10</span>, <span class="dv">6</span>))</span>
+<span id="cb16-354"><a href="#cb16-354" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-355"><a href="#cb16-355" aria-hidden="true" tabindex="-1"></a><span class="co"># Create the heatmap</span></span>
+<span id="cb16-356"><a href="#cb16-356" aria-hidden="true" tabindex="-1"></a>im <span class="op">=</span> ax.imshow(jnp.stack(exploration_result).reshape(n, n),</span>
+<span id="cb16-357"><a href="#cb16-357" aria-hidden="true" tabindex="-1"></a>              cmap<span class="op">=</span><span class="st">'viridis_r'</span>,</span>
+<span id="cb16-358"><a href="#cb16-358" aria-hidden="true" tabindex="-1"></a>              extent<span class="op">=</span>[a_min, a_max, b_min, b_max],</span>
+<span id="cb16-359"><a href="#cb16-359" aria-hidden="true" tabindex="-1"></a>              origin<span class="op">=</span><span class="st">'lower'</span>,</span>
+<span id="cb16-360"><a href="#cb16-360" aria-hidden="true" tabindex="-1"></a>              aspect<span class="op">=</span><span class="st">'auto'</span>)</span>
+<span id="cb16-361"><a href="#cb16-361" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-362"><a href="#cb16-362" aria-hidden="true" tabindex="-1"></a><span class="co"># Add colorbar and labels</span></span>
+<span id="cb16-363"><a href="#cb16-363" aria-hidden="true" tabindex="-1"></a>cbar <span class="op">=</span> plt.colorbar(im, label<span class="op">=</span><span class="st">'Peak Frequency [Hz]'</span>)</span>
+<span id="cb16-364"><a href="#cb16-364" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="st">'a [ms]'</span>)</span>
+<span id="cb16-365"><a href="#cb16-365" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="st">'b [ms]'</span>)</span>
+<span id="cb16-366"><a href="#cb16-366" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-367"><a href="#cb16-367" aria-hidden="true" tabindex="-1"></a><span class="co"># Mark initial value</span></span>
+<span id="cb16-368"><a href="#cb16-368" aria-hidden="true" tabindex="-1"></a>a_init <span class="op">=</span> state.parameters.model.a.value</span>
+<span id="cb16-369"><a href="#cb16-369" aria-hidden="true" tabindex="-1"></a>b_init <span class="op">=</span> state.parameters.model.b.value</span>
+<span id="cb16-370"><a href="#cb16-370" aria-hidden="true" tabindex="-1"></a>ax.scatter(a_init, b_init, color<span class="op">=</span><span class="st">'black'</span>, s<span class="op">=</span><span class="dv">100</span>, marker<span class="op">=</span><span class="st">'o'</span>, </span>
+<span id="cb16-371"><a href="#cb16-371" aria-hidden="true" tabindex="-1"></a>           edgecolors<span class="op">=</span><span class="st">'white'</span>, linewidths<span class="op">=</span><span class="dv">1</span>, zorder<span class="op">=</span><span class="dv">5</span>)</span>
+<span id="cb16-372"><a href="#cb16-372" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-373"><a href="#cb16-373" aria-hidden="true" tabindex="-1"></a><span class="co"># Add annotation</span></span>
+<span id="cb16-374"><a href="#cb16-374" aria-hidden="true" tabindex="-1"></a>ax.annotate(<span class="st">'Initial Value'</span>, xy<span class="op">=</span>(a_init, b_init), </span>
+<span id="cb16-375"><a href="#cb16-375" aria-hidden="true" tabindex="-1"></a>            xytext<span class="op">=</span>(a_init, b_init<span class="op">+</span><span class="fl">0.03</span><span class="op">*</span>(b_max<span class="op">-</span>b_min)),</span>
+<span id="cb16-376"><a href="#cb16-376" aria-hidden="true" tabindex="-1"></a>            color<span class="op">=</span><span class="st">'white'</span>, fontweight<span class="op">=</span><span class="st">'bold'</span>, ha<span class="op">=</span><span class="st">'center'</span>)</span>
+<span id="cb16-377"><a href="#cb16-377" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-378"><a href="#cb16-378" aria-hidden="true" tabindex="-1"></a><span class="co"># Add fitted value point</span></span>
+<span id="cb16-379"><a href="#cb16-379" aria-hidden="true" tabindex="-1"></a>a_fit <span class="op">=</span> fitted_params.parameters.model.a.value</span>
+<span id="cb16-380"><a href="#cb16-380" aria-hidden="true" tabindex="-1"></a>b_fit <span class="op">=</span> fitted_params.parameters.model.b.value</span>
+<span id="cb16-381"><a href="#cb16-381" aria-hidden="true" tabindex="-1"></a>ax.scatter(a_fit, b_fit, color<span class="op">=</span><span class="st">'black'</span>, s<span class="op">=</span><span class="dv">100</span>, marker<span class="op">=</span><span class="st">'o'</span>, </span>
+<span id="cb16-382"><a href="#cb16-382" aria-hidden="true" tabindex="-1"></a>           edgecolors<span class="op">=</span><span class="st">'white'</span>, linewidths<span class="op">=</span><span class="dv">1</span>, zorder<span class="op">=</span><span class="dv">5</span>)</span>
+<span id="cb16-383"><a href="#cb16-383" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-384"><a href="#cb16-384" aria-hidden="true" tabindex="-1"></a><span class="co"># Add arrows to show optimization path</span></span>
+<span id="cb16-385"><a href="#cb16-385" aria-hidden="true" tabindex="-1"></a>a_route <span class="op">=</span> [ds.parameters.model.a.value <span class="cf">for</span> ds <span class="kw">in</span> fitting_data[<span class="st">"state"</span>].save]</span>
+<span id="cb16-386"><a href="#cb16-386" aria-hidden="true" tabindex="-1"></a>b_route <span class="op">=</span> [ds.parameters.model.b.value <span class="cf">for</span> ds <span class="kw">in</span> fitting_data[<span class="st">"state"</span>].save]</span>
+<span id="cb16-387"><a href="#cb16-387" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-388"><a href="#cb16-388" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> i <span class="kw">in</span> <span class="bu">range</span>(<span class="bu">len</span>(a_route)<span class="op">-</span><span class="dv">1</span>):</span>
+<span id="cb16-389"><a href="#cb16-389" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Calculate arrow properties</span></span>
+<span id="cb16-390"><a href="#cb16-390" aria-hidden="true" tabindex="-1"></a>    dx <span class="op">=</span> a_route[i<span class="op">+</span><span class="dv">1</span>] <span class="op">-</span> a_route[i]</span>
+<span id="cb16-391"><a href="#cb16-391" aria-hidden="true" tabindex="-1"></a>    dy <span class="op">=</span> b_route[i<span class="op">+</span><span class="dv">1</span>] <span class="op">-</span> b_route[i]</span>
+<span id="cb16-392"><a href="#cb16-392" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb16-393"><a href="#cb16-393" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Calculate midpoint for arrow placement</span></span>
+<span id="cb16-394"><a href="#cb16-394" aria-hidden="true" tabindex="-1"></a>    mid_x <span class="op">=</span> a_route[i] <span class="op">+</span> dx<span class="op">/</span><span class="dv">2</span></span>
+<span id="cb16-395"><a href="#cb16-395" aria-hidden="true" tabindex="-1"></a>    mid_y <span class="op">=</span> b_route[i] <span class="op">+</span> dy<span class="op">/</span><span class="dv">2</span></span>
+<span id="cb16-396"><a href="#cb16-396" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb16-397"><a href="#cb16-397" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Add arrow</span></span>
+<span id="cb16-398"><a href="#cb16-398" aria-hidden="true" tabindex="-1"></a>    ax.arrow(mid_x, mid_y, dx<span class="op">/</span><span class="dv">10</span>, dy<span class="op">/</span><span class="dv">10</span>, </span>
+<span id="cb16-399"><a href="#cb16-399" aria-hidden="true" tabindex="-1"></a>             head_width<span class="op">=</span><span class="fl">0.01</span><span class="op">*</span>(a_max<span class="op">-</span>a_min), </span>
+<span id="cb16-400"><a href="#cb16-400" aria-hidden="true" tabindex="-1"></a>             head_length<span class="op">=</span><span class="fl">0.015</span><span class="op">*</span>(a_max<span class="op">-</span>a_min),</span>
+<span id="cb16-401"><a href="#cb16-401" aria-hidden="true" tabindex="-1"></a>             fc<span class="op">=</span><span class="st">'grey'</span>, ec<span class="op">=</span><span class="st">'grey'</span>)</span>
+<span id="cb16-402"><a href="#cb16-402" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-403"><a href="#cb16-403" aria-hidden="true" tabindex="-1"></a><span class="co"># Add annotation for the fitted value</span></span>
+<span id="cb16-404"><a href="#cb16-404" aria-hidden="true" tabindex="-1"></a>ax.annotate(<span class="st">'Fitted Value'</span>, xy<span class="op">=</span>(a_fit, b_fit), </span>
+<span id="cb16-405"><a href="#cb16-405" aria-hidden="true" tabindex="-1"></a>            xytext<span class="op">=</span>(a_fit, b_fit<span class="op">+</span><span class="fl">0.03</span><span class="op">*</span>(b_max<span class="op">-</span>b_min)),</span>
+<span id="cb16-406"><a href="#cb16-406" aria-hidden="true" tabindex="-1"></a>            color<span class="op">=</span><span class="st">'white'</span>, fontweight<span class="op">=</span><span class="st">'bold'</span>, ha<span class="op">=</span><span class="st">'center'</span>)</span>
+<span id="cb16-407"><a href="#cb16-407" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-408"><a href="#cb16-408" aria-hidden="true" tabindex="-1"></a><span class="co"># Add title</span></span>
+<span id="cb16-409"><a href="#cb16-409" aria-hidden="true" tabindex="-1"></a>plt.title(<span class="st">'Parameter Optimization Path'</span>)</span>
+<span id="cb16-410"><a href="#cb16-410" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb16-411"><a href="#cb16-411" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-412"><a href="#cb16-412" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-413"><a href="#cb16-413" aria-hidden="true" tabindex="-1"></a><span class="fu">## Fit the Grid</span></span>
+<span id="cb16-414"><a href="#cb16-414" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-417"><a href="#cb16-417" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb16-418"><a href="#cb16-418" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb16-419"><a href="#cb16-419" aria-hidden="true" tabindex="-1"></a><span class="co">#| output: false</span></span>
+<span id="cb16-420"><a href="#cb16-420" aria-hidden="true" tabindex="-1"></a><span class="co"># Create grid for parameter exploration</span></span>
+<span id="cb16-421"><a href="#cb16-421" aria-hidden="true" tabindex="-1"></a>n_grid <span class="op">=</span> <span class="dv">8</span></span>
+<span id="cb16-422"><a href="#cb16-422" aria-hidden="true" tabindex="-1"></a>params_set <span class="op">=</span> GridSpace(state, n<span class="op">=</span>n_grid)</span>
+<span id="cb16-423"><a href="#cb16-423" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-424"><a href="#cb16-424" aria-hidden="true" tabindex="-1"></a><span class="at">@cache</span>(<span class="st">"optimize_grid"</span>, redo <span class="op">=</span> <span class="va">False</span>)</span>
+<span id="cb16-425"><a href="#cb16-425" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> optimize_grid():</span>
+<span id="cb16-426"><a href="#cb16-426" aria-hidden="true" tabindex="-1"></a>    opt <span class="op">=</span> OptaxOptimizer(loss, optax.adam(<span class="fl">0.0025</span>))</span>
+<span id="cb16-427"><a href="#cb16-427" aria-hidden="true" tabindex="-1"></a>    <span class="co"># exec = SequentialExecution(opt.run, params_set, max_steps=20)</span></span>
+<span id="cb16-428"><a href="#cb16-428" aria-hidden="true" tabindex="-1"></a>    t1 <span class="op">=</span> time.time()</span>
+<span id="cb16-429"><a href="#cb16-429" aria-hidden="true" tabindex="-1"></a>    <span class="bu">exec</span> <span class="op">=</span> ParallelExecution(opt.run, params_set, n_pmap<span class="op">=</span><span class="dv">4</span>, max_steps<span class="op">=</span><span class="dv">20</span>)</span>
+<span id="cb16-430"><a href="#cb16-430" aria-hidden="true" tabindex="-1"></a>    res <span class="op">=</span> <span class="bu">exec</span>.run()</span>
+<span id="cb16-431"><a href="#cb16-431" aria-hidden="true" tabindex="-1"></a>    t2 <span class="op">=</span> time.time()</span>
+<span id="cb16-432"><a href="#cb16-432" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> (t2<span class="op">-</span>t1), res</span>
+<span id="cb16-433"><a href="#cb16-433" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-434"><a href="#cb16-434" aria-hidden="true" tabindex="-1"></a>t, res <span class="op">=</span> optimize_grid()</span>
+<span id="cb16-435"><a href="#cb16-435" aria-hidden="true" tabindex="-1"></a>t</span>
+<span id="cb16-436"><a href="#cb16-436" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-437"><a href="#cb16-437" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-440"><a href="#cb16-440" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb16-441"><a href="#cb16-441" aria-hidden="true" tabindex="-1"></a><span class="co">#| output: false</span></span>
+<span id="cb16-442"><a href="#cb16-442" aria-hidden="true" tabindex="-1"></a><span class="at">@cache</span>(<span class="st">"optimize_grid2"</span>, redo <span class="op">=</span> <span class="va">False</span>)</span>
+<span id="cb16-443"><a href="#cb16-443" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> optimize_grid():</span>
+<span id="cb16-444"><a href="#cb16-444" aria-hidden="true" tabindex="-1"></a>    opt <span class="op">=</span> OptaxOptimizer(loss, optax.adam(<span class="fl">0.0025</span>))</span>
+<span id="cb16-445"><a href="#cb16-445" aria-hidden="true" tabindex="-1"></a>    parexec <span class="op">=</span> SequentialExecution(opt.run, params_set, max_steps<span class="op">=</span><span class="dv">20</span>)</span>
+<span id="cb16-446"><a href="#cb16-446" aria-hidden="true" tabindex="-1"></a>    t1 <span class="op">=</span> time.time()</span>
+<span id="cb16-447"><a href="#cb16-447" aria-hidden="true" tabindex="-1"></a>    res <span class="op">=</span> parexec.run()</span>
+<span id="cb16-448"><a href="#cb16-448" aria-hidden="true" tabindex="-1"></a>    t2 <span class="op">=</span> time.time()</span>
+<span id="cb16-449"><a href="#cb16-449" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> (t2<span class="op">-</span>t1), res</span>
+<span id="cb16-450"><a href="#cb16-450" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-451"><a href="#cb16-451" aria-hidden="true" tabindex="-1"></a>t2, res2 <span class="op">=</span> optimize_grid()</span>
+<span id="cb16-452"><a href="#cb16-452" aria-hidden="true" tabindex="-1"></a>t2</span>
+<span id="cb16-453"><a href="#cb16-453" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb16-454"><a href="#cb16-454" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-455"><a href="#cb16-455" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-458"><a href="#cb16-458" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb16-459"><a href="#cb16-459" aria-hidden="true" tabindex="-1"></a>p_col <span class="op">=</span> params_set.collect(n_pmap <span class="op">=</span> <span class="dv">4</span>)</span>
+<span id="cb16-460"><a href="#cb16-460" aria-hidden="true" tabindex="-1"></a>p_col.parameters.model.a.value</span>
+<span id="cb16-461"><a href="#cb16-461" aria-hidden="true" tabindex="-1"></a>as_init <span class="op">=</span> p_col.parameters.model.a.value.flatten()</span>
+<span id="cb16-462"><a href="#cb16-462" aria-hidden="true" tabindex="-1"></a>bs_init <span class="op">=</span> p_col.parameters.model.b.value.flatten()</span>
+<span id="cb16-463"><a href="#cb16-463" aria-hidden="true" tabindex="-1"></a>as_fit <span class="op">=</span> res.results[<span class="dv">0</span>].parameters.model.a.value.flatten()</span>
+<span id="cb16-464"><a href="#cb16-464" aria-hidden="true" tabindex="-1"></a>bs_fit <span class="op">=</span> res.results[<span class="dv">0</span>].parameters.model.b.value.flatten()</span>
+<span id="cb16-465"><a href="#cb16-465" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-466"><a href="#cb16-466" aria-hidden="true" tabindex="-1"></a>as_init2 <span class="op">=</span> [_p.parameters.model.a.value <span class="cf">for</span> _p <span class="kw">in</span> params_set]</span>
+<span id="cb16-467"><a href="#cb16-467" aria-hidden="true" tabindex="-1"></a>bs_init2 <span class="op">=</span> [_p.parameters.model.b.value <span class="cf">for</span> _p <span class="kw">in</span> params_set]</span>
+<span id="cb16-468"><a href="#cb16-468" aria-hidden="true" tabindex="-1"></a>as_fit2 <span class="op">=</span> [r[<span class="dv">0</span>].parameters.model.a.value <span class="cf">for</span> r <span class="kw">in</span> res2]</span>
+<span id="cb16-469"><a href="#cb16-469" aria-hidden="true" tabindex="-1"></a>bs_fit2 <span class="op">=</span> [r[<span class="dv">0</span>].parameters.model.b.value <span class="cf">for</span> r <span class="kw">in</span> res2]</span>
+<span id="cb16-470"><a href="#cb16-470" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-471"><a href="#cb16-471" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(<span class="dv">1</span>, <span class="dv">2</span>, figsize<span class="op">=</span>(<span class="dv">12</span>, <span class="dv">6</span>))</span>
+<span id="cb16-472"><a href="#cb16-472" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-473"><a href="#cb16-473" aria-hidden="true" tabindex="-1"></a>ax[<span class="dv">0</span>].set_xlabel(<span class="st">'a [ms]'</span>)</span>
+<span id="cb16-474"><a href="#cb16-474" aria-hidden="true" tabindex="-1"></a>ax[<span class="dv">0</span>].set_ylabel(<span class="st">'b [ms]'</span>)</span>
+<span id="cb16-475"><a href="#cb16-475" aria-hidden="true" tabindex="-1"></a>ax[<span class="dv">1</span>].set_xlabel(<span class="st">'a [ms]'</span>)</span>
+<span id="cb16-476"><a href="#cb16-476" aria-hidden="true" tabindex="-1"></a>ax[<span class="dv">1</span>].set_ylabel(<span class="st">'b [ms]'</span>)</span>
+<span id="cb16-477"><a href="#cb16-477" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-478"><a href="#cb16-478" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot data points and connections</span></span>
+<span id="cb16-479"><a href="#cb16-479" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> i <span class="kw">in</span> <span class="bu">range</span>(<span class="bu">len</span>(as_init)):</span>
+<span id="cb16-480"><a href="#cb16-480" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> jnp.isnan(as_fit[i]) <span class="kw">or</span> jnp.isnan(bs_fit[i]):</span>
+<span id="cb16-481"><a href="#cb16-481" aria-hidden="true" tabindex="-1"></a>        ax[<span class="dv">0</span>].plot([as_init[i]], [bs_init[i]], c<span class="op">=</span><span class="st">'grey'</span>, marker<span class="op">=</span><span class="st">'x'</span>)</span>
+<span id="cb16-482"><a href="#cb16-482" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span>:</span>
+<span id="cb16-483"><a href="#cb16-483" aria-hidden="true" tabindex="-1"></a>        ax[<span class="dv">0</span>].plot([as_init[i], as_fit[i]], [bs_init[i], bs_fit[i]], c<span class="op">=</span><span class="st">'grey'</span>, marker<span class="op">=</span><span class="st">'o'</span>, linestyle<span class="op">=</span><span class="st">'--'</span>)</span>
+<span id="cb16-484"><a href="#cb16-484" aria-hidden="true" tabindex="-1"></a>        ax[<span class="dv">0</span>].plot([as_fit[i]], [bs_fit[i]], c<span class="op">=</span><span class="st">'red'</span>, marker<span class="op">=</span><span class="st">'o'</span>, linestyle<span class="op">=</span><span class="st">'--'</span>)</span>
+<span id="cb16-485"><a href="#cb16-485" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb16-486"><a href="#cb16-486" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> jnp.isnan(as_fit2[i]) <span class="kw">or</span> jnp.isnan(bs_fit2[i]):</span>
+<span id="cb16-487"><a href="#cb16-487" aria-hidden="true" tabindex="-1"></a>        ax[<span class="dv">1</span>].plot([as_init2[i]], [bs_init2[i]], c<span class="op">=</span><span class="st">'grey'</span>, marker<span class="op">=</span><span class="st">'x'</span>)</span>
+<span id="cb16-488"><a href="#cb16-488" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span>:</span>
+<span id="cb16-489"><a href="#cb16-489" aria-hidden="true" tabindex="-1"></a>        ax[<span class="dv">1</span>].plot([as_init2[i], as_fit2[i]], [bs_init2[i], bs_fit2[i]], c<span class="op">=</span><span class="st">'grey'</span>, marker<span class="op">=</span><span class="st">'o'</span>, linestyle<span class="op">=</span><span class="st">'--'</span>)</span>
+<span id="cb16-490"><a href="#cb16-490" aria-hidden="true" tabindex="-1"></a>        ax[<span class="dv">1</span>].plot([as_fit2[i]], [bs_fit2[i]], c<span class="op">=</span><span class="st">'red'</span>, marker<span class="op">=</span><span class="st">'o'</span>, linestyle<span class="op">=</span><span class="st">'--'</span>)</span>
+<span id="cb16-491"><a href="#cb16-491" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-492"><a href="#cb16-492" aria-hidden="true" tabindex="-1"></a><span class="co"># Create imshow plots</span></span>
+<span id="cb16-493"><a href="#cb16-493" aria-hidden="true" tabindex="-1"></a>im0 <span class="op">=</span> ax[<span class="dv">0</span>].imshow(jnp.stack(exploration_result).reshape(n, n),</span>
+<span id="cb16-494"><a href="#cb16-494" aria-hidden="true" tabindex="-1"></a>               cmap<span class="op">=</span><span class="st">'viridis_r'</span>,</span>
+<span id="cb16-495"><a href="#cb16-495" aria-hidden="true" tabindex="-1"></a>               extent<span class="op">=</span>[a_min, a_max, b_min, b_max],</span>
+<span id="cb16-496"><a href="#cb16-496" aria-hidden="true" tabindex="-1"></a>               origin<span class="op">=</span><span class="st">'lower'</span>,</span>
+<span id="cb16-497"><a href="#cb16-497" aria-hidden="true" tabindex="-1"></a>               aspect<span class="op">=</span><span class="st">'auto'</span>)</span>
+<span id="cb16-498"><a href="#cb16-498" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-499"><a href="#cb16-499" aria-hidden="true" tabindex="-1"></a>im1 <span class="op">=</span> ax[<span class="dv">1</span>].imshow(jnp.stack(exploration_result).reshape(n, n),</span>
+<span id="cb16-500"><a href="#cb16-500" aria-hidden="true" tabindex="-1"></a>               cmap<span class="op">=</span><span class="st">'viridis_r'</span>,</span>
+<span id="cb16-501"><a href="#cb16-501" aria-hidden="true" tabindex="-1"></a>               extent<span class="op">=</span>[a_min, a_max, b_min, b_max],</span>
+<span id="cb16-502"><a href="#cb16-502" aria-hidden="true" tabindex="-1"></a>               origin<span class="op">=</span><span class="st">'lower'</span>,</span>
+<span id="cb16-503"><a href="#cb16-503" aria-hidden="true" tabindex="-1"></a>               aspect<span class="op">=</span><span class="st">'auto'</span>)</span>
+<span id="cb16-504"><a href="#cb16-504" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-505"><a href="#cb16-505" aria-hidden="true" tabindex="-1"></a><span class="co"># Add titles</span></span>
+<span id="cb16-506"><a href="#cb16-506" aria-hidden="true" tabindex="-1"></a>ax[<span class="dv">0</span>].set_title(<span class="ss">f'Parallel Execution t = </span><span class="sc">{</span>t<span class="sc">:.2f}</span><span class="ss">s'</span>)</span>
+<span id="cb16-507"><a href="#cb16-507" aria-hidden="true" tabindex="-1"></a>ax[<span class="dv">1</span>].set_title(<span class="ss">f'Sequential Execution t = </span><span class="sc">{</span>t2<span class="sc">:.2f}</span><span class="ss">s'</span>)</span>
+<span id="cb16-508"><a href="#cb16-508" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-509"><a href="#cb16-509" aria-hidden="true" tabindex="-1"></a><span class="co"># Create a legend with custom elements</span></span>
+<span id="cb16-510"><a href="#cb16-510" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> matplotlib.lines <span class="im">import</span> Line2D</span>
+<span id="cb16-511"><a href="#cb16-511" aria-hidden="true" tabindex="-1"></a>legend_elements <span class="op">=</span> [</span>
+<span id="cb16-512"><a href="#cb16-512" aria-hidden="true" tabindex="-1"></a>    Line2D([<span class="dv">0</span>], [<span class="dv">0</span>], marker<span class="op">=</span><span class="st">'o'</span>, color<span class="op">=</span><span class="st">'grey'</span>, markerfacecolor<span class="op">=</span><span class="st">'grey'</span>, markersize<span class="op">=</span><span class="dv">8</span>, label<span class="op">=</span><span class="st">'Initial State'</span>, linestyle<span class="op">=</span><span class="st">''</span>),</span>
+<span id="cb16-513"><a href="#cb16-513" aria-hidden="true" tabindex="-1"></a>    Line2D([<span class="dv">0</span>], [<span class="dv">0</span>], marker<span class="op">=</span><span class="st">'o'</span>, color<span class="op">=</span><span class="st">'red'</span>, markerfacecolor<span class="op">=</span><span class="st">'red'</span>, markersize<span class="op">=</span><span class="dv">8</span>, label<span class="op">=</span><span class="st">'Final State'</span>, linestyle<span class="op">=</span><span class="st">''</span>),</span>
+<span id="cb16-514"><a href="#cb16-514" aria-hidden="true" tabindex="-1"></a>    Line2D([<span class="dv">0</span>], [<span class="dv">0</span>], marker<span class="op">=</span><span class="st">'x'</span>, color<span class="op">=</span><span class="st">'grey'</span>, markerfacecolor<span class="op">=</span><span class="st">'grey'</span>, markersize<span class="op">=</span><span class="dv">8</span>, label<span class="op">=</span><span class="st">'NaN'</span>, linestyle<span class="op">=</span><span class="st">''</span>)</span>
+<span id="cb16-515"><a href="#cb16-515" aria-hidden="true" tabindex="-1"></a>]</span>
+<span id="cb16-516"><a href="#cb16-516" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-517"><a href="#cb16-517" aria-hidden="true" tabindex="-1"></a><span class="co"># Add legend to both plots</span></span>
+<span id="cb16-518"><a href="#cb16-518" aria-hidden="true" tabindex="-1"></a>ax[<span class="dv">0</span>].legend(handles<span class="op">=</span>legend_elements, loc<span class="op">=</span><span class="st">'upper right'</span>)</span>
+<span id="cb16-519"><a href="#cb16-519" aria-hidden="true" tabindex="-1"></a>ax[<span class="dv">1</span>].legend(handles<span class="op">=</span>legend_elements, loc<span class="op">=</span><span class="st">'upper right'</span>)</span>
+<span id="cb16-520"><a href="#cb16-520" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-521"><a href="#cb16-521" aria-hidden="true" tabindex="-1"></a><span class="co"># Add a colorbar at the bottom that spans both subplots</span></span>
+<span id="cb16-522"><a href="#cb16-522" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> mpl_toolkits.axes_grid1 <span class="im">import</span> make_axes_locatable</span>
+<span id="cb16-523"><a href="#cb16-523" aria-hidden="true" tabindex="-1"></a>cbar_ax <span class="op">=</span> fig.add_axes([<span class="fl">0.15</span>, <span class="op">-</span><span class="fl">0.05</span>, <span class="fl">0.7</span>, <span class="fl">0.03</span>])  <span class="co"># [left, bottom, width, height]</span></span>
+<span id="cb16-524"><a href="#cb16-524" aria-hidden="true" tabindex="-1"></a>cbar <span class="op">=</span> fig.colorbar(im0, cax<span class="op">=</span>cbar_ax, orientation<span class="op">=</span><span class="st">'horizontal'</span>)</span>
+<span id="cb16-525"><a href="#cb16-525" aria-hidden="true" tabindex="-1"></a>cbar.set_label(<span class="st">'Peak Frequency [Hz]'</span>)</span>
+<span id="cb16-526"><a href="#cb16-526" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-527"><a href="#cb16-527" aria-hidden="true" tabindex="-1"></a><span class="co"># Adjust subplot spacing to make room for the colorbar</span></span>
+<span id="cb16-528"><a href="#cb16-528" aria-hidden="true" tabindex="-1"></a>plt.subplots_adjust(bottom<span class="op">=</span><span class="fl">0.15</span>)</span>
+<span id="cb16-529"><a href="#cb16-529" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-530"><a href="#cb16-530" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb16-531"><a href="#cb16-531" aria-hidden="true" tabindex="-1"></a>plt.show()</span>
+<span id="cb16-532"><a href="#cb16-532" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+</code><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal=""><i class="bi"></i></button></pre></div>
+</div></div></div></div></div>
+</div> <!-- /content -->
+
+
+
+
+</body></html>

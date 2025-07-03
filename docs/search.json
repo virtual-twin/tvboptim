@@ -1,0 +1,964 @@
+[
+  {
+    "objectID": "api.html",
+    "href": "api.html",
+    "title": "",
+    "section": "",
+    "text": "Code"
+  },
+  {
+    "objectID": "api.html#core-module",
+    "href": "api.html#core-module",
+    "title": "",
+    "section": "Core Module",
+    "text": "Core Module\n\nOptimizer\nclass Optimizer:\n    def __init__(self):\n        \"\"\"Initialize the optimizer.\"\"\"\n        \n    def optimize(self):\n        \"\"\"Run the optimization.\"\"\""
+  },
+  {
+    "objectID": "api.html#utils-module",
+    "href": "api.html#utils-module",
+    "title": "",
+    "section": "Utils Module",
+    "text": "Utils Module\n\nutility_function\ndef utility_function():\n    \"\"\"A placeholder utility function.\"\"\""
+  },
+  {
+    "objectID": "reference/utils.caching.html",
+    "href": "reference/utils.caching.html",
+    "title": "",
+    "section": "",
+    "text": "Code",
+    "crumbs": [
+      "Reference",
+      "Utilities",
+      "utils.caching"
+    ]
+  },
+  {
+    "objectID": "reference/utils.caching.html#functions",
+    "href": "reference/utils.caching.html#functions",
+    "title": "",
+    "section": "Functions",
+    "text": "Functions\n\n\n\nName\nDescription\n\n\n\n\ncache\nCaching decorator - use with care!\n\n\nclear_all_cache\nClear all caches in the current cache root.\n\n\nclear_experiment_cache\nClear the cache for the current experiment / notebook.\n\n\nset_cache_path\nSet the path where the cache is stored, relative to the cache root which lies next to this file in /cache.\n\n\n\n\ncache\nutils.caching.cache(fname='', redo=False)\nCaching decorator - use with care!\nBrings variable in global scope and assigns it either a cached version or the result of decorated function.\n\nfname: name of the file where the computation is stored under cache_path\nredo: if True, the computation is run even if the file already exists\n\n\n\nclear_all_cache\nutils.caching.clear_all_cache()\nClear all caches in the current cache root.\n\n\nclear_experiment_cache\nutils.caching.clear_experiment_cache()\nClear the cache for the current experiment / notebook.\n\n\nset_cache_path\nutils.caching.set_cache_path(experiment='')\nSet the path where the cache is stored, relative to the cache root which lies next to this file in /cache.\n\nexperiment: name of the experiment / notebook -&gt; becomes a subdirectory in the cache root",
+    "crumbs": [
+      "Reference",
+      "Utilities",
+      "utils.caching"
+    ]
+  },
+  {
+    "objectID": "reference/model.jaxify.html",
+    "href": "reference/model.jaxify.html",
+    "title": "",
+    "section": "",
+    "text": "Code\n\n\n\n\n\nmodel.jaxify\nmodel.jaxify(experiment, enable_x64=True, **kwargs)\nConvert TVBO SimulationExperiment to JAX-compatible model function and a state.\nArgs: experiment: TVBO SimulationExperiment enable_x64: If True, use float64 precision; otherwise float32. Transforms all arrays in state to correct precision and set jax config jax_enable_x64 replace_temporal_averaging (bool): If False, BOLD uses TemporalAverage monitor as TVB does. If True, uses faster SubSample monitor with similar results. return_new_ics (bool): If True, model returns an updated initial conditions TimeSeries along with simulation output for continuing simulations. Changes output from result to [result, initial_conditions]. scalar_pre (bool): If True, applies performance optimization replacing dot product with matmul in coupling term. Only works with scalar-only pre expressions, no delays, and when pre expression has single x_j occurrence. bold_fft_convolve (bool): If True, BOLD monitor uses FFT convolution instead of dot product. Faster for most cases, time doesn’t scale with BOLD period. Dot product can be faster for large period values. small_dt (bool): Uses full history storage for faster simulations at small dt. Can cause memory explosion under jax.grad transformation.\nReturns: tuple: (model_function, state_collection) where model_function takes state_collection and returns simulation results. result = model_function(state_collection)"
+  },
+  {
+    "objectID": "reference/execution.html",
+    "href": "reference/execution.html",
+    "title": "",
+    "section": "",
+    "text": "Code"
+  },
+  {
+    "objectID": "reference/execution.html#classes",
+    "href": "reference/execution.html#classes",
+    "title": "",
+    "section": "Classes",
+    "text": "Classes\n\n\n\nName\nDescription\n\n\n\n\nParallelExecution\n\n\n\nResult\nResult type to provide unified indexing\n\n\nSequentialExecution\n\n\n\n\n\nParallelExecution\nexecution.ParallelExecution(\n    model,\n    statespace,\n    *args,\n    collect=True,\n    n_vmap=1,\n    n_pmap=1,\n    **kwargs,\n)\n\n\nResult\nexecution.Result()\nResult type to provide unified indexing\n\n\nSequentialExecution\nexecution.SequentialExecution(model, statespace, collect=True, *args, **kwargs)"
+  },
+  {
+    "objectID": "reference/optim.callbacks.html",
+    "href": "reference/optim.callbacks.html",
+    "title": "",
+    "section": "",
+    "text": "Code",
+    "crumbs": [
+      "Reference",
+      "Optimization",
+      "optim.callbacks"
+    ]
+  },
+  {
+    "objectID": "reference/optim.callbacks.html#classes",
+    "href": "reference/optim.callbacks.html#classes",
+    "title": "",
+    "section": "Classes",
+    "text": "Classes\n\n\n\nName\nDescription\n\n\n\n\nAbstractCallback\n\n\n\nDefaultPrintCallback\n\n\n\nMultiCallback\n\n\n\nPrintFreeStateCallback\n\n\n\nPrintGlobalGradsCallback\n\n\n\nPrintGradsCallback\n\n\n\nSaveBestSeenCallback\n\n\n\nSavingCallback\n\n\n\nStopConvergenceCallback\nStop fitting if no improvement was seen for patience number of iterations. Improvement is defined by loss_new &lt; loss_best - min_delta.\n\n\nStopLossCallback\n\n\n\nStopTimeCallback\n\n\n\nTimingCallback\n\n\n\n\n\nAbstractCallback\noptim.callbacks.AbstractCallback(every=1)\n\n\nDefaultPrintCallback\noptim.callbacks.DefaultPrintCallback(every=1)\n\n\nMultiCallback\noptim.callbacks.MultiCallback(callbacks, every=1)\n\n\nPrintFreeStateCallback\noptim.callbacks.PrintFreeStateCallback(every=1)\n\n\nPrintGlobalGradsCallback\noptim.callbacks.PrintGlobalGradsCallback(every=1)\n\n\nPrintGradsCallback\noptim.callbacks.PrintGradsCallback(every=1)\n\n\nSaveBestSeenCallback\noptim.callbacks.SaveBestSeenCallback(every=1, key='best', minimization=True)\n\n\nSavingCallback\noptim.callbacks.SavingCallback(every=1, key='', save_fun=lambda *args: None)\n\n\nStopConvergenceCallback\noptim.callbacks.StopConvergenceCallback(every=1, patience=10, min_delta=0.001)\nStop fitting if no improvement was seen for patience number of iterations. Improvement is defined by loss_new &lt; loss_best - min_delta.\n\n\nStopLossCallback\noptim.callbacks.StopLossCallback(every=1, stop_loss=0)\n\n\nStopTimeCallback\noptim.callbacks.StopTimeCallback(every=1, time_limit=0)\n\n\nTimingCallback\noptim.callbacks.TimingCallback(every=1, key='timing', *args)",
+    "crumbs": [
+      "Reference",
+      "Optimization",
+      "optim.callbacks"
+    ]
+  },
+  {
+    "objectID": "reference/spaces.GridSpace.html",
+    "href": "reference/spaces.GridSpace.html",
+    "title": "",
+    "section": "",
+    "text": "Code",
+    "crumbs": [
+      "Reference",
+      "Spaces",
+      "spaces.GridSpace"
+    ]
+  },
+  {
+    "objectID": "reference/spaces.GridSpace.html#parameters",
+    "href": "reference/spaces.GridSpace.html#parameters",
+    "title": "",
+    "section": "Parameters",
+    "text": "Parameters\n\n\n\nName\nType\nDescription\nDefault\n\n\n\n\nstate\ndict or PyTree\nThe parameter state template containing Parameter objects with defined bounds. All free parameters must have both low and high bounds specified.\nrequired\n\n\nn\nint\nNumber of grid points along each parameter dimension. Default is 1. After instantiation, n is transformed into a PyTree with n the number of points in that dimension as leave. If n should be different for each dimension, modify the PyTree manually after instantiation.\n1",
+    "crumbs": [
+      "Reference",
+      "Spaces",
+      "spaces.GridSpace"
+    ]
+  },
+  {
+    "objectID": "reference/spaces.GridSpace.html#attributes",
+    "href": "reference/spaces.GridSpace.html#attributes",
+    "title": "",
+    "section": "Attributes",
+    "text": "Attributes\n\n\n\nName\nType\nDescription\n\n\n\n\nstate\nPyTree\nThe original parameter state template.\n\n\nn\nPyTree\nNumber of grid points for each free parameter (currently uniform). Modify the PyTree manually after instantiation for more control.\n\n\nN\nint(property)\nTotal number of grid points (product of n across all dimensions).",
+    "crumbs": [
+      "Reference",
+      "Spaces",
+      "spaces.GridSpace"
+    ]
+  },
+  {
+    "objectID": "reference/spaces.GridSpace.html#raises",
+    "href": "reference/spaces.GridSpace.html#raises",
+    "title": "",
+    "section": "Raises",
+    "text": "Raises\n\n\n\nName\nType\nDescription\n\n\n\n\n\nValueError\nIf any free parameter lacks defined low or high bounds.",
+    "crumbs": [
+      "Reference",
+      "Spaces",
+      "spaces.GridSpace"
+    ]
+  },
+  {
+    "objectID": "reference/spaces.GridSpace.html#examples",
+    "href": "reference/spaces.GridSpace.html#examples",
+    "title": "",
+    "section": "Examples",
+    "text": "Examples\n&gt;&gt;&gt; # Define parameter space with bounds\n&gt;&gt;&gt; state = {\n...     'param1': Parameter(\"param1\", 0.0, low=0.0, high=1.0, free=True),\n...     'param2': Parameter(\"param2\", 0.0, low=-2.0, high=2.0, free=True),\n...     'static_param': 5.0\n... }\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Create grid space with 10 points per dimension (100 total combinations)\n&gt;&gt;&gt; grid = GridSpace(state, n=10)\n&gt;&gt;&gt; print(grid.N)  # 100\n&gt;&gt;&gt; # Modify n for specific dimensions\n&gt;&gt;&gt; grid.n['param2'] = 5\n&gt;&gt;&gt; print(grid.N)  # 50\n&gt;&gt;&gt;\n&gt;&gt;&gt; # Iterate over all grid points\n&gt;&gt;&gt; for sample_state in grid:\n...     result = simulate(sample_state)\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Get specific grid point\n&gt;&gt;&gt; first_sample = grid[0]\n&gt;&gt;&gt; corner_sample = grid[-1]  # Last grid point\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Get multiple grid points as DataSpace\n&gt;&gt;&gt; subset = grid[0:50]  # First 50 grid points\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Collect for parallel execution\n&gt;&gt;&gt; batched_state = grid.collect(n_vmap=10, n_pmap=5)\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Convert to list for external processing\n&gt;&gt;&gt; all_states = grid.as_list()",
+    "crumbs": [
+      "Reference",
+      "Spaces",
+      "spaces.GridSpace"
+    ]
+  },
+  {
+    "objectID": "reference/spaces.GridSpace.html#methods",
+    "href": "reference/spaces.GridSpace.html#methods",
+    "title": "",
+    "section": "Methods",
+    "text": "Methods\n\n\n\nName\nDescription\n\n\n\n\ncollect\nGenerate and reshape grid points for efficient parallel execution.\n\n\n\n\ncollect\nspaces.GridSpace.collect(n_vmap=None, n_pmap=None, fill_value=jnp.nan)\nGenerate and reshape grid points for efficient parallel execution.\nCreates the full parameter grid and organizes it into a structure optimized for JAX’s vectorization and parallelization primitives.\n\nParameters\n\n\n\nName\nType\nDescription\nDefault\n\n\n\n\nn_vmap\nint\nNumber of states to vectorize over using vmap. If None, defaults to 1.\nNone\n\n\nn_pmap\nint\nNumber of devices for parallel mapping with pmap. If None, defaults to 1.\nNone\n\n\nfill_value\nfloat\nValue used to pad arrays when total requested size exceeds N. Default is jnp.nan.\njnp.nan\n\n\n\n\n\nReturns\n\n\n\nName\nType\nDescription\n\n\n\n\n\nPyTree\nReshaped state with grid points organized as: (n_pmap, n_vmap, n_map, …) where n_map is computed to accommodate all N grid points across the parallel execution strategy.",
+    "crumbs": [
+      "Reference",
+      "Spaces",
+      "spaces.GridSpace"
+    ]
+  },
+  {
+    "objectID": "reference/utils.utils.html",
+    "href": "reference/utils.utils.html",
+    "title": "",
+    "section": "",
+    "text": "Code",
+    "crumbs": [
+      "Reference",
+      "Utilities",
+      "utils.utils"
+    ]
+  },
+  {
+    "objectID": "reference/utils.utils.html#functions",
+    "href": "reference/utils.utils.html#functions",
+    "title": "",
+    "section": "Functions",
+    "text": "Functions\n\n\n\nName\nDescription\n\n\n\n\nbroadcast_1d_array\nBroadcast a 1D array of shape (N,) to shape (N, *additional_dims)\n\n\nsafe_reshape\nA safe reshaping function with the following properties:\n\n\n\n\nbroadcast_1d_array\nutils.utils.broadcast_1d_array(arr_1d, additional_dims=())\nBroadcast a 1D array of shape (N,) to shape (N, *additional_dims) with a single reshape operation.\n\nParameters:\narr_1d : numpy.ndarray or jax.numpy.ndarray 1D input array of shape (N,) additional_dims : tuple Additional dimensions to broadcast to. Can be empty tuple () for no additional dimensions.\n\n\nReturns:\nnumpy.ndarray or jax.numpy.ndarray Broadcasted array of shape (N, *additional_dims)\n\n\n\nsafe_reshape\nutils.utils.safe_reshape(arr, new_shape, fill_value=jnp.nan)\nA safe reshaping function with the following properties: - If new_shape has fewer elements than arr, raises an error - If new_shape has equal elements to arr, performs standard reshape - If new_shape requires more elements than arr, fills extra space with fill_value\nArgs: arr: JAX array to reshape new_shape: Tuple of integers specifying the new shape fill_value: Value to use for filling extra elements (default: jnp.nan)\nReturns: Reshaped JAX array",
+    "crumbs": [
+      "Reference",
+      "Utilities",
+      "utils.utils"
+    ]
+  },
+  {
+    "objectID": "reference/execution.SequentialExecution.html",
+    "href": "reference/execution.SequentialExecution.html",
+    "title": "",
+    "section": "",
+    "text": "Code",
+    "crumbs": [
+      "Reference",
+      "Executors & Results",
+      "execution.SequentialExecution"
+    ]
+  },
+  {
+    "objectID": "reference/execution.SequentialExecution.html#parameters",
+    "href": "reference/execution.SequentialExecution.html#parameters",
+    "title": "",
+    "section": "Parameters",
+    "text": "Parameters\n\n\n\nName\nType\nDescription\nDefault\n\n\n\n\nmodel\ncallable\nModel function to execute. Should accept a state parameter and return simulation results. Signature: model(state, *args, **kwargs).\nrequired\n\n\nstatespace\nAbstractSpace\nParameter space (DataSpace, UniformSpace, or GridSpace) defining the parameter combinations to execute across.\nrequired\n\n\n*args\ntuple\nPositional arguments passed directly to the model function.\n()\n\n\n**kwargs\ndict\nKeyword arguments passed directly to the model function.\n{}",
+    "crumbs": [
+      "Reference",
+      "Executors & Results",
+      "execution.SequentialExecution"
+    ]
+  },
+  {
+    "objectID": "reference/execution.SequentialExecution.html#examples",
+    "href": "reference/execution.SequentialExecution.html#examples",
+    "title": "",
+    "section": "Examples",
+    "text": "Examples\n&gt;&gt;&gt; import jax.numpy as jnp\n&gt;&gt;&gt; from tvboptim.types.spaces import GridSpace\n&gt;&gt;&gt; from tvboptim.types.parameter import Parameter\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Define a simple model\n&gt;&gt;&gt; def simulate(state, noise_level=0.0):\n...     result = state['param1'] * state['param2'] + noise_level\n...     return {'output': result, 'inputs': state}\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Create parameter space\n&gt;&gt;&gt; state = {\n...     'param1': Parameter(\"param1\", 0.0, low=0.0, high=1.0, free=True),\n...     'param2': Parameter(\"param2\", 0.0, low=-1.0, high=1.0, free=True)\n... }\n&gt;&gt;&gt; space = GridSpace(state, n=5)  # 25 parameter combinations\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Set up sequential execution\n&gt;&gt;&gt; executor = SequentialExecution(\n...     model=simulate,\n...     statespace=space,\n...     noise_level=0.1  # Keyword argument passed to model\n... )\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Execute across all parameter combinations\n&gt;&gt;&gt; results = executor.run()  # Shows progress bar\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Access results\n&gt;&gt;&gt; first_result = results[0]\n&gt;&gt;&gt; all_results = list(results)  # Convert to list\n&gt;&gt;&gt; total_count = len(results)",
+    "crumbs": [
+      "Reference",
+      "Executors & Results",
+      "execution.SequentialExecution"
+    ]
+  },
+  {
+    "objectID": "reference/execution.SequentialExecution.html#methods",
+    "href": "reference/execution.SequentialExecution.html#methods",
+    "title": "",
+    "section": "Methods",
+    "text": "Methods\n\n\n\nName\nDescription\n\n\n\n\nrun\nExecute the model across all parameter combinations in parallel.\n\n\n\n\nrun\nexecution.SequentialExecution.run()\nExecute the model across all parameter combinations in parallel.",
+    "crumbs": [
+      "Reference",
+      "Executors & Results",
+      "execution.SequentialExecution"
+    ]
+  },
+  {
+    "objectID": "reference/spaces.UniformSpace.html",
+    "href": "reference/spaces.UniformSpace.html",
+    "title": "",
+    "section": "",
+    "text": "Code",
+    "crumbs": [
+      "Reference",
+      "Spaces",
+      "spaces.UniformSpace"
+    ]
+  },
+  {
+    "objectID": "reference/spaces.UniformSpace.html#parameters",
+    "href": "reference/spaces.UniformSpace.html#parameters",
+    "title": "",
+    "section": "Parameters",
+    "text": "Parameters\n\n\n\nName\nType\nDescription\nDefault\n\n\n\n\nstate\ndict or PyTree\nThe parameter state template containing Value objects with defined bounds. All free parameters must have both low and high bounds specified.\nrequired\n\n\nN\nint\nNumber of random samples to generate. Default is 1.\n1\n\n\nkey\njax.random.PRNGKey\nRandom key for reproducible sampling. Default is jax.random.key(0).\njax.random.key(0)",
+    "crumbs": [
+      "Reference",
+      "Spaces",
+      "spaces.UniformSpace"
+    ]
+  },
+  {
+    "objectID": "reference/spaces.UniformSpace.html#attributes",
+    "href": "reference/spaces.UniformSpace.html#attributes",
+    "title": "",
+    "section": "Attributes",
+    "text": "Attributes\n\n\n\nName\nType\nDescription\n\n\n\n\nstate\ndict or PyTree\nThe original parameter state template.\n\n\nN\nint\nNumber of samples to generate.\n\n\nkey\njax.random.PRNGKey\nRandom key used for sampling.",
+    "crumbs": [
+      "Reference",
+      "Spaces",
+      "spaces.UniformSpace"
+    ]
+  },
+  {
+    "objectID": "reference/spaces.UniformSpace.html#raises",
+    "href": "reference/spaces.UniformSpace.html#raises",
+    "title": "",
+    "section": "Raises",
+    "text": "Raises\n\n\n\nName\nType\nDescription\n\n\n\n\n\nValueError\nIf any free parameter in diff_state lacks defined low or high bounds.",
+    "crumbs": [
+      "Reference",
+      "Spaces",
+      "spaces.UniformSpace"
+    ]
+  },
+  {
+    "objectID": "reference/spaces.UniformSpace.html#examples",
+    "href": "reference/spaces.UniformSpace.html#examples",
+    "title": "",
+    "section": "Examples",
+    "text": "Examples\n&gt;&gt;&gt; # Define parameter space with bounds\n&gt;&gt;&gt; state = {\n...     'param1': Parameter(\"param1\", 0.0, low=0.0, high=1.0, free = True),\n...     'param2': Parameter(\"param1\", 0.0, low=-2.0, high=2.0, free = True),\n...     'static_param': 5.0\n... }\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Create uniform space with 100 samples\n&gt;&gt;&gt; key = jax.random.key(42)\n&gt;&gt;&gt; space = UniformSpace(state, N=100, key=key)\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Iterate over samples\n&gt;&gt;&gt; for sample_state in space:\n...     result = simulate(sample_state)\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Get specific sample\n&gt;&gt;&gt; first_sample = space[0]\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Collect for parallel execution\n&gt;&gt;&gt; batched_state = space.collect(n_vmap=10, n_pmap=2)",
+    "crumbs": [
+      "Reference",
+      "Spaces",
+      "spaces.UniformSpace"
+    ]
+  },
+  {
+    "objectID": "reference/spaces.UniformSpace.html#methods",
+    "href": "reference/spaces.UniformSpace.html#methods",
+    "title": "",
+    "section": "Methods",
+    "text": "Methods\n\n\n\nName\nDescription\n\n\n\n\ncollect\nGenerate and reshape grid points for efficient parallel execution.\n\n\n\n\ncollect\nspaces.UniformSpace.collect(n_vmap=None, n_pmap=None, fill_value=jnp.nan)\nGenerate and reshape grid points for efficient parallel execution.\nCreates the full parameter grid and organizes it into a structure optimized for JAX’s vectorization and parallelization primitives.\n\nParameters\n\n\n\nName\nType\nDescription\nDefault\n\n\n\n\nn_vmap\nint\nNumber of states to vectorize over using vmap. If None, defaults to 1.\nNone\n\n\nn_pmap\nint\nNumber of devices for parallel mapping with pmap. If None, defaults to 1.\nNone\n\n\nfill_value\nfloat\nValue used to pad arrays when total requested size exceeds N. Default is jnp.nan.\njnp.nan\n\n\n\n\n\nReturns\n\n\n\nName\nType\nDescription\n\n\n\n\n\nPyTree\nReshaped state with grid points organized as: (n_pmap, n_vmap, n_map, …) where n_map is computed to accommodate all N grid points across the parallel execution strategy.",
+    "crumbs": [
+      "Reference",
+      "Spaces",
+      "spaces.UniformSpace"
+    ]
+  },
+  {
+    "objectID": "reference/types.spaces.html",
+    "href": "reference/types.spaces.html",
+    "title": "",
+    "section": "",
+    "text": "Code"
+  },
+  {
+    "objectID": "reference/types.spaces.html#classes",
+    "href": "reference/types.spaces.html#classes",
+    "title": "",
+    "section": "Classes",
+    "text": "Classes\n\n\n\nName\nDescription\n\n\n\n\nAbstractSpace\nA Space of states helps to express combinations of parameters.\n\n\nDataSpace\nA Space of data. For all free parameters the first dimension is considered the data dimension\n\n\nGridSpace\n\n\n\nUniformSpace\n\n\n\n\n\nAbstractSpace\ntypes.spaces.AbstractSpace()\nA Space of states helps to express combinations of parameters.\n\n\nDataSpace\ntypes.spaces.DataSpace(state)\nA Space of data. For all free parameters the first dimension is considered the data dimension\n\n\nGridSpace\ntypes.spaces.GridSpace(state, n=1)\n\n\nUniformSpace\ntypes.spaces.UniformSpace(state, N=1, key=jax.random.key(0))"
+  },
+  {
+    "objectID": "reference/optim.OptaxOptimizer.html",
+    "href": "reference/optim.OptaxOptimizer.html",
+    "title": "",
+    "section": "",
+    "text": "Code",
+    "crumbs": [
+      "Reference",
+      "Optimization",
+      "optim.OptaxOptimizer"
+    ]
+  },
+  {
+    "objectID": "reference/optim.OptaxOptimizer.html#parameters",
+    "href": "reference/optim.OptaxOptimizer.html#parameters",
+    "title": "",
+    "section": "Parameters",
+    "text": "Parameters\n\n\n\nName\nType\nDescription\nDefault\n\n\n\n\nloss\ncallable\nLoss function to minimize. Should accept a state parameter and return a scalar loss value. Signature: loss(state) -&gt; scalar or (scalar, aux_data) if has_aux=True.\nrequired\n\n\noptimizer\noptax.GradientTransformation\nOptax optimizer instance (e.g., optax.adam(0.001), optax.sgd(0.01)). Defines the optimization algorithm and hyperparameters.\nrequired\n\n\ncallback\ncallable\nOptional callback function called after each optimization step. Signature: callback(step, diff_state, static_state, fitting_data, aux_data, loss_value, grads) -&gt; (stop_flag, new_diff_state, new_static_state). Default is None, see the callbacks module for many useful callbacks.\nNone\n\n\nhas_aux\nbool\nWhether the loss function returns auxiliary data along with the loss value. If True, loss should return (loss_value, aux_data). Default is False.\nFalse",
+    "crumbs": [
+      "Reference",
+      "Optimization",
+      "optim.OptaxOptimizer"
+    ]
+  },
+  {
+    "objectID": "reference/optim.OptaxOptimizer.html#examples",
+    "href": "reference/optim.OptaxOptimizer.html#examples",
+    "title": "",
+    "section": "Examples",
+    "text": "Examples\n&gt;&gt;&gt; import jax\n&gt;&gt;&gt; import jax.numpy as jnp\n&gt;&gt;&gt; import optax\n&gt;&gt;&gt; from tvboptim.types.parameter import Parameter\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Define loss function\n&gt;&gt;&gt; def mse_loss(state):\n...     prediction = state['weight'] * state['input'] + state['bias']\n...     target = 2.5\n...     return jnp.mean((prediction - target) ** 2)\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Define parameter state\n&gt;&gt;&gt; state = {\n...     'weight': Parameter(\"weight\", 1.0, free=True),\n...     'bias': Parameter(\"bias\", 0.0, free=True),\n...     'input': 1.5  # Static parameter\n... }\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Create optimizer\n&gt;&gt;&gt; opt = OptaxOptimizer(\n...     loss=mse_loss,\n...     optimizer=optax.adam(learning_rate=0.01)\n... )\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Run optimization\n&gt;&gt;&gt; final_state, history = opt.run(state, max_steps=1000)\n&gt;&gt;&gt; print(f\"Optimized weight: {final_state['weight']}\")\n&gt;&gt;&gt; \n&gt;&gt;&gt; # With auxiliary data and callback\n&gt;&gt;&gt; def loss_with_aux(state):\n...     pred = state['weight'] * state['input'] + state['bias']\n...     loss = jnp.mean((pred - 2.5) ** 2)\n...     aux = {'prediction': pred, 'error': pred - 2.5}\n...     return loss, aux\n&gt;&gt;&gt; \n&gt;&gt;&gt; def monitor_callback(step, diff_state, static_state, fitting_data, \n...                      aux_data, loss_value, grads):\n...     if step % 100 == 0:\n...         print(f\"Step {step}: Loss = {loss_value}\")\n...     # Early stopping condition\n...     stop = loss_value &lt; 1e-6\n...     return stop, diff_state, static_state\n&gt;&gt;&gt; \n&gt;&gt;&gt; opt_aux = OptaxOptimizer(\n...     loss=loss_with_aux,\n...     optimizer=optax.adam(0.01),\n...     callback=monitor_callback,\n...     has_aux=True\n... )\n&gt;&gt;&gt; final_state, history = opt_aux.run(state, max_steps=1000, mode=\"rev\")",
+    "crumbs": [
+      "Reference",
+      "Optimization",
+      "optim.OptaxOptimizer"
+    ]
+  },
+  {
+    "objectID": "reference/optim.OptaxOptimizer.html#notes",
+    "href": "reference/optim.OptaxOptimizer.html#notes",
+    "title": "",
+    "section": "Notes",
+    "text": "Notes\nParameter Partitioning:\nThe optimizer automatically partitions the state into: - diff_state: Parameters marked as free=True (optimized) - static_state: Parameters marked as free=False (constant)\nOnly free parameters are optimized, while static parameters remain unchanged throughout the optimization process.\nDifferentiation Modes:\n\n“rev” (default): Reverse-mode AD, efficient for many parameters\n“fwd”: Forward-mode AD, efficient for few parameters or when gradients are needed w.r.t. many outputs",
+    "crumbs": [
+      "Reference",
+      "Optimization",
+      "optim.OptaxOptimizer"
+    ]
+  },
+  {
+    "objectID": "reference/optim.OptaxOptimizer.html#methods",
+    "href": "reference/optim.OptaxOptimizer.html#methods",
+    "title": "",
+    "section": "Methods",
+    "text": "Methods\n\n\n\nName\nDescription\n\n\n\n\nrun\nExecute parameter optimization for the specified number of steps.\n\n\n\n\nrun\noptim.OptaxOptimizer.run(state, max_steps=1, mode='rev')\nExecute parameter optimization for the specified number of steps.\nPerforms gradient-based optimization of free parameters in the state using the configured Optax optimizer. Automatically handles parameter partitioning, gradient computation, and state updates.\n\nParameters\n\n\n\nName\nType\nDescription\nDefault\n\n\n\n\nstate\nPyTree\nInitial parameter state containing both free and static parameters. Free parameters (marked with free=True) will be optimized.\nrequired\n\n\nmax_steps\nint\nMaximum number of optimization steps to perform. Default is 1.\n1\n\n\nmode\n(rev, fwd)\nAutomatic differentiation mode. “rev” for reverse-mode (default), “fwd” for forward-mode. Default is “rev”.\n\"rev\"\n\n\n\n\n\nReturns\n\n\n\nName\nType\nDescription\n\n\n\n\n\ntuple\nA tuple containing: - final_state (PyTree): Optimized parameter state with updated free parameters and unchanged static parameters. - fitting_data (dict): Dictionary containing optimization history and metadata collected during the optimization process.\n\n\n\n\n\nNotes\nGradient Computation:\nThe method automatically selects appropriate gradient computation based on the mode parameter and loss function characteristics. Reverse-mode is typically preferred for parameter optimization scenarios.",
+    "crumbs": [
+      "Reference",
+      "Optimization",
+      "optim.OptaxOptimizer"
+    ]
+  },
+  {
+    "objectID": "index.html#philosophy",
+    "href": "index.html#philosophy",
+    "title": "TVBOptim",
+    "section": "Philosophy",
+    "text": "Philosophy\nDon’t hide complexity You always have access to the underlying code. From the TVBO model you can get fast simulation code that can be adopted to easily explore new avenues starting from a solid base. For established workflows we want to enable you to get results quick and easy, providing utility and documentation form common problems.\nEverything is a function of a state We take a functional approach to best leverage JAXs capabilities and incrementally grow the complexity of the model by wrapping existing functions into new ones.\nsimulator, state = tvboptim.jaxify(experiment)\ntimeseries = simulator(state)\n\ndef observation(state):\n    timeseries = simulator(state)\n    fc = tvboptim.observation.fc(timeseries)\n    return fc"
+  },
+  {
+    "objectID": "index.html#features",
+    "href": "index.html#features",
+    "title": "TVBOptim",
+    "section": "Features",
+    "text": "Features\n✅ Fast Simulations on CPU and GPU\n✅ Fully Differentiable via JAXs automatic differentiation capabilities\n✅ Easy to use: Tested workflows for common problems\n✅ Easy to extend: Access to the generated code allows easy customizations for novel applications"
+  },
+  {
+    "objectID": "index.html#quickstart",
+    "href": "index.html#quickstart",
+    "title": "TVBOptim",
+    "section": "Quickstart",
+    "text": "Quickstart\nSee the Get Started page for a quick overview of how to get started with TVBOptim.\nFor fully worked examples see the Workflows section, a good start is the Reduced Wong Wang BOLD FC Optimization.\nFor more API documentation, please check the Reference."
+  },
+  {
+    "objectID": "get_started.html",
+    "href": "get_started.html",
+    "title": "Get Started",
+    "section": "",
+    "text": "TVBOptim requires Python 3.9 or later and depends on JAX for high-performance computing and automatic differentiation.\n\nInstall the TVBO dependency\nThis repository needs to be installed first. TVBO provides the brain simulation models, connectivity data and much more:\ngit clone git@github.com:virtual-twin/tvbo.git\ncd tvbo\npip install -e .\nInstall TVBOptim\nTVBOptim provides utilities for optimization algorithms, parameter spaces, and execution strategies for TVBO models:\ngit clone git@github.com:virtual-twin/tvboptim.git\ncd tvboptim\npip install -e ."
+  },
+  {
+    "objectID": "get_started.html#installation-requirements",
+    "href": "get_started.html#installation-requirements",
+    "title": "Get Started",
+    "section": "",
+    "text": "TVBOptim requires Python 3.9 or later and depends on JAX for high-performance computing and automatic differentiation.\n\nInstall the TVBO dependency\nThis repository needs to be installed first. TVBO provides the brain simulation models, connectivity data and much more:\ngit clone git@github.com:virtual-twin/tvbo.git\ncd tvbo\npip install -e .\nInstall TVBOptim\nTVBOptim provides utilities for optimization algorithms, parameter spaces, and execution strategies for TVBO models:\ngit clone git@github.com:virtual-twin/tvboptim.git\ncd tvboptim\npip install -e ."
+  },
+  {
+    "objectID": "get_started.html#create-a-tvbo-simulation-experiment",
+    "href": "get_started.html#create-a-tvbo-simulation-experiment",
+    "title": "Get Started",
+    "section": "Create a TVBO Simulation Experiment",
+    "text": "Create a TVBO Simulation Experiment\nFor all the details on TVBO, see its Documentation. A simple experiment can be created like this:\n\n\nImports\n# Set up environment\nimport os\nimport time\n\n# Mock devices to force JAX to parallelize on CPU (pmap trick)\n# This allows parallel execution even without multiple GPUs\ncpu = True\nif cpu:\n    N = 8  # Number of virtual devices to create\n    os.environ['XLA_FLAGS'] = f'--xla_force_host_platform_device_count={N}'\n\n# Import all required libraries\nfrom scipy import io\nimport numpy as np\nimport matplotlib.pyplot as plt\nimport jax\nimport jax.numpy as jnp\nimport copy\nimport optax  # JAX-based optimization library\nfrom IPython.display import Markdown\n\n# Import from tvboptim - our optimization and execution framework\nfrom tvboptim import jaxify  # Converts TVBO experiments to JAX functions\nfrom tvboptim.types import Parameter, GridSpace  # Parameter types and spaces\nfrom tvboptim.types.stateutils import show_free_parameters  # Utility functions\nfrom tvboptim.utils import set_cache_path, cache  # Caching for expensive computations\nfrom tvboptim import observation as obs  # Observation functions (FC, RMSE, etc.)\nfrom tvboptim.execution import ParallelExecution, SequentialExecution  # Execution strategies\nfrom tvboptim.optim.optax import OptaxOptimizer  # JAX-based optimizer with automatic differentiation\nfrom tvboptim.optim.callbacks import MultiCallback, DefaultPrintCallback, SavingCallback  # Optimization callbacks\n\n# Import from tvbo - the brain simulation framework\nfrom tvbo.export.experiment import SimulationExperiment  # Main experiment class\nfrom tvbo.datamodel import tvbo_datamodel  # Data structures\nfrom tvbo.utils import numbered_print  # Utility functions\n\n# Set cache path for tvboptim - stores expensive computations for reuse\nset_cache_path(\"./example_cache_get_started\")\n\n\n\n# Create a brain simulation experiment using the Reduced Wong-Wang model\n# This is a simplified neural mass model that captures excitatory dynamics\nexperiment = SimulationExperiment(\n    model = {\n        \"name\": \"ReducedWongWang\",  # Simplified version of Wong-Wang model\n        \"parameters\": {\n            \"w\": {\"name\": \"w\", \"value\": 0.5},      # Excitatory recurrence strength\n            \"I_o\": {\"name\": \"I_o\", \"value\": 0.32}, # External input current\n        },\n        \"state_variables\": {\n            \"S\": {\"initial_value\": 0.3},  # Set initial condition\n        }\n    },\n    connectivity = {\n        \"parcellation\": {\"atlas\": {\"name\": \"DesikanKilliany\"}},  # 87-region brain atlas\n        \"conduction_speed\": {\"name\": \"cs\", \"value\": np.array([np.inf])}  # Infinite speed = no delays\n    },\n    coupling = {\n        \"name\": \"Linear\",  # Linear coupling between brain regions\n        \"parameters\": {\"a\": {\"name\": \"a\", \"value\": 0.75}}  # Global coupling strength\n    },\n    integration={\n        \"method\": \"Heun\",      # Stochastic integration method\n        \"step_size\": 4.0,      # Integration step size in ms\n        \"noise\": {\"parameters\": {\"sigma\": {'value': 0.00283}}},  # Noise level\n        \"duration\": 10_000     # Simulation duration in ms (10 seconds)\n    },\n    monitors={\n        \"Raw\": {\"name\": \"Raw\"},  # Raw neural activity\n        \"Bold\": {\"name\": \"Bold\", \"period\": 1000.0}},  # BOLD signal sampled every 1000ms\n)\n\n# Normalize connectivity weights to prevent runaway dynamics\nexperiment.connectivity.normalize_weights()\n\n\n\n\n\n\n\nNoteCreate a Model Report\n\n\n\n\n\n\nMarkdown(experiment.model.generate_report())\n\nReducedWongWang\nReduced WongWang (RWW) is a biologically-inspired one-dimensional (i.e., only one state-variable ‘S’) neural mass model that approximates the realistic temporal dynamics of a detailed spiking and conductance-based synaptic large-scale network (Deco et al., 2013).\nRWW is the dynamical mean-field (DMF) reduction of the Reduced WongWang Exc-Inh model, that consists in disentangling the contribution of the two neuronal populations (excitatory and inhibitory) in order to study the time evolution of just one pool of neurons for each network node (Wong & Wang, 2006). It results that the dynamics of each network node described the temporal evolution of the opening probability of the NMDA channels.\n\nEquations\n\nDerived Variables\n\\[\nx = I_{o} + J_{N}*c_{global} + J_{N}*S*c_{local} + J_{N}*S*w\n\\] \\[\nH = \\frac{- b + a*x}{1 - e^{- d*\\left(- b + a*x\\right)}}\n\\]\n\n\nState Equations\n\\[\n\\frac{d}{d t} S = - \\frac{S}{\\tau_{s}} + H*\\gamma*\\left(1 - S\\right)\n\\]\n\n\n\nParameters\n\n\n\n\n\n\n\n\n\nParameter\nValue\nUnit\nDescription\n\n\n\n\n\\(w\\)\n0.5\ndimensionless\nExcitatory recurrence\n\n\n\\(I_{o}\\)\n0.32\nnA\nExternal input current to the neurons population (Deco et al\n\n\n\\(J_{N}\\)\n0.2609\nnA\nExcitatory recurrence\n\n\n\\(a\\)\n0.27\n(pC)^-1\nSlope (or gain) parameter of the sigmoid input-output function H_RWW (Deco et al\n\n\n\\(b\\)\n0.108\nkHz\nShift parameter of the sigmoid input-output function H_RWW (Deco et al\n\n\n\\(d\\)\n154.0\nms\nScaling parameter of the sigmoid input-output function H_RWW (Deco et al\n\n\n\\(\\gamma\\)\n0.641\nN/A\nKinetic parameter\n\n\n\\(\\tau_{s}\\)\n100.0\nms\nKinetic parameter\n\n\n\n\n\nReferences\nCitation key ‘WongWang2006’ not found.\nCitation key ‘Deco2013’ not found.\n\n\n\n\n\n\n\n\n\n\n\n\nNoteYou can inspect the rendered JAX code\n\n\n\n\n\n\nnumbered_print(experiment.render_code(format = \"jax\", scalar_pre = True))\n\n001 \n002 import jax.scipy.signal as sig\n003 from collections import namedtuple\n004 import jax\n005 from tvbo.data.types import TimeSeries\n006 import jax.numpy as jnp\n007 import jax.scipy as jsp\n008 \n009 \n010 def cfun(weights, history, current_state, p, delay_indices, t):\n011     n_node = weights.shape[0]\n012     a, b = p.a, p.b\n013 \n014     x_j = jnp.array([\n015 \n016         current_state[0],\n017 \n018     ])\n019 \n020     pre = x_j\n021 \n022     def op(x): return weights @ x\n023     gx = jax.vmap(op, in_axes=0)(pre)\n024     return b + a*gx\n025 \n026 \n027 def dfun(current_state, cX, _p, local_coupling=0):\n028     w, I_o, J_N, a, b, d, gamma, tau_s = _p.w, _p.I_o, _p.J_N, _p.a, _p.b, _p.d, _p.gamma, _p.tau_s\n029     # unpack coupling terms and states as in dfun\n030     c_pop0 = cX[0]\n031 \n032     S = current_state[0]\n033 \n034     # compute internal states for dfun\n035     x = I_o + J_N*c_pop0 + J_N*S*local_coupling + J_N*S*w\n036     H = (-b + a*x)/(1 - jnp.exp(-d*(-b + a*x)))\n037 \n038     return jnp.array([\n039         -S/tau_s + H*gamma*(1 - S),  # S\n040     ])\n041 \n042 \n043 def integrate(state, weights, dt, params_integrate, delay_indices, external_input):\n044     \"\"\"\n045     Heun Integration\n046     ================\n047     \"\"\"\n048     t, noise = external_input\n049 \n050     params_dfun, params_cfun, params_stimulus = params_integrate\n051 \n052     history, current_state = state\n053     stimulus = 0\n054 \n055     inf = jnp.inf\n056     min_bounds = jnp.array([[[0.0]]])\n057     max_bounds = jnp.array([[[1.0]]])\n058 \n059     cX = jax.vmap(cfun, in_axes=(None, -1, -1, None, None, None), out_axes=-\n060                   1)(weights, history, current_state, params_cfun, delay_indices, t)\n061 \n062     dX0 = dfun(current_state, cX, params_dfun)\n063 \n064     X = current_state\n065 \n066     # Calculate intermediate step X1\n067     X1 = X + dX0 * dt + noise + stimulus * dt\n068     X1 = jnp.clip(X1, min_bounds, max_bounds)\n069 \n070     # Calculate derivative X1\n071     dX1 = dfun(X1, cX, params_dfun)\n072     # Calculate the state change dX\n073     dX = (dX0 + dX1) * (dt / 2)\n074     next_state = current_state + (dX) + noise\n075     next_state = jnp.clip(next_state, min_bounds, max_bounds)\n076 \n077     return (history, next_state), next_state\n078 \n079 \n080 timeseries = namedtuple(\"timeseries\", [\"time\", \"trace\"])\n081 \n082 \n083 def monitor_raw_0(time_steps, trace, params, t_offset=0):\n084     dt = 4.0\n085     return TimeSeries(time=(time_steps + t_offset) * dt, data=trace, title=\"Raw\")\n086 \n087 \n088 def monitor_temporal_average_1(time_steps, trace, params, t_offset=0):\n089     dt = 4.0\n090     voi = jnp.array([0])\n091     istep = 1\n092     t_map = time_steps[::istep] - 1\n093 \n094     def op(ts):\n095         start_indices = (ts,) + (0,) * (trace.ndim - 1)\n096         slice_sizes = (istep,) + voi.shape + trace.shape[2:]\n097         return jnp.mean(jax.lax.dynamic_slice(trace[:, voi, :], start_indices, slice_sizes), axis=0)\n098     vmap_op = jax.vmap(op)\n099     trace_out = vmap_op(t_map)\n100 \n101     idxs = jnp.arange(((istep - 2) // 2), time_steps.shape[0], istep)\n102     return TimeSeries(time=(time_steps[idxs]) * dt, data=trace_out[0:idxs.shape[0], :, :], title=\"TemporalAverage\")\n103 \n104 \n105 exp, sin, sqrt = jnp.exp, jnp.sin, jnp.sqrt\n106 \n107 \n108 def monitor_bold_1(time_steps, trace, params, t_offset=0):\n109     # downsampling via temporal average / subsample\n110     dt = 4.0\n111     voi = jnp.array([0])\n112     period = 1000.0  # sampling period of the BOLD Monitor in ms\n113     istep_int = 1  # steps taken by the averaging/subsampling monitor to get an interim period of 4 ms\n114     istep = 250\n115     final_istep = 250  # steps to take on the downsampled signal\n116 \n117     res = monitor_temporal_average_1(time_steps, trace, None)\n118     time_steps_i = res.time\n119     trace_new = res.data\n120 \n121     time_steps_new = time_steps[jnp.arange(\n122         istep-1, time_steps.shape[0], istep)]\n123 \n124     # hemodynamic response function\n125     tau_s = params.tau_s\n126     tau_f = params.tau_f\n127     k_1 = params.k_1\n128     V_0 = params.V_0\n129     stock = params.stock\n130 \n131     trace_new = jnp.vstack([stock, trace_new])\n132 \n133     def op(var): return 1/3. * exp(-0.5*(var / tau_s)) * (sin(sqrt(1. /\n134                                                                    tau_f - 1./(4.*tau_s**2)) * var)) / (sqrt(1./tau_f - 1./(4.*tau_s**2)))\n135     stock_steps = 5000\n136     stock_time_max = 20.0  # stock time has to be in seconds\n137     stock_time_step = stock_time_max / stock_steps\n138     stock_time = jnp.arange(0.0, stock_time_max, stock_time_step)\n139     hrf = op(stock_time)\n140 \n141     # Convolution along time axis\n142     # via fft\n143     def op1(x): return sig.fftconvolve(x, hrf, mode=\"valid\")\n144 \n145     def op2(x): return jax.vmap(op1, in_axes=(\n146         1), out_axes=(1))(x)  # map over nodes\n147     def op3(x): return jax.vmap(op2, in_axes=(1), out_axes=(1))(\n148         x)  # map over state variables\n149     bold = jax.vmap(op3, in_axes=(3), out_axes=(3))(\n150         trace_new)  # map over modes\n151 \n152     bold = k_1 * V_0 * (bold - 1.0)\n153 \n154     bold_idx = jnp.arange(\n155         final_istep-2, time_steps_i.shape[0], final_istep)[0:time_steps_new.shape[0]] + 1\n156     return TimeSeries(time=(time_steps_new + t_offset) * dt, data=bold[bold_idx, :, :], title=\"BOLD\")\n157 \n158 \n159 def transform_parameters(_p):\n160     w, I_o, J_N, a, b, d, gamma, tau_s = _p.w, _p.I_o, _p.J_N, _p.a, _p.b, _p.d, _p.gamma, _p.tau_s\n161 \n162     return _p\n163 \n164 \n165 c_vars = jnp.array([0])\n166 \n167 \n168 def kernel(state):\n169     # problem dimensions\n170     n_nodes = 87\n171     n_svar = 1\n172     n_cvar = 1\n173     n_modes = 1\n174     nh = 1\n175 \n176     # history = current_state\n177     current_state, history = (state.initial_conditions.data[-1], None)\n178 \n179     ics = (history, current_state)\n180     weights = state.connectivity.weights\n181 \n182     dn = jnp.arange(n_nodes) * jnp.ones((n_nodes, n_nodes)).astype(int)\n183     idelays = jnp.round(state.connectivity.lengths /\n184                         state.connectivity.metadata.conduction_speed.value / state.dt).astype(int)\n185     di = -1 * idelays - 1\n186     delay_indices = (di, dn)\n187 \n188     dt = state.dt\n189     nt = state.nt\n190     time_steps = jnp.arange(0, nt)\n191 \n192     key = jax.random.PRNGKey(state.noise.metadata.seed)\n193     _noise = jax.random.normal(key, (nt, n_svar, n_nodes, n_modes))\n194     noise = (jnp.sqrt(dt) * state.noise.sigma[None, ..., None, None]) * _noise\n195 \n196     p = transform_parameters(state.parameters.model)\n197     params_integrate = (p, state.parameters.coupling, state.stimulus)\n198 \n199     def op(ics, external_input): return integrate(ics, weights,\n200                                                   dt, params_integrate, delay_indices, external_input)\n201 \n202     latest_carry, res = jax.lax.scan(op, ics, (time_steps, noise))\n203 \n204     trace = res\n205 \n206     t_offset = 0\n207     time_steps = time_steps + 1\n208 \n209     params_monitors = state.monitor_parameters\n210     result = [monitor_raw_0(time_steps, trace, params_monitors[0], t_offset=t_offset),\n211               monitor_bold_1(time_steps, trace,\n212                              params_monitors[1], t_offset=t_offset),\n213               ]\n214 \n215     return result"
+  },
+  {
+    "objectID": "get_started.html#equations",
+    "href": "get_started.html#equations",
+    "title": "Get Started",
+    "section": "Equations",
+    "text": "Equations\n\nDerived Variables\n\\[\nx = I_{o} + J_{N}*c_{global} + J_{N}*S*c_{local} + J_{N}*S*w\n\\] \\[\nH = \\frac{- b + a*x}{1 - e^{- d*\\left(- b + a*x\\right)}}\n\\]\n\n\nState Equations\n\\[\n\\frac{d}{d t} S = - \\frac{S}{\\tau_{s}} + H*\\gamma*\\left(1 - S\\right)\n\\]"
+  },
+  {
+    "objectID": "get_started.html#parameters",
+    "href": "get_started.html#parameters",
+    "title": "Get Started",
+    "section": "Parameters",
+    "text": "Parameters\n\n\n\n\n\n\n\n\n\nParameter\nValue\nUnit\nDescription\n\n\n\n\n\\(w\\)\n0.5\ndimensionless\nExcitatory recurrence\n\n\n\\(I_{o}\\)\n0.32\nnA\nExternal input current to the neurons population (Deco et al\n\n\n\\(J_{N}\\)\n0.2609\nnA\nExcitatory recurrence\n\n\n\\(a\\)\n0.27\n(pC)^-1\nSlope (or gain) parameter of the sigmoid input-output function H_RWW (Deco et al\n\n\n\\(b\\)\n0.108\nkHz\nShift parameter of the sigmoid input-output function H_RWW (Deco et al\n\n\n\\(d\\)\n154.0\nms\nScaling parameter of the sigmoid input-output function H_RWW (Deco et al\n\n\n\\(\\gamma\\)\n0.641\nN/A\nKinetic parameter\n\n\n\\(\\tau_{s}\\)\n100.0\nms\nKinetic parameter"
+  },
+  {
+    "objectID": "get_started.html#references",
+    "href": "get_started.html#references",
+    "title": "Get Started",
+    "section": "References",
+    "text": "References\nCitation key ‘WongWang2006’ not found.\nCitation key ‘Deco2013’ not found."
+  },
+  {
+    "objectID": "get_started.html#get-model-and-state",
+    "href": "get_started.html#get-model-and-state",
+    "title": "Get Started",
+    "section": "Get Model and State",
+    "text": "Get Model and State\nThe jaxify function converts the TVBO experiment into a JAX-compatible model function and state object. The scalar_pre option is used to improve performance when we have no delay (infinite conduction speed):\n\n# Convert TVBO experiment to JAX function and state\n# scalar_pre=True optimizes for no-delay scenarios\nmodel, state = jaxify(experiment, scalar_pre = True)\n\nThe model is now a JAX-compiled function that can be called with a state to run the simulation. The state contains all parameters, initial conditions, and configuration needed for the simulation.\n\nUnderstand the State Object & Parameters\nThe state is of type tvbo.datamodel.tvbo_datamodel.Bunch, which is a dict with convenient get and set functions. At the same time, it is also a jax.Pytree, making it compatible with all of JAX’s transformations. You can think of it as a big tree holding all parameters and initial conditions that uniquely define a simulation:\n\n\n\n\n\n\nNoteView full state\n\n\n\n\n\n\nstate\n\nSimulationState\n├── initial_conditions\n│   ├── time\n│   │   ├── _name: \"\"\n│   │   ├── _value: f64[1]\n│   │   ├── _free: False\n│   │   ├── low: NoneType\n│   │   ├── high: NoneType\n│   │   └── doc: NoneType\n│   ├── data\n│   │   ├── _name: \"\"\n│   │   ├── _value: f64[1,1,87,1]\n│   │   ├── _free: False\n│   │   ├── low: NoneType\n│   │   ├── high: NoneType\n│   │   └── doc: NoneType\n│   ├── labels_dimensions\n│   │   ├── [0]: \"Time\"\n│   │   ├── [1]: \"State Variable\"\n│   │   ├── [2]: \"Space\"\n│   │   └── [3]: \"Mode\"\n│   ├── title: \"TimeSeries\"\n│   ├── connectivity: NoneType\n│   ├── sample_period: NoneType\n│   ├── dt: NoneType\n│   ├── sample_period_unit: \"ms\"\n│   └── labels_ordering\n│       ├── [0]: \"Time\"\n│       ├── [1]: \"State Variable\"\n│       ├── [2]: \"Space\"\n│       └── [3]: \"Mode\"\n├── connectivity\n│   ├── weights\n│   │   ├── _name: \"\"\n│   │   ├── _value: f64[87,87]\n│   │   ├── _free: False\n│   │   ├── low: NoneType\n│   │   ├── high: NoneType\n│   │   └── doc: NoneType\n│   ├── lengths: f64[87,87](numpy)\n│   └── metadata: Connectome\n├── dt\n│   ├── _name: \"\"\n│   ├── _value: f64[]\n│   ├── _free: False\n│   ├── low: NoneType\n│   ├── high: NoneType\n│   └── doc: NoneType\n├── noise\n│   ├── sigma\n│   │   ├── _name: \"\"\n│   │   ├── _value: f64[]\n│   │   ├── _free: False\n│   │   ├── low: NoneType\n│   │   ├── high: NoneType\n│   │   └── doc: NoneType\n│   ├── nsig\n│   │   ├── _name: \"\"\n│   │   ├── _value: f64[]\n│   │   ├── _free: False\n│   │   ├── low: NoneType\n│   │   ├── high: NoneType\n│   │   └── doc: NoneType\n│   └── metadata: Noise\n├── parameters\n│   ├── model\n│   │   ├── w\n│   │   │   ├── _name: \"\"\n│   │   │   ├── _value: f64[]\n│   │   │   ├── _free: False\n│   │   │   ├── low: NoneType\n│   │   │   ├── high: NoneType\n│   │   │   └── doc: NoneType\n│   │   ├── I_o\n│   │   │   ├── _name: \"\"\n│   │   │   ├── _value: f64[]\n│   │   │   ├── _free: False\n│   │   │   ├── low: NoneType\n│   │   │   ├── high: NoneType\n│   │   │   └── doc: NoneType\n│   │   ├── J_N\n│   │   │   ├── _name: \"\"\n│   │   │   ├── _value: f64[]\n│   │   │   ├── _free: False\n│   │   │   ├── low: NoneType\n│   │   │   ├── high: NoneType\n│   │   │   └── doc: NoneType\n│   │   ├── a\n│   │   │   ├── _name: \"\"\n│   │   │   ├── _value: f64[]\n│   │   │   ├── _free: False\n│   │   │   ├── low: NoneType\n│   │   │   ├── high: NoneType\n│   │   │   └── doc: NoneType\n│   │   ├── b\n│   │   │   ├── _name: \"\"\n│   │   │   ├── _value: f64[]\n│   │   │   ├── _free: False\n│   │   │   ├── low: NoneType\n│   │   │   ├── high: NoneType\n│   │   │   └── doc: NoneType\n│   │   ├── d\n│   │   │   ├── _name: \"\"\n│   │   │   ├── _value: f64[]\n│   │   │   ├── _free: False\n│   │   │   ├── low: NoneType\n│   │   │   ├── high: NoneType\n│   │   │   └── doc: NoneType\n│   │   ├── gamma\n│   │   │   ├── _name: \"\"\n│   │   │   ├── _value: f64[]\n│   │   │   ├── _free: False\n│   │   │   ├── low: NoneType\n│   │   │   ├── high: NoneType\n│   │   │   └── doc: NoneType\n│   │   └── tau_s\n│   │       ├── _name: \"\"\n│   │       ├── _value: f64[]\n│   │       ├── _free: False\n│   │       ├── low: NoneType\n│   │       ├── high: NoneType\n│   │       └── doc: NoneType\n│   ├── integration\n│   │   └── noise\n│   │       └── sigma\n│   │           ├── _name: \"\"\n│   │           ├── _value: f64[]\n│   │           ├── _free: False\n│   │           ├── low: NoneType\n│   │           ├── high: NoneType\n│   │           └── doc: NoneType\n│   └── coupling\n│       ├── a\n│       │   ├── _name: \"\"\n│       │   ├── _value: f64[]\n│       │   ├── _free: False\n│       │   ├── low: NoneType\n│       │   ├── high: NoneType\n│       │   └── doc: NoneType\n│       └── b\n│           ├── _name: \"\"\n│           ├── _value: f64[]\n│           ├── _free: False\n│           ├── low: NoneType\n│           ├── high: NoneType\n│           └── doc: NoneType\n├── stimulus: NoneType\n├── monitor_parameters\n│   ├── 0: Bunch\n│   └── 1\n│       ├── tau_s\n│       │   ├── _name: \"\"\n│       │   ├── _value: f64[]\n│       │   ├── _free: False\n│       │   ├── low: NoneType\n│       │   ├── high: NoneType\n│       │   └── doc: NoneType\n│       ├── tau_f\n│       │   ├── _name: \"\"\n│       │   ├── _value: f64[]\n│       │   ├── _free: False\n│       │   ├── low: NoneType\n│       │   ├── high: NoneType\n│       │   └── doc: NoneType\n│       ├── k_1\n│       │   ├── _name: \"\"\n│       │   ├── _value: f64[]\n│       │   ├── _free: False\n│       │   ├── low: NoneType\n│       │   ├── high: NoneType\n│       │   └── doc: NoneType\n│       ├── V_0\n│       │   ├── _name: \"\"\n│       │   ├── _value: f64[]\n│       │   ├── _free: False\n│       │   ├── low: NoneType\n│       │   ├── high: NoneType\n│       │   └── doc: NoneType\n│       └── stock\n│           ├── _name: \"\"\n│           ├── _value: f64[5000,1,87,1]\n│           ├── _free: False\n│           ├── low: NoneType\n│           ├── high: NoneType\n│           └── doc: NoneType\n└── nt: 2500\n\n\n\n\n\nEach leaf of the tree (in JAX, that is each JAX Array) is wrapped in the Parameter type. This enables additional convenience functionality. A Parameter can be declared free, making it available to Spaces or to gradients during optimization.\n\n# Mark the excitatory recurrence parameter as free for optimization\nstate.parameters.model.J_N.free = True\nshow_free_parameters(state)  # Display all parameters marked as free\n\nFreeState\n├── initial_conditions: TimeSeries\n├── connectivity: Connectome\n├── noise: Noise\n├── parameters\n│   ├── model\n│   │   ├── J_N\n│   │   │   ├── _name: \"\"\n│   │   │   ├── _value: 0.2609\n│   │   │   ├── _free: True\n│   ├── integration: Bunch\n│   └── coupling: Bunch\n├── monitor_parameters: dict\n└── nt: 2500\n\n\nIf your simulation needs additional Parameters or data, you can simply put a new leaf into the state:\n\n# Example: Add a custom optimizable parameter to the state\n# This demonstrates how to extend the state with additional parameters\nstate.parameters.important_extras = Parameter(\"Important\", jnp.zeros(10), free = True)\nshow_free_parameters(state)  # Now shows both J_N and our custom parameter\n\nFreeState\n├── initial_conditions: TimeSeries\n├── connectivity: Connectome\n├── noise: Noise\n├── parameters\n│   ├── model\n│   │   ├── J_N\n│   │   │   ├── _name: \"\"\n│   │   │   ├── _value: 0.2609\n│   │   │   ├── _free: True\n│   ├── integration: Bunch\n│   ├── coupling: Bunch\n│   └── important_extras\n│       ├── _name: \"Important\"\n│       ├── _value: [0. 0. 0. 0. 0. 0. 0. 0. 0. 0.]\n│       ├── _free: True\n├── monitor_parameters: dict\n└── nt: 2500\n\n\n\n\nSimulate the Model\nTo run a simulation, you can simply call the model.\n\n# Run the simulation - model returns (raw_activity, bold_signal)\nresult = model(state)\nraw, bold = result\n\n# Plot raw neural activity for all 87 brain regions over time\n# Shape: [time_points, state_variables, regions, modes]\nplt.plot(raw.data[:,0,:,0], color = \"royalblue\", alpha = 0.5)\nplt.xlabel(\"Time (ms)\")\nplt.ylabel(\"Neural Activity\")\nplt.title(\"Raw Neural Activity Across All Brain Regions\");\n\n\n\n\n\n\n\n\n\n\nWrap the Model to create observations\nWe look at the mean activity of the last 500 timesteps as an easy observation.\n\ndef observation(state):\n    \"\"\"\n    Extract a simple observation from the simulation.\n    We use the mean activity of the last 500 timesteps to avoid transient effects.\n    \"\"\"\n    ts = model(state)[0].data[-500:,0,:,0]  # Last 500 timesteps, skip transient\n    mean_activity = jnp.mean(ts)  # Average across time and regions\n    return mean_activity\n\n# Test the observation function\nprint(f\"Mean activity: {observation(state):.4f}\")\n\nMean activity: 0.1752\n\n\n\n\nExplore that across a parameter space\nWe can use a GridSpace to explore how parameters J_N (excitatory recurrence) and a (global coupling) affect the observation. We use the cache decorator to save computationally demanding operations. We also parallelize the exploration using the ParallelExecution class with n_pmap = 8, which is possible because we told JAX that our CPU has 8 devices - known as the pmap trick.\n\n# Clean up: disable the custom parameter we added earlier\nstate.parameters.important_extras.free = False\n\n# Set up parameter exploration for two key parameters\n# a: global coupling strength\nstate.parameters.coupling.a.free = True\nstate.parameters.coupling.a.low = 0.0   # Lower bound\nstate.parameters.coupling.a.high = 1.0  # Upper bound\n\n# J_N: NMDA synaptic coupling strength\nstate.parameters.model.J_N.free = True\nstate.parameters.model.J_N.low = 0.0\nstate.parameters.model.J_N.high = 1.0\n\n# Create a grid space for systematic parameter exploration\nn = 32  # 32x32 grid = 1024 parameter combinations\nparams_set = GridSpace(state, n=n)\n\n@cache(\"explore\", redo = False)  # Cache results to avoid recomputation\ndef explore():\n    # Use parallel execution with 8 virtual devices (pmap trick)\n    exec = ParallelExecution(observation, params_set, n_pmap=8)\n    return exec.run()\n\n# Run the exploration (or load from cache)\nexploration = explore()\n\n# Visualize the parameter space exploration\nplt.figure(figsize=(8, 6))\nplt.imshow(jnp.stack(exploration).reshape(n, n), aspect = \"auto\", extent=[0, 1, 0, 1])\nplt.xlabel(\"a\")\nplt.ylabel(\"J_N\")\nplt.title(\"Mean Activity Across Parameter Space\")\nplt.colorbar(label=\"Mean Activity\")\n\nLoading explore from cache, last modified 2025-07-03 15:06:34.498307\n\n\n\n\n\n\n\n\n\n\n\nDefine a Loss and Optimize\nLet’s say our goal is to have a mean activity of 0.5. We can define a loss function that penalizes deviations from this target.\n\ndef loss(state):\n    \"\"\"\n    Define a loss function that penalizes deviations from target activity.\n    Goal: Each brain region should have mean activity of 0.5\n    \"\"\"\n    ts = model(state)[0].data[-500:,0,:,0]  # Skip transient period\n    mean_activity = jnp.mean(ts, axis = 0)  # Average over time for each region\n    # Compute mean squared error between actual and target (0.5) activity\n    return jnp.mean((mean_activity - 0.5)**2)  # Region-wise difference\n\n# Test the loss function\nprint(f\"Current loss: {loss(state):.6f}\")\n\nCurrent loss: 0.135816\n\n\nThen we optimize it with Optax and gradient descent:\n\n# Create an optimizer using Adam with automatic differentiation\noptimizer = OptaxOptimizer(\n    loss,                           # Loss function to minimize\n    optax.adam(0.005),             # Adam optimizer with learning rate 0.005\n    callback=DefaultPrintCallback(every=5) # Print progress during optimization\n)\n\n# Run optimization using forward-mode automatic differentiation\n# Forward mode is efficient when we have few parameters (like here: a and J_N)\noptimized_state, _ = optimizer.run(state, max_steps=50, mode=\"fwd\")\n\nStep 0: 0.135816\nStep 5: 0.107015\nStep 10: 0.087062\nStep 15: 0.077474\nStep 20: 0.074584\nStep 25: 0.073727\nStep 30: 0.073262\nStep 35: 0.073115\nStep 40: 0.073099\nStep 45: 0.073084\n\n\n\n\nVisualize the Fitted Model\n\n# Simulate with optimized parameters and visualize results\nts_optimized = model(optimized_state)[0].data[:,0,:,0]\n\nplt.figure(figsize=(10, 6))\nplt.plot(ts_optimized, alpha = 0.5, color = \"royalblue\")\nplt.hlines(0.5, 0, 2500, color = \"black\", linewidth = 2.5, label=\"Target (0.5)\")\nplt.hlines(observation(optimized_state), 0, 2500, color = \"red\", linewidth = 2.5, \n           label=f\"Actual Mean ({observation(optimized_state):.3f})\")\nplt.xlabel(\"Time (ms)\")\nplt.ylabel(\"Neural Activity\")\nplt.title(\"Optimized Neural Activity\")\nplt.legend()\nplt.grid(True, alpha=0.3)\n\n\n\n\n\n\n\n\nWell, the mean is close to the target, but most regions are either too high or too low. We can make parameters heterogeneous to adjust that.\n\n\nHeterogeneous Parameters\nThe previous optimization used global parameters (same value for all brain regions). Now we’ll make parameters region-specific to achieve better control:\n\n# Make parameters heterogeneous: one value per brain region (87 regions)\noptimized_state.parameters.model.J_N.shape = (87,1)  # Excitatory recurrence per region\nprint(f\"J_N parameter shape: {optimized_state.parameters.model.J_N.shape}\")\n\nJ_N parameter shape: (87, 1)\n\n\nWe switch to reverse mode automatic differentiation, which is more efficient when we have many parameters (87 parameters):\n\n# Create optimizer for heterogeneous parameters\noptimizer_het = OptaxOptimizer(\n    loss,                                    # Same loss function\n    optax.adam(0.002),                      # Lower learning rate for stability\n    callback=DefaultPrintCallback(every=10) # Print every 10 steps\n)\n\n# Use reverse-mode AD (more efficient for many parameters)\noptimized_state_het, _ = optimizer_het.run(optimized_state, max_steps=200, mode=\"rev\")\n\nStep 0: 0.073036\nStep 10: 0.061548\nStep 20: 0.050403\nStep 30: 0.041717\nStep 40: 0.032587\nStep 50: 0.024754\nStep 60: 0.014539\nStep 70: 0.006013\nStep 80: 0.008035\nStep 90: 0.005476\nStep 100: 0.011970\nStep 110: 0.013880\nStep 120: 0.015561\nStep 130: 0.013589\nStep 140: 0.014465\nStep 150: 0.014972\nStep 160: 0.011115\nStep 170: 0.013463\nStep 180: 0.012640\nStep 190: 0.011850\n\n\nNow most regions are close to the target level after passing the initial transient. Setting the initial conditions to the target activity could be a solution to this problem.\n\n# Visualize results with heterogeneous parameters\nts_optimized_het = model(optimized_state_het)[0].data[:,0,:,0]\n\nplt.figure(figsize=(15, 10))\n\n# Plot 1: Time series for all regions\nplt.subplot(2, 1, 1)\nplt.plot(ts_optimized_het, alpha = 0.5, color = \"royalblue\")\nplt.hlines(0.5, 0, 2500, color = \"black\", linewidth = 2.5, label=\"Target (0.5)\")\nplt.hlines(observation(optimized_state_het), 0, 2500, color = \"red\", linewidth = 2.5, \n           label=f\"Mean ({observation(optimized_state_het):.3f})\")\nplt.xlabel(\"Time (ms)\")\nplt.ylabel(\"Neural Activity\")\nplt.title(\"Heterogeneous Optimization\")\nplt.legend()\nplt.grid(True, alpha=0.3)\n\n# Plot 2: J_N parameters vs mean regionwise coupling\nmean_coupling = jnp.mean(experiment.connectivity.weights, axis=1)\nplt.subplot(2, 1, 2)\nplt.scatter(mean_coupling, optimized_state_het.parameters.model.J_N.value.flatten(), alpha=0.7, color=\"k\", s=30)\nplt.xlabel(\"Mean Regionwise Coupling\")\nplt.ylabel(\"J_N [nA]\")\nplt.title(\"Fitted J_N Parameters\")\nplt.grid(True, alpha=0.3)\nplt.legend()\n\nplt.tight_layout()\n\n/tmp/ipykernel_152160/1020819468.py:26: UserWarning:\n\nNo artists with labels found to put in legend.  Note that artists whose label start with an underscore are ignored when legend() is called with no argument.\n\n\n\n\n\n\n\n\n\n\nWhy is this problem interesting? The Reduced Wong Wang model has two fixed point branches - low activity (~0.1) and high activity (~0.9). Each region tends to approach one of them, but for the desired target level, we need to find a balance between the two. This concept is also known as feedback inhibition control (FIC)."
+  },
+  {
+    "objectID": "get_started.html#key-concepts-demonstrated",
+    "href": "get_started.html#key-concepts-demonstrated",
+    "title": "Get Started",
+    "section": "Key Concepts Demonstrated",
+    "text": "Key Concepts Demonstrated\nThis tutorial showcased several important TVBOptim concepts:\n\nParameter Types: The Parameter class wraps JAX arrays with additional metadata (bounds, free/fixed status)\nState Management: The state object is a JAX PyTree containing all simulation parameters and initial conditions\nSpaces: GridSpace and UniformSpace enable systematic parameter exploration\nExecution Strategies: ParallelExecution leverages JAX’s pmap for efficient computation across parameter sets\nOptimization: OptaxOptimizer provides gradient-based optimization with automatic differentiation\nCaching: The @cache decorator saves expensive computations for reuse\nHeterogeneous Parameters: Region-specific parameters enable fine-grained control over brain dynamics\n\nThese tools enable efficient exploration and optimization of complex brain network models at scale."
+  },
+  {
+    "objectID": "RWW.html",
+    "href": "RWW.html",
+    "title": "Reduced Wong Wang BOLD FC Optimization",
+    "section": "",
+    "text": "Imports\n# Set up environment\nimport os\nimport time\n# Mock devices to force JAX to parallelize on CPU\ncpu = True\nif cpu:\n    N = 8\n    os.environ['XLA_FLAGS'] = f'--xla_force_host_platform_device_count={N}'\n\n# Import all required libraries\nfrom scipy import io\nimport numpy as np\nimport matplotlib.pyplot as plt\nimport jax\nimport jax.numpy as jnp\nimport copy\nimport optax\n\n# Import from tvboptim\nfrom tvboptim import jaxify\nfrom tvboptim.types import Parameter, GridSpace\nfrom tvboptim.types.stateutils import show_free_parameters\nfrom tvboptim.utils import set_cache_path, cache\nfrom tvboptim import observation as obs\nfrom tvboptim.execution import ParallelExecution, SequentialExecution\nfrom tvboptim.optim.optax import OptaxOptimizer\nfrom tvboptim.optim.callbacks import MultiCallback, DefaultPrintCallback, SavingCallback\n\n# Import from tvbo\nfrom tvbo.export.experiment import SimulationExperiment\nfrom tvbo.datamodel import tvbo_datamodel\nfrom tvbo.utils import numbered_print\n\n# Set cache path for tvboptim\nset_cache_path(\"./example_cache_rww\")"
+  },
+  {
+    "objectID": "RWW.html#create-a-tvb-o-simulation-experiment",
+    "href": "RWW.html#create-a-tvb-o-simulation-experiment",
+    "title": "Reduced Wong Wang BOLD FC Optimization",
+    "section": "Create a TVB-O Simulation Experiment",
+    "text": "Create a TVB-O Simulation Experiment\n\nexperiment = SimulationExperiment(\n    model = {\n        \"name\": \"ReducedWongWang\", \n        \"parameters\": {\n            \"w\": {\"name\": \"w\", \"value\": 0.5},\n            \"I_o\": {\"name\": \"I_o\", \"value\": 0.32}, \n        }\n    },\n    connectivity = {\n        \"parcellation\": {\"atlas\": {\"name\": \"DesikanKilliany\"}}, \n        \"conduction_speed\": {\"name\": \"cs\", \"value\": np.array([np.inf])}\n    },\n    coupling = {\n        \"name\": \"Linear\", \n        \"parameters\": {\"a\": {\"name\": \"a\", \"value\": 0.5}}\n    },\n    integration={\n        \"method\": \"Heun\",\n        \"step_size\": 4.0,\n        \"noise\": {\"parameters\": {\"sigma\": {'value': 0.00283}}},\n        \"duration\": 2 * 60_000\n    },\n    monitors={\n        \"Raw\": {\"name\": \"Raw\"}, \n        \"Bold\": {\"name\": \"Bold\", \"period\": 1000.0}},\n)"
+  },
+  {
+    "objectID": "RWW.html#model-functions",
+    "href": "RWW.html#model-functions",
+    "title": "Reduced Wong Wang BOLD FC Optimization",
+    "section": "Model Functions",
+    "text": "Model Functions\n\n\n\n\n\n\nNoteRendered JAX Code\n\n\n\n\n\n\nnumbered_print(experiment.render_code(format = \"jax\", scalar_pre = True))\n\n001 \n002 import jax.scipy.signal as sig\n003 from collections import namedtuple\n004 import jax\n005 from tvbo.data.types import TimeSeries\n006 import jax.numpy as jnp\n007 import jax.scipy as jsp\n008 \n009 \n010 def cfun(weights, history, current_state, p, delay_indices, t):\n011     n_node = weights.shape[0]\n012     a, b = p.a, p.b\n013 \n014     x_j = jnp.array([\n015 \n016         current_state[0],\n017 \n018     ])\n019 \n020     pre = x_j\n021 \n022     def op(x): return weights @ x\n023     gx = jax.vmap(op, in_axes=0)(pre)\n024     return b + a*gx\n025 \n026 \n027 def dfun(current_state, cX, _p, local_coupling=0):\n028     w, I_o, J_N, a, b, d, gamma, tau_s = _p.w, _p.I_o, _p.J_N, _p.a, _p.b, _p.d, _p.gamma, _p.tau_s\n029     # unpack coupling terms and states as in dfun\n030     c_pop0 = cX[0]\n031 \n032     S = current_state[0]\n033 \n034     # compute internal states for dfun\n035     x = I_o + J_N*c_pop0 + J_N*S*local_coupling + J_N*S*w\n036     H = (-b + a*x)/(1 - jnp.exp(-d*(-b + a*x)))\n037 \n038     return jnp.array([\n039         -S/tau_s + H*gamma*(1 - S),  # S\n040     ])\n041 \n042 \n043 def integrate(state, weights, dt, params_integrate, delay_indices, external_input):\n044     \"\"\"\n045     Heun Integration\n046     ================\n047     \"\"\"\n048     t, noise = external_input\n049 \n050     params_dfun, params_cfun, params_stimulus = params_integrate\n051 \n052     history, current_state = state\n053     stimulus = 0\n054 \n055     inf = jnp.inf\n056     min_bounds = jnp.array([[[0.0]]])\n057     max_bounds = jnp.array([[[1.0]]])\n058 \n059     cX = jax.vmap(cfun, in_axes=(None, -1, -1, None, None, None), out_axes=-\n060                   1)(weights, history, current_state, params_cfun, delay_indices, t)\n061 \n062     dX0 = dfun(current_state, cX, params_dfun)\n063 \n064     X = current_state\n065 \n066     # Calculate intermediate step X1\n067     X1 = X + dX0 * dt + noise + stimulus * dt\n068     X1 = jnp.clip(X1, min_bounds, max_bounds)\n069 \n070     # Calculate derivative X1\n071     dX1 = dfun(X1, cX, params_dfun)\n072     # Calculate the state change dX\n073     dX = (dX0 + dX1) * (dt / 2)\n074     next_state = current_state + (dX) + noise\n075     next_state = jnp.clip(next_state, min_bounds, max_bounds)\n076 \n077     return (history, next_state), next_state\n078 \n079 \n080 timeseries = namedtuple(\"timeseries\", [\"time\", \"trace\"])\n081 \n082 \n083 def monitor_raw_0(time_steps, trace, params, t_offset=0):\n084     dt = 4.0\n085     return TimeSeries(time=(time_steps + t_offset) * dt, data=trace, title=\"Raw\")\n086 \n087 \n088 def monitor_temporal_average_1(time_steps, trace, params, t_offset=0):\n089     dt = 4.0\n090     voi = jnp.array([0])\n091     istep = 1\n092     t_map = time_steps[::istep] - 1\n093 \n094     def op(ts):\n095         start_indices = (ts,) + (0,) * (trace.ndim - 1)\n096         slice_sizes = (istep,) + voi.shape + trace.shape[2:]\n097         return jnp.mean(jax.lax.dynamic_slice(trace[:, voi, :], start_indices, slice_sizes), axis=0)\n098     vmap_op = jax.vmap(op)\n099     trace_out = vmap_op(t_map)\n100 \n101     idxs = jnp.arange(((istep - 2) // 2), time_steps.shape[0], istep)\n102     return TimeSeries(time=(time_steps[idxs]) * dt, data=trace_out[0:idxs.shape[0], :, :], title=\"TemporalAverage\")\n103 \n104 \n105 exp, sin, sqrt = jnp.exp, jnp.sin, jnp.sqrt\n106 \n107 \n108 def monitor_bold_1(time_steps, trace, params, t_offset=0):\n109     # downsampling via temporal average / subsample\n110     dt = 4.0\n111     voi = jnp.array([0])\n112     period = 1000.0  # sampling period of the BOLD Monitor in ms\n113     istep_int = 1  # steps taken by the averaging/subsampling monitor to get an interim period of 4 ms\n114     istep = 250\n115     final_istep = 250  # steps to take on the downsampled signal\n116 \n117     res = monitor_temporal_average_1(time_steps, trace, None)\n118     time_steps_i = res.time\n119     trace_new = res.data\n120 \n121     time_steps_new = time_steps[jnp.arange(\n122         istep-1, time_steps.shape[0], istep)]\n123 \n124     # hemodynamic response function\n125     tau_s = params.tau_s\n126     tau_f = params.tau_f\n127     k_1 = params.k_1\n128     V_0 = params.V_0\n129     stock = params.stock\n130 \n131     trace_new = jnp.vstack([stock, trace_new])\n132 \n133     def op(var): return 1/3. * exp(-0.5*(var / tau_s)) * (sin(sqrt(1. /\n134                                                                    tau_f - 1./(4.*tau_s**2)) * var)) / (sqrt(1./tau_f - 1./(4.*tau_s**2)))\n135     stock_steps = 5000\n136     stock_time_max = 20.0  # stock time has to be in seconds\n137     stock_time_step = stock_time_max / stock_steps\n138     stock_time = jnp.arange(0.0, stock_time_max, stock_time_step)\n139     hrf = op(stock_time)\n140 \n141     # Convolution along time axis\n142     # via fft\n143     def op1(x): return sig.fftconvolve(x, hrf, mode=\"valid\")\n144 \n145     def op2(x): return jax.vmap(op1, in_axes=(\n146         1), out_axes=(1))(x)  # map over nodes\n147     def op3(x): return jax.vmap(op2, in_axes=(1), out_axes=(1))(\n148         x)  # map over state variables\n149     bold = jax.vmap(op3, in_axes=(3), out_axes=(3))(\n150         trace_new)  # map over modes\n151 \n152     bold = k_1 * V_0 * (bold - 1.0)\n153 \n154     bold_idx = jnp.arange(\n155         final_istep-2, time_steps_i.shape[0], final_istep)[0:time_steps_new.shape[0]] + 1\n156     return TimeSeries(time=(time_steps_new + t_offset) * dt, data=bold[bold_idx, :, :], title=\"BOLD\")\n157 \n158 \n159 def transform_parameters(_p):\n160     w, I_o, J_N, a, b, d, gamma, tau_s = _p.w, _p.I_o, _p.J_N, _p.a, _p.b, _p.d, _p.gamma, _p.tau_s\n161 \n162     return _p\n163 \n164 \n165 c_vars = jnp.array([0])\n166 \n167 \n168 def kernel(state):\n169     # problem dimensions\n170     n_nodes = 84\n171     n_svar = 1\n172     n_cvar = 1\n173     n_modes = 1\n174     nh = 1\n175 \n176     # history = current_state\n177     current_state, history = (state.initial_conditions.data[-1], None)\n178 \n179     ics = (history, current_state)\n180     weights = state.connectivity.weights\n181 \n182     dn = jnp.arange(n_nodes) * jnp.ones((n_nodes, n_nodes)).astype(int)\n183     idelays = jnp.round(state.connectivity.lengths /\n184                         state.connectivity.metadata.conduction_speed.value / state.dt).astype(int)\n185     di = -1 * idelays - 1\n186     delay_indices = (di, dn)\n187 \n188     dt = state.dt\n189     nt = state.nt\n190     time_steps = jnp.arange(0, nt)\n191 \n192     key = jax.random.PRNGKey(state.noise.metadata.seed)\n193     _noise = jax.random.normal(key, (nt, n_svar, n_nodes, n_modes))\n194     noise = (jnp.sqrt(dt) * state.noise.sigma[None, ..., None, None]) * _noise\n195 \n196     p = transform_parameters(state.parameters.model)\n197     params_integrate = (p, state.parameters.coupling, state.stimulus)\n198 \n199     def op(ics, external_input): return integrate(ics, weights,\n200                                                   dt, params_integrate, delay_indices, external_input)\n201 \n202     latest_carry, res = jax.lax.scan(op, ics, (time_steps, noise))\n203 \n204     trace = res\n205 \n206     t_offset = 0\n207     time_steps = time_steps + 1\n208 \n209     params_monitors = state.monitor_parameters\n210     result = [monitor_raw_0(time_steps, trace, params_monitors[0], t_offset=t_offset),\n211               monitor_bold_1(time_steps, trace,\n212                              params_monitors[1], t_offset=t_offset),\n213               ]\n214 \n215     return result"
+  },
+  {
+    "objectID": "RWW.html#run-initial-simulation---update-inital-conditions",
+    "href": "RWW.html#run-initial-simulation---update-inital-conditions",
+    "title": "Reduced Wong Wang BOLD FC Optimization",
+    "section": "Run Initial Simulation - Update Inital Conditions",
+    "text": "Run Initial Simulation - Update Inital Conditions\n\n# Run the model and get results\nresult = model(state)\n\n# Use first result as initial conditions for second run\nstate.initial_conditions = result[0]\n# select last 5000 steps as BOLD stock\nstate.monitor_parameters[1][\"stock\"] = result[0].data[-5000:]\nresult2 = model(state)"
+  },
+  {
+    "objectID": "RWW.html#define-observations-and-loss",
+    "href": "RWW.html#define-observations-and-loss",
+    "title": "Reduced Wong Wang BOLD FC Optimization",
+    "section": "Define Observations and Loss",
+    "text": "Define Observations and Loss\n\ndef observation(state):\n    bold = model(state)[1]\n    return obs.fc(bold, skip_t = 20)\n\ndef loss(state):\n    fc = observation(state)\n    # return 1 - obs.fc_corr(fc, fc_target)\n    return obs.rmse(fc, fc_target)"
+  },
+  {
+    "objectID": "RWW.html#parameter-exploration",
+    "href": "RWW.html#parameter-exploration",
+    "title": "Reduced Wong Wang BOLD FC Optimization",
+    "section": "Parameter Exploration",
+    "text": "Parameter Exploration\n\n# Set up parameter ranges for exploration\nstate.parameters.model.w.free = True\nstate.parameters.model.w.low = 0.001\nstate.parameters.model.w.high = 0.7\n\nstate.parameters.coupling.a.free = True\nstate.parameters.coupling.a.low = 0.001\nstate.parameters.coupling.a.high = 0.7\nshow_free_parameters(state)\n\n# Create grid for parameter exploration\n# n = 32\nn = 64\n# _params = copy.deepcopy(state)\n# _params.nt = 10_000  # 10s simulation for better frequency resolution\nparams_set = GridSpace(state, n=n)\n\n@cache(\"explore\", redo = False)\ndef explore():\n    exec = ParallelExecution(loss, params_set, n_pmap=8)\n    # Alternative: Sequential execution\n    # exec = SequentialExecution(loss, params_set)\n    return exec.run()\n\nresults = explore()"
+  },
+  {
+    "objectID": "RWW.html#run-optimization",
+    "href": "RWW.html#run-optimization",
+    "title": "Reduced Wong Wang BOLD FC Optimization",
+    "section": "Run Optimization",
+    "text": "Run Optimization\n\n# Create and run optimizer\ncb = MultiCallback([\n    DefaultPrintCallback(every=10),\n    SavingCallback(key = \"state\", save_fun = lambda *args: args[1]) # save updated state\n])\n\n@cache(\"optimize\", redo = False)\ndef optimize():\n    opt = OptaxOptimizer(loss, optax.adam(0.01, b2 = 0.9999), callback = cb)\n    fitted_state, fitting_data = opt.run(state, max_steps=400)\n    return fitted_state, fitting_data\n\nfitted_state, fitting_data = optimize()"
+  },
+  {
+    "objectID": "RWW.html#refine-optimization-by-setting-regional-parameters",
+    "href": "RWW.html#refine-optimization-by-setting-regional-parameters",
+    "title": "Reduced Wong Wang BOLD FC Optimization",
+    "section": "Refine Optimization by setting Regional Parameters",
+    "text": "Refine Optimization by setting Regional Parameters\n\n# Copy already optimized state and turn parameters regional\n_fitted_state = copy.deepcopy(fitted_state)\n\n_fitted_state.parameters.model.w.free = True\n_fitted_state.parameters.model.w.value = jnp.broadcast_to(_fitted_state.parameters.model.w.value, (84,1))\n_fitted_state.parameters.model.I_o.free = True\n_fitted_state.parameters.model.I_o.value = jnp.broadcast_to(_fitted_state.parameters.model.I_o.value, (84,1))\n_fitted_state.parameters.coupling.a.free = False\n\n\n@cache(\"optimize_het\", redo = False)\ndef optimize():\n    opt = OptaxOptimizer(loss, optax.adam(0.004, b2 = 0.999), callback=cb)\n    fitted_state, fitting_data = opt.run(_fitted_state, max_steps=200)\n    return fitted_state, fitting_data\n\nfitted_state_het, fitting_data_het = optimize()\n\nLoading optimize_het from cache, last modified 2025-06-17 14:09:26.288373"
+  },
+  {
+    "objectID": "api/index.html",
+    "href": "api/index.html",
+    "title": "API Reference",
+    "section": "",
+    "text": "This section provides detailed documentation for the TVBOptim API."
+  },
+  {
+    "objectID": "api/index.html#modules",
+    "href": "api/index.html#modules",
+    "title": "API Reference",
+    "section": "Modules",
+    "text": "Modules\n\nCore: Core optimization functionality\nUtils: Utility functions for optimization"
+  },
+  {
+    "objectID": "api/index.html#overview",
+    "href": "api/index.html#overview",
+    "title": "API Reference",
+    "section": "Overview",
+    "text": "Overview\nTVBOptim is organized into several modules, each providing specific functionality:\n\nThe core module contains the main optimization algorithms and classes\nThe utils module provides helper functions for optimization tasks"
+  },
+  {
+    "objectID": "JR.html",
+    "href": "JR.html",
+    "title": "Jansen-Rit MEG Peak Frequency Optimization",
+    "section": "",
+    "text": "# Create experiment\nexp = SimulationExperiment(\n    model = {\n        \"name\": \"JansenRit\", \n        \"parameters\": {\n            \"a\": {\"name\": \"a\", \"value\": 0.04}, \n            \"b\": {\"name\": \"b\", \"value\": 0.04}, \n            \"mu\": {\"name\": \"mu\", \"value\": 0.15}\n        }\n    },\n    connectivity = {\n        \"parcellation\": {\"atlas\": {\"name\": \"DesikanKilliany\"}}, \n        \"conduction_speed\": {\"name\": \"cs\", \"value\": np.array([3.0])}\n    },\n    coupling = {\n        \"name\": \"SigmoidalJansenRit\", \n        \"parameters\": {\"a\": {\"name\": \"a\", \"value\": 20/458885}}\n    },\n    integration={\n        \"method\": \"Heun\",\n        \"step_size\": 1.0,\n        \"noise\": {\"parameters\": {\"sigma\": {'value': 0.001}}},\n        \"duration\": 1_000\n    },\n    monitors={\"Raw\": {\"name\": \"Raw\"}},\n)\n\n# Finalize configuration\nexp.configure()\n\n\n\n\n\n\n\nNoteTVB-O Model YAML specification\n\n\n\n\n\n\nprint(exp.render_yaml())\n\nid: 1\nmodel:\n  name: JansenRit\n  parameters:\n    a:\n      name: a\n      value: 0.04\n      description: Reciprocal of the time constant of passive membrane and all other\n        spatially distributed delays in the dendritic network. Also called average\n        synaptic time constant.\n      unit: ms^-1\n    b:\n      name: b\n      value: 0.04\n      description: Rate constant of the inhibitory post-synaptic potential (IPSP)\n      unit: ms^-1\n    mu:\n      name: mu\n      value: 0.15\n      description: Mean excitatory external input to the derivative of the state-variable\n        y4_JR (PCs) represented by a pulse density, that consists of activity originating\n        from adjacent and more distant cortical columns, as well as from subcortical\n        structures (e\n      unit: ms^-1\n    A:\n      name: A\n      definition: Maximum amplitude of EPSP [mV]. Also called average synaptic gain.\n      value: 3.25\n      domain:\n        lo: 2.6\n        hi: 9.75\n        step: 0.05\n      description: Maximum amplitude of EPSP [mV]\n      unit: Millivolt\n    B:\n      name: B\n      definition: Maximum amplitude of IPSP [mV]. Also called average synaptic gain.\n      value: 22.0\n      domain:\n        lo: 17.6\n        hi: 110.0\n        step: 0.2\n      description: Maximum amplitude of IPSP [mV]\n      unit: Millivolt\n    J:\n      name: J\n      definition: Average number of synapses between three neuronal populations of\n        the model. It accounts for synaptic phenomena such as neurotransmitter depletion.\n      value: 135.0\n      domain:\n        lo: 65.0\n        hi: 1350.0\n        step: 1.0\n      description: Average number of synapses between three neuronal populations of\n        the model\n    a_1:\n      name: a_1\n      definition: Average probability constant of the number of synapses made by the\n        pyramidal cells to the dendrites of the excitatory interneurons  (feedback\n        excitatory loop). It characterizes the connectivity between the PCs and EINs.\n      value: 1.0\n      domain:\n        lo: 0.5\n        hi: 1.5\n        step: 0.1\n      description: Average probability constant of the number of synapses made by\n        the pyramidal cells to the dendrites of the excitatory interneurons  (feedback\n        excitatory loop)\n    a_2:\n      name: a_2\n      definition: Average probability constant of the number of synapses made by the\n        EINs to the dendrites of the PCs. It characterizes the excitatory connectivity\n        between the EINs and PCs.\n      value: 0.8\n      domain:\n        lo: 0.4\n        hi: 1.2\n        step: 0.1\n      description: Average probability constant of the number of synapses made by\n        the EINs to the dendrites of the PCs\n    a_3:\n      name: a_3\n      definition: Average probability constant of the number of synapses made by the\n        PCs to the dendrites of the IINs. It characterizes the connectivity between\n        the PCs and inhibitory IINs.\n      value: 0.25\n      domain:\n        lo: 0.125\n        hi: 0.375\n        step: 0.005\n      description: Average probability constant of the number of synapses made by\n        the PCs to the dendrites of the IINs\n    a_4:\n      name: a_4\n      definition: Average probability constant of the number of synapses made by the\n        IINs to the dendrites of the PCs. It characterizes the connectivity between\n        the IINs and  PCs.\n      value: 0.25\n      domain:\n        lo: 0.125\n        hi: 0.375\n        step: 0.005\n      description: Average probability constant of the number of synapses made by\n        the IINs to the dendrites of the PCs\n    nu_max:\n      name: nu_max\n      definition: Asymptotic of the sigmoid function Sigm_JR corresponds to the maximum\n        firing rate of the neural populations.\n      value: 0.0025\n      domain:\n        lo: 0.00125\n        hi: 0.00375\n        step: 1.0e-05\n      description: Asymptotic of the sigmoid function Sigm_JR corresponds to the maximum\n        firing rate of the neural populations\n      unit: ms^-1\n    r:\n      name: r\n      definition: Steepness (or gain) parameter of the sigmoid function Sigm_JR.\n      value: 0.56\n      domain:\n        lo: 0.28\n        hi: 0.84\n        step: 0.01\n      description: Steepness (or gain) parameter of the sigmoid function Sigm_JR\n      unit: mV^-1\n    v0:\n      name: v0\n      definition: 'Average firing threshold (PSP) for which half of the firing rate\n        is achieved.\n\n\n        Note:\n\n        - The usual value for this parameter is 6.0 (Jansen et al., 1993; Jansen &\n        Rit, 1995).'\n      value: 5.52\n      domain:\n        lo: 3.12\n        hi: 6.0\n        step: 0.02\n      description: Average firing threshold (PSP) for which half of the firing rate\n        is achieved\n      unit: mV\n  description: 'The Jansen-Rit is a neurophysiologically-inspired neural mass model\n    of a cortical column (or area), developed to simulate the electrical brain activity,\n    i.e., the electroencephalogram (EEG), and evoked-potentials (EPs; Jansen et al.,\n    1993; Jansen & Rit, 1995). It is a 6-dimensional, non-linear, model describing\n    the local average states of three interconnected neural populations: pyramidal\n    cells (PCs), excitatory and inhibitory interneurons (EINs and IINs), interacting\n    through positive and negative feedback loops. The main output of the model is\n    the average membrane potential of the pyramidal cell population, as the sum of\n    the potential of these cells is thought to be the source of the potential recorded\n    in the EEG.'\n  derived_variables:\n    sigma_y0_1:\n      name: sigma_y0_1\n      description: Sigmoid function that transforms the average membrane potential\n        of the PCs populations (y0) into an average firing rate to the excitatory\n        interneurons EINs.\n      equation:\n        lhs: sigma_y0_1\n        rhs: 2.0*nu_max/(exp(r*(-J*a_1*y0 + v0)) + 1.0)\n        latex: false\n      conditional: false\n    sigma_y0_3:\n      name: sigma_y0_3\n      description: Sigmoid function that transforms the average membrane potential\n        of the PCs populations (y0) into an average firing rate to the inhibitory\n        interneurons IINs.\n      equation:\n        lhs: sigma_y0_3\n        rhs: 2.0*nu_max/(exp(r*(-J*a_3*y0 + v0)) + 1.0)\n        latex: false\n      conditional: false\n    sigma_y1_y2:\n      name: sigma_y1_y2\n      description: 'Sigmoid function that transforms the average membrane potential\n        of the interneurons populations (y1-y2)\n\n        into an average firing rate to the PCs.'\n      equation:\n        lhs: sigma_y1_y2\n        rhs: 2.0*nu_max/(exp(r*(v0 - y1 + y2)) + 1.0)\n        latex: false\n      conditional: false\n  coupling_terms:\n    c_pop0:\n      name: c_pop0\n  state_variables:\n    y0:\n      name: y0\n      domain:\n        lo: -1.0\n        hi: 1.0\n      description: First state-variable of the first Jansen-Rit population\n      equation:\n        lhs: Derivative(y0, t)\n        rhs: y3\n        latex: false\n      variable_of_interest: true\n      coupling_variable: false\n      initial_value: 0.1\n    y1:\n      name: y1\n      domain:\n        lo: -500.0\n        hi: 500.0\n      description: First state-variable of the second Jansen-Rit population (EINs)\n      equation:\n        lhs: Derivative(y1, t)\n        rhs: y4\n        latex: false\n      variable_of_interest: true\n      coupling_variable: true\n      initial_value: 0.1\n    y2:\n      name: y2\n      domain:\n        lo: -50.0\n        hi: 50.0\n      description: First state-variable of the third Jansen-Rit population (IINs)\n      equation:\n        lhs: Derivative(y2, t)\n        rhs: y5\n        latex: false\n      variable_of_interest: true\n      coupling_variable: true\n      initial_value: 0.1\n    y3:\n      name: y3\n      domain:\n        lo: -6.0\n        hi: 6.0\n      description: Second state-variable of the first Jansen-Rit population (excitatory\n        PCs)\n      equation:\n        lhs: Derivative(y3, t)\n        rhs: A*a*sigma_y1_y2 - a**2*y0 - 2.0*a*y3\n        latex: false\n      variable_of_interest: true\n      coupling_variable: false\n      initial_value: 0.1\n    y4:\n      name: y4\n      domain:\n        lo: -20.0\n        hi: 20.0\n      description: Second state-variable of the second excitatory Jansen-Rit population\n        (excitatory EINs)\n      equation:\n        lhs: Derivative(y4, t)\n        rhs: A*a*(J*a_2*sigma_y0_1 + c_pop0 + local_coupling*(y1 - y2) + mu) - a**2*y1\n          - 2.0*a*y4\n        latex: false\n      variable_of_interest: true\n      coupling_variable: false\n      initial_value: 0.1\n    y5:\n      name: y5\n      domain:\n        lo: -500.0\n        hi: 500.0\n      description: Second state-variable of the third (inhibitory) Jansen-Rit population\n        (IINs)\n      equation:\n        lhs: Derivative(y5, t)\n        rhs: B*J*a_4*b*sigma_y0_3 - b**2*y2 - 2.0*b*y5\n        latex: false\n      variable_of_interest: true\n      coupling_variable: false\n      initial_value: 0.1\n  number_of_modes: 1\nintegration:\n  duration: 1000.0\n  method: Heun\n  step_size: 1.0\n  noise:\n    parameters:\n      sigma:\n        name: sigma\n        value: 0.001\n    correlated: false\n    gaussian: false\n    additive: true\n    seed: 42\n  transient_time: 0.0\n  scipy_ode_base: false\n  number_of_stages: 1\n  intermediate_expressions:\n    X1:\n      name: X1\n      equation:\n        lhs: X1\n        rhs: X + dX0 * dt + noise + stimulus * dt\n        latex: false\n      conditional: false\n  update_expression:\n    name: dX\n    equation:\n      lhs: X_{t+1}\n      rhs: (dX0 + dX1) * (dt / 2)\n      latex: false\n    conditional: false\n  delayed: true\nconnectivity:\n  number_of_regions: 87\n  parcellation:\n    atlas:\n      name: DesikanKilliany\n  weights:\n    dataLocation: /home/marius/Documents/Projekte/Inversion/tvb-o/tvbo/data/tvbo_data/connectome/space-MNI152Nlin2009c_atlas-DesikanKilliany_desc-dTOR_weights.csv\n  lengths:\n    dataLocation: /home/marius/Documents/Projekte/Inversion/tvb-o/tvbo/data/tvbo_data/connectome/space-MNI152Nlin2009c_atlas-DesikanKilliany_desc-dTOR_lengths.csv\n  conduction_speed:\n    name: cs\n    value: 3.0\ncoupling:\n  name: SigmoidalJansenRit\n  parameters:\n    a:\n      name: a\n      value: 4.3583904464081416e-05\n      description: Scaling of the coupling term\n    cmax:\n      name: cmax\n      value: 0.005\n      description: Maximum of the Sigmoid function\n    r:\n      name: r\n      value: 0.56\n      description: The steepness of the sigmoidal transformation\n    cmin:\n      name: cmin\n      value: 0.0\n      description: minimum of the Sigmoid function\n    midpoint:\n      name: midpoint\n      value: 6.0\n      description: Midpoint of the linear portion of the sigmoid\n  sparse: false\n  pre_expression:\n    rhs: cmin + (cmax - cmin)/(exp(r*(midpoint - (x_j[0] - x_j[1]))) + 1.0)\n    latex: false\n  post_expression:\n    rhs: a*gx\n    latex: false\nmonitors:\n  Raw:\n    name: Raw\n\n\n\n\n\n\n\n\n\n\n\n\nNoteRendered JAX Code\n\n\n\n\n\n\nnumbered_print(exp.render_code(format = \"jax\"))\n\n001 \n002 from collections import namedtuple\n003 import jax\n004 from tvbo.data.types import TimeSeries\n005 import jax.numpy as jnp\n006 import jax.scipy as jsp\n007 \n008 \n009 def cfun(weights, history, current_state, p, delay_indices, t):\n010     n_node = weights.shape[0]\n011     a, cmax, r, cmin, midpoint = p.a, p.cmax, p.r, p.cmin, p.midpoint\n012 \n013     x_j = jnp.array([\n014 \n015         history[0, delay_indices[0].T, delay_indices[1]],\n016 \n017         history[1, delay_indices[0].T, delay_indices[1]],\n018 \n019     ])\n020 \n021     pre = cmin + (cmax - cmin)/(1.0 + jnp.exp(r*(midpoint - x_j[0] + x_j[1])))\n022     # Restore collapsed dimension if necessary\n023     pre = pre.reshape(-1, n_node, n_node)\n024 \n025     def op(x): return jnp.sum(weights * x, axis=-1)\n026     gx = jax.vmap(op, in_axes=0)(pre)\n027     return a*gx\n028 \n029 \n030 def dfun(current_state, cX, _p, local_coupling=0):\n031     a, b, mu, A, B, J, a_1, a_2, a_3, a_4, nu_max, r, v0 = _p.a, _p.b, _p.mu, _p.A, _p.B, _p.J, _p.a_1, _p.a_2, _p.a_3, _p.a_4, _p.nu_max, _p.r, _p.v0\n032     # unpack coupling terms and states as in dfun\n033     c_pop0 = cX[0]\n034 \n035     y0 = current_state[0]\n036     y1 = current_state[1]\n037     y2 = current_state[2]\n038     y3 = current_state[3]\n039     y4 = current_state[4]\n040     y5 = current_state[5]\n041 \n042     # compute internal states for dfun\n043     sigma_y0_1 = 2.0*nu_max/(1.0 + jnp.exp(r*(v0 - J*a_1*y0)))\n044     sigma_y0_3 = 2.0*nu_max/(1.0 + jnp.exp(r*(v0 - J*a_3*y0)))\n045     sigma_y1_y2 = 2.0*nu_max/(1.0 + jnp.exp(r*(v0 + y2 - y1)))\n046 \n047     return jnp.array([\n048         y3,  # y0\n049         y4,  # y1\n050         y5,  # y2\n051         -y0*a**2 - 2.0*a*y3 + A*a*sigma_y1_y2,  # y3\n052         -y1*a**2 - 2.0*a*y4 + A*a *\n053         (c_pop0 + mu + local_coupling*(y1 - y2) + J*a_2*sigma_y0_1),  # y4\n054         -y2*b**2 - 2.0*b*y5 + B*J*a_4*b*sigma_y0_3,  # y5\n055     ])\n056 \n057 \n058 def integrate(state, weights, dt, params_integrate, delay_indices, external_input):\n059     \"\"\"\n060     Heun Integration\n061     ================\n062     \"\"\"\n063     t, noise = external_input\n064 \n065     params_dfun, params_cfun, params_stimulus = params_integrate\n066 \n067     history, current_state = state\n068     stimulus = 0\n069 \n070     cX = jax.vmap(cfun, in_axes=(None, -1, -1, None, None, None), out_axes=-\n071                   1)(weights, history, current_state, params_cfun, delay_indices, t)\n072 \n073     dX0 = dfun(current_state, cX, params_dfun)\n074 \n075     X = current_state\n076 \n077     # Calculate intermediate step X1\n078     X1 = X + dX0 * dt + noise + stimulus * dt\n079 \n080     # Calculate derivative X1\n081     dX1 = dfun(X1, cX, params_dfun)\n082     # Calculate the state change dX\n083     dX = (dX0 + dX1) * (dt / 2)\n084     next_state = current_state + (dX) + noise\n085 \n086     cvar = jnp.array([1, 2])\n087     _h = jnp.roll(history, -1, axis=1)\n088     history = _h.at[:, -1, :].set(next_state[cvar, :])\n089     return (history, next_state), next_state\n090 \n091 \n092 timeseries = namedtuple(\"timeseries\", [\"time\", \"trace\"])\n093 \n094 \n095 def monitor_raw_0(time_steps, trace, params, t_offset=0):\n096     dt = 1.0\n097     return TimeSeries(time=(time_steps + t_offset) * dt, data=trace, title=\"Raw\")\n098 \n099 \n100 def transform_parameters(_p):\n101     a, b, mu, A, B, J, a_1, a_2, a_3, a_4, nu_max, r, v0 = _p.a, _p.b, _p.mu, _p.A, _p.B, _p.J, _p.a_1, _p.a_2, _p.a_3, _p.a_4, _p.nu_max, _p.r, _p.v0\n102 \n103     return _p\n104 \n105 \n106 c_vars = jnp.array([1, 2])\n107 \n108 \n109 def kernel(state):\n110     # problem dimensions\n111     n_nodes = 87\n112     n_svar = 6\n113     n_cvar = 2\n114     n_modes = 1\n115     nh = 110\n116 \n117     current_state, history = (\n118         state.initial_conditions.data[-1], state.initial_conditions.data[-nh:, c_vars].transpose(1, 0, 2, 3))\n119 \n120     ics = (history, current_state)\n121     weights = state.connectivity.weights\n122 \n123     dn = jnp.arange(n_nodes) * jnp.ones((n_nodes, n_nodes)).astype(int)\n124     idelays = jnp.round(state.connectivity.lengths /\n125                         state.connectivity.metadata.conduction_speed.value / state.dt).astype(int)\n126     di = -1 * idelays - 1\n127     delay_indices = (di, dn)\n128 \n129     dt = state.dt\n130     nt = state.nt\n131     time_steps = jnp.arange(0, nt)\n132 \n133     key = jax.random.PRNGKey(state.noise.metadata.seed)\n134     _noise = jax.random.normal(key, (nt, n_svar, n_nodes, n_modes))\n135     noise = (jnp.sqrt(dt) * state.noise.sigma[None, ..., None, None]) * _noise\n136 \n137     p = transform_parameters(state.parameters.model)\n138     params_integrate = (p, state.parameters.coupling, state.stimulus)\n139 \n140     def op(ics, external_input): return integrate(ics, weights,\n141                                                   dt, params_integrate, delay_indices, external_input)\n142 \n143     latest_carry, res = jax.lax.scan(op, ics, (time_steps, noise))\n144 \n145     trace = res\n146 \n147     t_offset = 0\n148     time_steps = time_steps + 1\n149 \n150     params_monitors = state.monitor_parameters\n151     result = monitor_raw_0(\n152         time_steps, trace, params_monitors[0], t_offset=t_offset),\n153 \n154     result = [result[0]]\n155     return result\n\n\n\n\n\n\n\n\n\n\n\nNoteTVB-O Model Report\n\n\n\n\n\n\ndisplay(Markdown(exp.model.generate_report()))\n\n\nThe Jansen-Rit is a neurophysiologically-inspired neural mass model of a cortical column (or area), developed to simulate the electrical brain activity, i.e., the electroencephalogram (EEG), and evoked-potentials (EPs; Jansen et al., 1993; Jansen & Rit, 1995). It is a 6-dimensional, non-linear, model describing the local average states of three interconnected neural populations: pyramidal cells (PCs), excitatory and inhibitory interneurons (EINs and IINs), interacting through positive and negative feedback loops. The main output of the model is the average membrane potential of the pyramidal cell population, as the sum of the potential of these cells is thought to be the source of the potential recorded in the EEG.\n\n\n\n\n\\[\n\\sigma_{y0 1} = \\frac{2.0*\\nu_{max}}{1.0 + e^{r*\\left(v_{0} - J*a_{1}*y_{0}\\right)}}\n\\] \\[\n\\sigma_{y0 3} = \\frac{2.0*\\nu_{max}}{1.0 + e^{r*\\left(v_{0} - J*a_{3}*y_{0}\\right)}}\n\\] \\[\n\\sigma_{y1 y2} = \\frac{2.0*\\nu_{max}}{1.0 + e^{r*\\left(v_{0} + y_{2} - y_{1}\\right)}}\n\\]\n\n\n\n\\[\n\\frac{d}{d t} y_{0} = y_{3}\n\\] \\[\n\\frac{d}{d t} y_{1} = y_{4}\n\\] \\[\n\\frac{d}{d t} y_{2} = y_{5}\n\\] \\[\n\\frac{d}{d t} y_{3} = - y_{0}*a^{2} - 2.0*a*y_{3} + A*a*\\sigma_{y1 y2}\n\\] \\[\n\\frac{d}{d t} y_{4} = - y_{1}*a^{2} - 2.0*a*y_{4} + A*a*\\left(c_{global} + \\mu + c_{local}*\\left(y_{1} - y_{2}\\right) + J*a_{2}*\\sigma_{y0 1}\\right)\n\\] \\[\n\\frac{d}{d t} y_{5} = - y_{2}*b^{2} - 2.0*b*y_{5} + B*J*a_{4}*b*\\sigma_{y0 3}\n\\]\n\n\n\n\n\n\n\n\n\n\n\n\n\nParameter\nValue\nUnit\nDescription\n\n\n\n\n\\(a\\)\n0.04\nms^-1\nReciprocal of the time constant of passive membrane and all other spatially distributed delays in the dendritic network. Also called average synaptic time constant.\n\n\n\\(b\\)\n0.04\nms^-1\nRate constant of the inhibitory post-synaptic potential (IPSP)\n\n\n\\(\\mu\\)\n0.15\nms^-1\nMean excitatory external input to the derivative of the state-variable y4_JR (PCs) represented by a pulse density, that consists of activity originating from adjacent and more distant cortical columns, as well as from subcortical structures (e\n\n\n\\(A\\)\n3.25\nMillivolt\nMaximum amplitude of EPSP [mV]\n\n\n\\(B\\)\n22.0\nMillivolt\nMaximum amplitude of IPSP [mV]\n\n\n\\(J\\)\n135.0\nN/A\nAverage number of synapses between three neuronal populations of the model\n\n\n\\(a_{1}\\)\n1.0\nN/A\nAverage probability constant of the number of synapses made by the pyramidal cells to the dendrites of the excitatory interneurons (feedback excitatory loop)\n\n\n\\(a_{2}\\)\n0.8\nN/A\nAverage probability constant of the number of synapses made by the EINs to the dendrites of the PCs\n\n\n\\(a_{3}\\)\n0.25\nN/A\nAverage probability constant of the number of synapses made by the PCs to the dendrites of the IINs\n\n\n\\(a_{4}\\)\n0.25\nN/A\nAverage probability constant of the number of synapses made by the IINs to the dendrites of the PCs\n\n\n\\(\\nu_{max}\\)\n0.0025\nms^-1\nAsymptotic of the sigmoid function Sigm_JR corresponds to the maximum firing rate of the neural populations\n\n\n\\(r\\)\n0.56\nmV^-1\nSteepness (or gain) parameter of the sigmoid function Sigm_JR\n\n\n\\(v_{0}\\)\n5.52\nmV\nAverage firing threshold (PSP) for which half of the firing rate is achieved\n\n\n\n\n\n\nJansen, B., Zouridakis, G., & Brandt, M. (1993). A neurophysiologically-based mathematical model of flash visual evoked potentials. Biological Cybernetics, 68(3), 275-283.\nJansen, B. & Rit, V. (1995). Electroencephalogram and visual evoked potential generation in a mathematical model of coupled cortical columns. Biological Cybernetics, 73(4), 357-366."
+  },
+  {
+    "objectID": "JR.html#create-tvb-o-simulation-experiment",
+    "href": "JR.html#create-tvb-o-simulation-experiment",
+    "title": "Jansen-Rit MEG Peak Frequency Optimization",
+    "section": "",
+    "text": "# Create experiment\nexp = SimulationExperiment(\n    model = {\n        \"name\": \"JansenRit\", \n        \"parameters\": {\n            \"a\": {\"name\": \"a\", \"value\": 0.04}, \n            \"b\": {\"name\": \"b\", \"value\": 0.04}, \n            \"mu\": {\"name\": \"mu\", \"value\": 0.15}\n        }\n    },\n    connectivity = {\n        \"parcellation\": {\"atlas\": {\"name\": \"DesikanKilliany\"}}, \n        \"conduction_speed\": {\"name\": \"cs\", \"value\": np.array([3.0])}\n    },\n    coupling = {\n        \"name\": \"SigmoidalJansenRit\", \n        \"parameters\": {\"a\": {\"name\": \"a\", \"value\": 20/458885}}\n    },\n    integration={\n        \"method\": \"Heun\",\n        \"step_size\": 1.0,\n        \"noise\": {\"parameters\": {\"sigma\": {'value': 0.001}}},\n        \"duration\": 1_000\n    },\n    monitors={\"Raw\": {\"name\": \"Raw\"}},\n)\n\n# Finalize configuration\nexp.configure()\n\n\n\n\n\n\n\nNoteTVB-O Model YAML specification\n\n\n\n\n\n\nprint(exp.render_yaml())\n\nid: 1\nmodel:\n  name: JansenRit\n  parameters:\n    a:\n      name: a\n      value: 0.04\n      description: Reciprocal of the time constant of passive membrane and all other\n        spatially distributed delays in the dendritic network. Also called average\n        synaptic time constant.\n      unit: ms^-1\n    b:\n      name: b\n      value: 0.04\n      description: Rate constant of the inhibitory post-synaptic potential (IPSP)\n      unit: ms^-1\n    mu:\n      name: mu\n      value: 0.15\n      description: Mean excitatory external input to the derivative of the state-variable\n        y4_JR (PCs) represented by a pulse density, that consists of activity originating\n        from adjacent and more distant cortical columns, as well as from subcortical\n        structures (e\n      unit: ms^-1\n    A:\n      name: A\n      definition: Maximum amplitude of EPSP [mV]. Also called average synaptic gain.\n      value: 3.25\n      domain:\n        lo: 2.6\n        hi: 9.75\n        step: 0.05\n      description: Maximum amplitude of EPSP [mV]\n      unit: Millivolt\n    B:\n      name: B\n      definition: Maximum amplitude of IPSP [mV]. Also called average synaptic gain.\n      value: 22.0\n      domain:\n        lo: 17.6\n        hi: 110.0\n        step: 0.2\n      description: Maximum amplitude of IPSP [mV]\n      unit: Millivolt\n    J:\n      name: J\n      definition: Average number of synapses between three neuronal populations of\n        the model. It accounts for synaptic phenomena such as neurotransmitter depletion.\n      value: 135.0\n      domain:\n        lo: 65.0\n        hi: 1350.0\n        step: 1.0\n      description: Average number of synapses between three neuronal populations of\n        the model\n    a_1:\n      name: a_1\n      definition: Average probability constant of the number of synapses made by the\n        pyramidal cells to the dendrites of the excitatory interneurons  (feedback\n        excitatory loop). It characterizes the connectivity between the PCs and EINs.\n      value: 1.0\n      domain:\n        lo: 0.5\n        hi: 1.5\n        step: 0.1\n      description: Average probability constant of the number of synapses made by\n        the pyramidal cells to the dendrites of the excitatory interneurons  (feedback\n        excitatory loop)\n    a_2:\n      name: a_2\n      definition: Average probability constant of the number of synapses made by the\n        EINs to the dendrites of the PCs. It characterizes the excitatory connectivity\n        between the EINs and PCs.\n      value: 0.8\n      domain:\n        lo: 0.4\n        hi: 1.2\n        step: 0.1\n      description: Average probability constant of the number of synapses made by\n        the EINs to the dendrites of the PCs\n    a_3:\n      name: a_3\n      definition: Average probability constant of the number of synapses made by the\n        PCs to the dendrites of the IINs. It characterizes the connectivity between\n        the PCs and inhibitory IINs.\n      value: 0.25\n      domain:\n        lo: 0.125\n        hi: 0.375\n        step: 0.005\n      description: Average probability constant of the number of synapses made by\n        the PCs to the dendrites of the IINs\n    a_4:\n      name: a_4\n      definition: Average probability constant of the number of synapses made by the\n        IINs to the dendrites of the PCs. It characterizes the connectivity between\n        the IINs and  PCs.\n      value: 0.25\n      domain:\n        lo: 0.125\n        hi: 0.375\n        step: 0.005\n      description: Average probability constant of the number of synapses made by\n        the IINs to the dendrites of the PCs\n    nu_max:\n      name: nu_max\n      definition: Asymptotic of the sigmoid function Sigm_JR corresponds to the maximum\n        firing rate of the neural populations.\n      value: 0.0025\n      domain:\n        lo: 0.00125\n        hi: 0.00375\n        step: 1.0e-05\n      description: Asymptotic of the sigmoid function Sigm_JR corresponds to the maximum\n        firing rate of the neural populations\n      unit: ms^-1\n    r:\n      name: r\n      definition: Steepness (or gain) parameter of the sigmoid function Sigm_JR.\n      value: 0.56\n      domain:\n        lo: 0.28\n        hi: 0.84\n        step: 0.01\n      description: Steepness (or gain) parameter of the sigmoid function Sigm_JR\n      unit: mV^-1\n    v0:\n      name: v0\n      definition: 'Average firing threshold (PSP) for which half of the firing rate\n        is achieved.\n\n\n        Note:\n\n        - The usual value for this parameter is 6.0 (Jansen et al., 1993; Jansen &\n        Rit, 1995).'\n      value: 5.52\n      domain:\n        lo: 3.12\n        hi: 6.0\n        step: 0.02\n      description: Average firing threshold (PSP) for which half of the firing rate\n        is achieved\n      unit: mV\n  description: 'The Jansen-Rit is a neurophysiologically-inspired neural mass model\n    of a cortical column (or area), developed to simulate the electrical brain activity,\n    i.e., the electroencephalogram (EEG), and evoked-potentials (EPs; Jansen et al.,\n    1993; Jansen & Rit, 1995). It is a 6-dimensional, non-linear, model describing\n    the local average states of three interconnected neural populations: pyramidal\n    cells (PCs), excitatory and inhibitory interneurons (EINs and IINs), interacting\n    through positive and negative feedback loops. The main output of the model is\n    the average membrane potential of the pyramidal cell population, as the sum of\n    the potential of these cells is thought to be the source of the potential recorded\n    in the EEG.'\n  derived_variables:\n    sigma_y0_1:\n      name: sigma_y0_1\n      description: Sigmoid function that transforms the average membrane potential\n        of the PCs populations (y0) into an average firing rate to the excitatory\n        interneurons EINs.\n      equation:\n        lhs: sigma_y0_1\n        rhs: 2.0*nu_max/(exp(r*(-J*a_1*y0 + v0)) + 1.0)\n        latex: false\n      conditional: false\n    sigma_y0_3:\n      name: sigma_y0_3\n      description: Sigmoid function that transforms the average membrane potential\n        of the PCs populations (y0) into an average firing rate to the inhibitory\n        interneurons IINs.\n      equation:\n        lhs: sigma_y0_3\n        rhs: 2.0*nu_max/(exp(r*(-J*a_3*y0 + v0)) + 1.0)\n        latex: false\n      conditional: false\n    sigma_y1_y2:\n      name: sigma_y1_y2\n      description: 'Sigmoid function that transforms the average membrane potential\n        of the interneurons populations (y1-y2)\n\n        into an average firing rate to the PCs.'\n      equation:\n        lhs: sigma_y1_y2\n        rhs: 2.0*nu_max/(exp(r*(v0 - y1 + y2)) + 1.0)\n        latex: false\n      conditional: false\n  coupling_terms:\n    c_pop0:\n      name: c_pop0\n  state_variables:\n    y0:\n      name: y0\n      domain:\n        lo: -1.0\n        hi: 1.0\n      description: First state-variable of the first Jansen-Rit population\n      equation:\n        lhs: Derivative(y0, t)\n        rhs: y3\n        latex: false\n      variable_of_interest: true\n      coupling_variable: false\n      initial_value: 0.1\n    y1:\n      name: y1\n      domain:\n        lo: -500.0\n        hi: 500.0\n      description: First state-variable of the second Jansen-Rit population (EINs)\n      equation:\n        lhs: Derivative(y1, t)\n        rhs: y4\n        latex: false\n      variable_of_interest: true\n      coupling_variable: true\n      initial_value: 0.1\n    y2:\n      name: y2\n      domain:\n        lo: -50.0\n        hi: 50.0\n      description: First state-variable of the third Jansen-Rit population (IINs)\n      equation:\n        lhs: Derivative(y2, t)\n        rhs: y5\n        latex: false\n      variable_of_interest: true\n      coupling_variable: true\n      initial_value: 0.1\n    y3:\n      name: y3\n      domain:\n        lo: -6.0\n        hi: 6.0\n      description: Second state-variable of the first Jansen-Rit population (excitatory\n        PCs)\n      equation:\n        lhs: Derivative(y3, t)\n        rhs: A*a*sigma_y1_y2 - a**2*y0 - 2.0*a*y3\n        latex: false\n      variable_of_interest: true\n      coupling_variable: false\n      initial_value: 0.1\n    y4:\n      name: y4\n      domain:\n        lo: -20.0\n        hi: 20.0\n      description: Second state-variable of the second excitatory Jansen-Rit population\n        (excitatory EINs)\n      equation:\n        lhs: Derivative(y4, t)\n        rhs: A*a*(J*a_2*sigma_y0_1 + c_pop0 + local_coupling*(y1 - y2) + mu) - a**2*y1\n          - 2.0*a*y4\n        latex: false\n      variable_of_interest: true\n      coupling_variable: false\n      initial_value: 0.1\n    y5:\n      name: y5\n      domain:\n        lo: -500.0\n        hi: 500.0\n      description: Second state-variable of the third (inhibitory) Jansen-Rit population\n        (IINs)\n      equation:\n        lhs: Derivative(y5, t)\n        rhs: B*J*a_4*b*sigma_y0_3 - b**2*y2 - 2.0*b*y5\n        latex: false\n      variable_of_interest: true\n      coupling_variable: false\n      initial_value: 0.1\n  number_of_modes: 1\nintegration:\n  duration: 1000.0\n  method: Heun\n  step_size: 1.0\n  noise:\n    parameters:\n      sigma:\n        name: sigma\n        value: 0.001\n    correlated: false\n    gaussian: false\n    additive: true\n    seed: 42\n  transient_time: 0.0\n  scipy_ode_base: false\n  number_of_stages: 1\n  intermediate_expressions:\n    X1:\n      name: X1\n      equation:\n        lhs: X1\n        rhs: X + dX0 * dt + noise + stimulus * dt\n        latex: false\n      conditional: false\n  update_expression:\n    name: dX\n    equation:\n      lhs: X_{t+1}\n      rhs: (dX0 + dX1) * (dt / 2)\n      latex: false\n    conditional: false\n  delayed: true\nconnectivity:\n  number_of_regions: 87\n  parcellation:\n    atlas:\n      name: DesikanKilliany\n  weights:\n    dataLocation: /home/marius/Documents/Projekte/Inversion/tvb-o/tvbo/data/tvbo_data/connectome/space-MNI152Nlin2009c_atlas-DesikanKilliany_desc-dTOR_weights.csv\n  lengths:\n    dataLocation: /home/marius/Documents/Projekte/Inversion/tvb-o/tvbo/data/tvbo_data/connectome/space-MNI152Nlin2009c_atlas-DesikanKilliany_desc-dTOR_lengths.csv\n  conduction_speed:\n    name: cs\n    value: 3.0\ncoupling:\n  name: SigmoidalJansenRit\n  parameters:\n    a:\n      name: a\n      value: 4.3583904464081416e-05\n      description: Scaling of the coupling term\n    cmax:\n      name: cmax\n      value: 0.005\n      description: Maximum of the Sigmoid function\n    r:\n      name: r\n      value: 0.56\n      description: The steepness of the sigmoidal transformation\n    cmin:\n      name: cmin\n      value: 0.0\n      description: minimum of the Sigmoid function\n    midpoint:\n      name: midpoint\n      value: 6.0\n      description: Midpoint of the linear portion of the sigmoid\n  sparse: false\n  pre_expression:\n    rhs: cmin + (cmax - cmin)/(exp(r*(midpoint - (x_j[0] - x_j[1]))) + 1.0)\n    latex: false\n  post_expression:\n    rhs: a*gx\n    latex: false\nmonitors:\n  Raw:\n    name: Raw\n\n\n\n\n\n\n\n\n\n\n\n\nNoteRendered JAX Code\n\n\n\n\n\n\nnumbered_print(exp.render_code(format = \"jax\"))\n\n001 \n002 from collections import namedtuple\n003 import jax\n004 from tvbo.data.types import TimeSeries\n005 import jax.numpy as jnp\n006 import jax.scipy as jsp\n007 \n008 \n009 def cfun(weights, history, current_state, p, delay_indices, t):\n010     n_node = weights.shape[0]\n011     a, cmax, r, cmin, midpoint = p.a, p.cmax, p.r, p.cmin, p.midpoint\n012 \n013     x_j = jnp.array([\n014 \n015         history[0, delay_indices[0].T, delay_indices[1]],\n016 \n017         history[1, delay_indices[0].T, delay_indices[1]],\n018 \n019     ])\n020 \n021     pre = cmin + (cmax - cmin)/(1.0 + jnp.exp(r*(midpoint - x_j[0] + x_j[1])))\n022     # Restore collapsed dimension if necessary\n023     pre = pre.reshape(-1, n_node, n_node)\n024 \n025     def op(x): return jnp.sum(weights * x, axis=-1)\n026     gx = jax.vmap(op, in_axes=0)(pre)\n027     return a*gx\n028 \n029 \n030 def dfun(current_state, cX, _p, local_coupling=0):\n031     a, b, mu, A, B, J, a_1, a_2, a_3, a_4, nu_max, r, v0 = _p.a, _p.b, _p.mu, _p.A, _p.B, _p.J, _p.a_1, _p.a_2, _p.a_3, _p.a_4, _p.nu_max, _p.r, _p.v0\n032     # unpack coupling terms and states as in dfun\n033     c_pop0 = cX[0]\n034 \n035     y0 = current_state[0]\n036     y1 = current_state[1]\n037     y2 = current_state[2]\n038     y3 = current_state[3]\n039     y4 = current_state[4]\n040     y5 = current_state[5]\n041 \n042     # compute internal states for dfun\n043     sigma_y0_1 = 2.0*nu_max/(1.0 + jnp.exp(r*(v0 - J*a_1*y0)))\n044     sigma_y0_3 = 2.0*nu_max/(1.0 + jnp.exp(r*(v0 - J*a_3*y0)))\n045     sigma_y1_y2 = 2.0*nu_max/(1.0 + jnp.exp(r*(v0 + y2 - y1)))\n046 \n047     return jnp.array([\n048         y3,  # y0\n049         y4,  # y1\n050         y5,  # y2\n051         -y0*a**2 - 2.0*a*y3 + A*a*sigma_y1_y2,  # y3\n052         -y1*a**2 - 2.0*a*y4 + A*a *\n053         (c_pop0 + mu + local_coupling*(y1 - y2) + J*a_2*sigma_y0_1),  # y4\n054         -y2*b**2 - 2.0*b*y5 + B*J*a_4*b*sigma_y0_3,  # y5\n055     ])\n056 \n057 \n058 def integrate(state, weights, dt, params_integrate, delay_indices, external_input):\n059     \"\"\"\n060     Heun Integration\n061     ================\n062     \"\"\"\n063     t, noise = external_input\n064 \n065     params_dfun, params_cfun, params_stimulus = params_integrate\n066 \n067     history, current_state = state\n068     stimulus = 0\n069 \n070     cX = jax.vmap(cfun, in_axes=(None, -1, -1, None, None, None), out_axes=-\n071                   1)(weights, history, current_state, params_cfun, delay_indices, t)\n072 \n073     dX0 = dfun(current_state, cX, params_dfun)\n074 \n075     X = current_state\n076 \n077     # Calculate intermediate step X1\n078     X1 = X + dX0 * dt + noise + stimulus * dt\n079 \n080     # Calculate derivative X1\n081     dX1 = dfun(X1, cX, params_dfun)\n082     # Calculate the state change dX\n083     dX = (dX0 + dX1) * (dt / 2)\n084     next_state = current_state + (dX) + noise\n085 \n086     cvar = jnp.array([1, 2])\n087     _h = jnp.roll(history, -1, axis=1)\n088     history = _h.at[:, -1, :].set(next_state[cvar, :])\n089     return (history, next_state), next_state\n090 \n091 \n092 timeseries = namedtuple(\"timeseries\", [\"time\", \"trace\"])\n093 \n094 \n095 def monitor_raw_0(time_steps, trace, params, t_offset=0):\n096     dt = 1.0\n097     return TimeSeries(time=(time_steps + t_offset) * dt, data=trace, title=\"Raw\")\n098 \n099 \n100 def transform_parameters(_p):\n101     a, b, mu, A, B, J, a_1, a_2, a_3, a_4, nu_max, r, v0 = _p.a, _p.b, _p.mu, _p.A, _p.B, _p.J, _p.a_1, _p.a_2, _p.a_3, _p.a_4, _p.nu_max, _p.r, _p.v0\n102 \n103     return _p\n104 \n105 \n106 c_vars = jnp.array([1, 2])\n107 \n108 \n109 def kernel(state):\n110     # problem dimensions\n111     n_nodes = 87\n112     n_svar = 6\n113     n_cvar = 2\n114     n_modes = 1\n115     nh = 110\n116 \n117     current_state, history = (\n118         state.initial_conditions.data[-1], state.initial_conditions.data[-nh:, c_vars].transpose(1, 0, 2, 3))\n119 \n120     ics = (history, current_state)\n121     weights = state.connectivity.weights\n122 \n123     dn = jnp.arange(n_nodes) * jnp.ones((n_nodes, n_nodes)).astype(int)\n124     idelays = jnp.round(state.connectivity.lengths /\n125                         state.connectivity.metadata.conduction_speed.value / state.dt).astype(int)\n126     di = -1 * idelays - 1\n127     delay_indices = (di, dn)\n128 \n129     dt = state.dt\n130     nt = state.nt\n131     time_steps = jnp.arange(0, nt)\n132 \n133     key = jax.random.PRNGKey(state.noise.metadata.seed)\n134     _noise = jax.random.normal(key, (nt, n_svar, n_nodes, n_modes))\n135     noise = (jnp.sqrt(dt) * state.noise.sigma[None, ..., None, None]) * _noise\n136 \n137     p = transform_parameters(state.parameters.model)\n138     params_integrate = (p, state.parameters.coupling, state.stimulus)\n139 \n140     def op(ics, external_input): return integrate(ics, weights,\n141                                                   dt, params_integrate, delay_indices, external_input)\n142 \n143     latest_carry, res = jax.lax.scan(op, ics, (time_steps, noise))\n144 \n145     trace = res\n146 \n147     t_offset = 0\n148     time_steps = time_steps + 1\n149 \n150     params_monitors = state.monitor_parameters\n151     result = monitor_raw_0(\n152         time_steps, trace, params_monitors[0], t_offset=t_offset),\n153 \n154     result = [result[0]]\n155     return result\n\n\n\n\n\n\n\n\n\n\n\nNoteTVB-O Model Report\n\n\n\n\n\n\ndisplay(Markdown(exp.model.generate_report()))\n\n\nThe Jansen-Rit is a neurophysiologically-inspired neural mass model of a cortical column (or area), developed to simulate the electrical brain activity, i.e., the electroencephalogram (EEG), and evoked-potentials (EPs; Jansen et al., 1993; Jansen & Rit, 1995). It is a 6-dimensional, non-linear, model describing the local average states of three interconnected neural populations: pyramidal cells (PCs), excitatory and inhibitory interneurons (EINs and IINs), interacting through positive and negative feedback loops. The main output of the model is the average membrane potential of the pyramidal cell population, as the sum of the potential of these cells is thought to be the source of the potential recorded in the EEG.\n\n\n\n\n\\[\n\\sigma_{y0 1} = \\frac{2.0*\\nu_{max}}{1.0 + e^{r*\\left(v_{0} - J*a_{1}*y_{0}\\right)}}\n\\] \\[\n\\sigma_{y0 3} = \\frac{2.0*\\nu_{max}}{1.0 + e^{r*\\left(v_{0} - J*a_{3}*y_{0}\\right)}}\n\\] \\[\n\\sigma_{y1 y2} = \\frac{2.0*\\nu_{max}}{1.0 + e^{r*\\left(v_{0} + y_{2} - y_{1}\\right)}}\n\\]\n\n\n\n\\[\n\\frac{d}{d t} y_{0} = y_{3}\n\\] \\[\n\\frac{d}{d t} y_{1} = y_{4}\n\\] \\[\n\\frac{d}{d t} y_{2} = y_{5}\n\\] \\[\n\\frac{d}{d t} y_{3} = - y_{0}*a^{2} - 2.0*a*y_{3} + A*a*\\sigma_{y1 y2}\n\\] \\[\n\\frac{d}{d t} y_{4} = - y_{1}*a^{2} - 2.0*a*y_{4} + A*a*\\left(c_{global} + \\mu + c_{local}*\\left(y_{1} - y_{2}\\right) + J*a_{2}*\\sigma_{y0 1}\\right)\n\\] \\[\n\\frac{d}{d t} y_{5} = - y_{2}*b^{2} - 2.0*b*y_{5} + B*J*a_{4}*b*\\sigma_{y0 3}\n\\]\n\n\n\n\n\n\n\n\n\n\n\n\n\nParameter\nValue\nUnit\nDescription\n\n\n\n\n\\(a\\)\n0.04\nms^-1\nReciprocal of the time constant of passive membrane and all other spatially distributed delays in the dendritic network. Also called average synaptic time constant.\n\n\n\\(b\\)\n0.04\nms^-1\nRate constant of the inhibitory post-synaptic potential (IPSP)\n\n\n\\(\\mu\\)\n0.15\nms^-1\nMean excitatory external input to the derivative of the state-variable y4_JR (PCs) represented by a pulse density, that consists of activity originating from adjacent and more distant cortical columns, as well as from subcortical structures (e\n\n\n\\(A\\)\n3.25\nMillivolt\nMaximum amplitude of EPSP [mV]\n\n\n\\(B\\)\n22.0\nMillivolt\nMaximum amplitude of IPSP [mV]\n\n\n\\(J\\)\n135.0\nN/A\nAverage number of synapses between three neuronal populations of the model\n\n\n\\(a_{1}\\)\n1.0\nN/A\nAverage probability constant of the number of synapses made by the pyramidal cells to the dendrites of the excitatory interneurons (feedback excitatory loop)\n\n\n\\(a_{2}\\)\n0.8\nN/A\nAverage probability constant of the number of synapses made by the EINs to the dendrites of the PCs\n\n\n\\(a_{3}\\)\n0.25\nN/A\nAverage probability constant of the number of synapses made by the PCs to the dendrites of the IINs\n\n\n\\(a_{4}\\)\n0.25\nN/A\nAverage probability constant of the number of synapses made by the IINs to the dendrites of the PCs\n\n\n\\(\\nu_{max}\\)\n0.0025\nms^-1\nAsymptotic of the sigmoid function Sigm_JR corresponds to the maximum firing rate of the neural populations\n\n\n\\(r\\)\n0.56\nmV^-1\nSteepness (or gain) parameter of the sigmoid function Sigm_JR\n\n\n\\(v_{0}\\)\n5.52\nmV\nAverage firing threshold (PSP) for which half of the firing rate is achieved\n\n\n\n\n\n\nJansen, B., Zouridakis, G., & Brandt, M. (1993). A neurophysiologically-based mathematical model of flash visual evoked potentials. Biological Cybernetics, 68(3), 275-283.\nJansen, B. & Rit, V. (1995). Electroencephalogram and visual evoked potential generation in a mathematical model of coupled cortical columns. Biological Cybernetics, 73(4), 357-366."
+  },
+  {
+    "objectID": "JR.html#equations",
+    "href": "JR.html#equations",
+    "title": "Jansen-Rit MEG Peak Frequency Optimization",
+    "section": "",
+    "text": "\\[\n\\sigma_{y0 1} = \\frac{2.0*\\nu_{max}}{1.0 + e^{r*\\left(v_{0} - J*a_{1}*y_{0}\\right)}}\n\\] \\[\n\\sigma_{y0 3} = \\frac{2.0*\\nu_{max}}{1.0 + e^{r*\\left(v_{0} - J*a_{3}*y_{0}\\right)}}\n\\] \\[\n\\sigma_{y1 y2} = \\frac{2.0*\\nu_{max}}{1.0 + e^{r*\\left(v_{0} + y_{2} - y_{1}\\right)}}\n\\]\n\n\n\n\\[\n\\frac{d}{d t} y_{0} = y_{3}\n\\] \\[\n\\frac{d}{d t} y_{1} = y_{4}\n\\] \\[\n\\frac{d}{d t} y_{2} = y_{5}\n\\] \\[\n\\frac{d}{d t} y_{3} = - y_{0}*a^{2} - 2.0*a*y_{3} + A*a*\\sigma_{y1 y2}\n\\] \\[\n\\frac{d}{d t} y_{4} = - y_{1}*a^{2} - 2.0*a*y_{4} + A*a*\\left(c_{global} + \\mu + c_{local}*\\left(y_{1} - y_{2}\\right) + J*a_{2}*\\sigma_{y0 1}\\right)\n\\] \\[\n\\frac{d}{d t} y_{5} = - y_{2}*b^{2} - 2.0*b*y_{5} + B*J*a_{4}*b*\\sigma_{y0 3}\n\\]"
+  },
+  {
+    "objectID": "JR.html#parameters",
+    "href": "JR.html#parameters",
+    "title": "Jansen-Rit MEG Peak Frequency Optimization",
+    "section": "",
+    "text": "Parameter\nValue\nUnit\nDescription\n\n\n\n\n\\(a\\)\n0.04\nms^-1\nReciprocal of the time constant of passive membrane and all other spatially distributed delays in the dendritic network. Also called average synaptic time constant.\n\n\n\\(b\\)\n0.04\nms^-1\nRate constant of the inhibitory post-synaptic potential (IPSP)\n\n\n\\(\\mu\\)\n0.15\nms^-1\nMean excitatory external input to the derivative of the state-variable y4_JR (PCs) represented by a pulse density, that consists of activity originating from adjacent and more distant cortical columns, as well as from subcortical structures (e\n\n\n\\(A\\)\n3.25\nMillivolt\nMaximum amplitude of EPSP [mV]\n\n\n\\(B\\)\n22.0\nMillivolt\nMaximum amplitude of IPSP [mV]\n\n\n\\(J\\)\n135.0\nN/A\nAverage number of synapses between three neuronal populations of the model\n\n\n\\(a_{1}\\)\n1.0\nN/A\nAverage probability constant of the number of synapses made by the pyramidal cells to the dendrites of the excitatory interneurons (feedback excitatory loop)\n\n\n\\(a_{2}\\)\n0.8\nN/A\nAverage probability constant of the number of synapses made by the EINs to the dendrites of the PCs\n\n\n\\(a_{3}\\)\n0.25\nN/A\nAverage probability constant of the number of synapses made by the PCs to the dendrites of the IINs\n\n\n\\(a_{4}\\)\n0.25\nN/A\nAverage probability constant of the number of synapses made by the IINs to the dendrites of the PCs\n\n\n\\(\\nu_{max}\\)\n0.0025\nms^-1\nAsymptotic of the sigmoid function Sigm_JR corresponds to the maximum firing rate of the neural populations\n\n\n\\(r\\)\n0.56\nmV^-1\nSteepness (or gain) parameter of the sigmoid function Sigm_JR\n\n\n\\(v_{0}\\)\n5.52\nmV\nAverage firing threshold (PSP) for which half of the firing rate is achieved"
+  },
+  {
+    "objectID": "JR.html#references",
+    "href": "JR.html#references",
+    "title": "Jansen-Rit MEG Peak Frequency Optimization",
+    "section": "",
+    "text": "Jansen, B., Zouridakis, G., & Brandt, M. (1993). A neurophysiologically-based mathematical model of flash visual evoked potentials. Biological Cybernetics, 68(3), 275-283.\nJansen, B. & Rit, V. (1995). Electroencephalogram and visual evoked potential generation in a mathematical model of coupled cortical columns. Biological Cybernetics, 73(4), 357-366."
+  },
+  {
+    "objectID": "JR.html#model-functions",
+    "href": "JR.html#model-functions",
+    "title": "Jansen-Rit MEG Peak Frequency Optimization",
+    "section": "Model Functions",
+    "text": "Model Functions\n\n# Get model and parameters\nmodel, state = jaxify(exp)"
+  },
+  {
+    "objectID": "JR.html#run-initial-simulation",
+    "href": "JR.html#run-initial-simulation",
+    "title": "Jansen-Rit MEG Peak Frequency Optimization",
+    "section": "Run Initial Simulation",
+    "text": "Run Initial Simulation\n\n# Run the model and get results\nresult = model(state)\n\n# Use first result as initial conditions for second run\nstate.initial_conditions = result[0]\nresult2 = model(state)"
+  },
+  {
+    "objectID": "JR.html#spectral-analysis-functions",
+    "href": "JR.html#spectral-analysis-functions",
+    "title": "Jansen-Rit MEG Peak Frequency Optimization",
+    "section": "Spectral Analysis Functions",
+    "text": "Spectral Analysis Functions\n\ndef avg_spectrum(state):\n    raw = model(state)[0]\n    # Subsample by a factor of 10\n    f, Pxx = jax.scipy.signal.welch(raw.data[::10, 0, :, 0].T, fs=100)\n    avg_spectrum = jnp.mean(Pxx, axis=0)\n    return f, avg_spectrum\n\ndef peak_freq(state):\n    f, S = avg_spectrum(state)\n    idx = jnp.argmax(S)\n    f_max = f[idx]\n    return f_max\n\n# Calculate and display spectrum\nf, S = jax.block_until_ready(avg_spectrum(state))"
+  },
+  {
+    "objectID": "JR.html#parameter-exploration",
+    "href": "JR.html#parameter-exploration",
+    "title": "Jansen-Rit MEG Peak Frequency Optimization",
+    "section": "Parameter Exploration",
+    "text": "Parameter Exploration\n\n# Set up parameter ranges for exploration\nstate.parameters.model.a.free = True\nstate.parameters.model.a.low = 0.001\nstate.parameters.model.a.high = 0.2\n\nstate.parameters.model.b.free = True\nstate.parameters.model.b.low = 0.001\nstate.parameters.model.b.high = 0.2\nshow_free_parameters(state)\n\n# Create grid for parameter exploration\nn = 32\n_params = copy.deepcopy(state)\n_params.nt = 10_000  # 10s simulation for better frequency resolution\nparams_set = GridSpace(_params, n=n)\n\n@cache(\"explore\", redo = False)\ndef explore():\n    parexec = zarallelExecution(peak_freq, params_set, n_pmap=8)\n    return parexec.run()\n    # Alternative: Sequential execution\n    # sqexec = SequentialExecution(jax.jit(peak_freq), params_set)\n    # return sqexec.run()\n\nexploration_result = explore()"
+  },
+  {
+    "objectID": "JR.html#visualize-exploration-results",
+    "href": "JR.html#visualize-exploration-results",
+    "title": "Jansen-Rit MEG Peak Frequency Optimization",
+    "section": "Visualize Exploration Results",
+    "text": "Visualize Exploration Results"
+  },
+  {
+    "objectID": "JR.html#create-target-spectrum",
+    "href": "JR.html#create-target-spectrum",
+    "title": "Jansen-Rit MEG Peak Frequency Optimization",
+    "section": "Create Target Spectrum",
+    "text": "Create Target Spectrum"
+  },
+  {
+    "objectID": "JR.html#define-loss-function",
+    "href": "JR.html#define-loss-function",
+    "title": "Jansen-Rit MEG Peak Frequency Optimization",
+    "section": "Define Loss Function",
+    "text": "Define Loss Function\n\n# Define loss function as 1 minus correlation coefficient\ndef loss(state):\n    f, S = avg_spectrum(state)\n    return 1-jnp.corrcoef(S, target)[0, 1]\n\n# Test loss function\nloss(state)\n\nArray(1.06076007, dtype=float64)"
+  },
+  {
+    "objectID": "JR.html#run-optimization",
+    "href": "JR.html#run-optimization",
+    "title": "Jansen-Rit MEG Peak Frequency Optimization",
+    "section": "Run Optimization",
+    "text": "Run Optimization\n\n# Create and run optimizer\ncb = MultiCallback([\n    DefaultPrintCallback(),\n    SavingCallback(key = \"state\", save_fun = lambda *args: args[1]) # save updated state\n])\n\n@cache(\"optimize\", redo = False)\ndef optimize():\n    opt = OptaxOptimizer(loss, optax.adam(0.005), callback = cb)\n    fitted_params, fitting_data = opt.run(state, max_steps=15)\n    return fitted_params, fitting_data\n\nfitted_params, fitting_data = optimize()"
+  },
+  {
+    "objectID": "JR.html#visualize-optimization-results",
+    "href": "JR.html#visualize-optimization-results",
+    "title": "Jansen-Rit MEG Peak Frequency Optimization",
+    "section": "Visualize Optimization Results",
+    "text": "Visualize Optimization Results"
+  },
+  {
+    "objectID": "JR.html#fit-the-grid",
+    "href": "JR.html#fit-the-grid",
+    "title": "Jansen-Rit MEG Peak Frequency Optimization",
+    "section": "Fit the Grid",
+    "text": "Fit the Grid\n\n# Create grid for parameter exploration\nn_grid = 8\nparams_set = GridSpace(state, n=n_grid)\n\n@cache(\"optimize_grid\", redo = False)\ndef optimize_grid():\n    opt = OptaxOptimizer(loss, optax.adam(0.0025))\n    # exec = SequentialExecution(opt.run, params_set, max_steps=20)\n    t1 = time.time()\n    exec = ParallelExecution(opt.run, params_set, n_pmap=4, max_steps=20)\n    res = exec.run()\n    t2 = time.time()\n    return (t2-t1), res\n\nt, res = optimize_grid()\nt\n\n\n\n/tmp/ipykernel_152823/1938800275.py:72: UserWarning:\n\nThis figure includes Axes that are not compatible with tight_layout, so results might be incorrect."
+  },
+  {
+    "objectID": "reference/types.stateutils.html",
+    "href": "reference/types.stateutils.html",
+    "title": "",
+    "section": "",
+    "text": "Code\n\n\n\n\n\ntypes.stateutils\ntypes.stateutils",
+    "crumbs": [
+      "Reference",
+      "Utilities",
+      "types.stateutils"
+    ]
+  },
+  {
+    "objectID": "reference/spaces.html",
+    "href": "reference/spaces.html",
+    "title": "",
+    "section": "",
+    "text": "Code\n\n\n\n\n\nspaces\nspaces"
+  },
+  {
+    "objectID": "reference/index.html",
+    "href": "reference/index.html",
+    "title": "",
+    "section": "",
+    "text": "Code",
+    "crumbs": [
+      "Reference"
+    ]
+  },
+  {
+    "objectID": "reference/index.html#jaxify",
+    "href": "reference/index.html#jaxify",
+    "title": "",
+    "section": "Jaxify",
+    "text": "Jaxify\nThe entrypoint from TVB-O to the JAX domain\n\n\n\njaxify\nConvert TVBO SimulationExperiment to JAX-compatible model function and a state.",
+    "crumbs": [
+      "Reference"
+    ]
+  },
+  {
+    "objectID": "reference/index.html#parameter",
+    "href": "reference/index.html#parameter",
+    "title": "",
+    "section": "Parameter",
+    "text": "Parameter\nBase Class wrapping a JAX array for extra capabilities.\n\n\n\nParameter\nClass representing a parameter.",
+    "crumbs": [
+      "Reference"
+    ]
+  },
+  {
+    "objectID": "reference/index.html#spaces",
+    "href": "reference/index.html#spaces",
+    "title": "",
+    "section": "Spaces",
+    "text": "Spaces\nA space is a collection of states that a function can be applied over.\n\n\n\nspaces.DataSpace\nA Space of data for parallel execution over parameter sets.\n\n\nspaces.GridSpace\nA Space for systematic grid sampling over parameter bounds.\n\n\nspaces.UniformSpace\nA Space for uniform random sampling over parameter bounds.",
+    "crumbs": [
+      "Reference"
+    ]
+  },
+  {
+    "objectID": "reference/index.html#executors-results",
+    "href": "reference/index.html#executors-results",
+    "title": "",
+    "section": "Executors & Results",
+    "text": "Executors & Results\nExecutors are used to apply a function over a state space.\n\n\n\nexecution.SequentialExecution\nSequential execution of models across parameter spaces with progress tracking.\n\n\nexecution.ParallelExecution\nEfficient parallel execution of models across parameter spaces using JAX.",
+    "crumbs": [
+      "Reference"
+    ]
+  },
+  {
+    "objectID": "reference/index.html#optimization",
+    "href": "reference/index.html#optimization",
+    "title": "",
+    "section": "Optimization",
+    "text": "Optimization\nEverything needed to perform a gradient descent based optimization.\n\n\n\noptim.OptaxOptimizer\nJAX-based parameter optimization using Optax optimizers with automatic differentiation.\n\n\noptim.callbacks",
+    "crumbs": [
+      "Reference"
+    ]
+  },
+  {
+    "objectID": "reference/index.html#utilities",
+    "href": "reference/index.html#utilities",
+    "title": "",
+    "section": "Utilities",
+    "text": "Utilities\nYour little helpers.\n\n\n\nutils.caching\n\n\n\nutils.utils\n\n\n\ntypes.stateutils",
+    "crumbs": [
+      "Reference"
+    ]
+  },
+  {
+    "objectID": "reference/jaxify.html",
+    "href": "reference/jaxify.html",
+    "title": "",
+    "section": "",
+    "text": "Code",
+    "crumbs": [
+      "Reference",
+      "Jaxify",
+      "jaxify"
+    ]
+  },
+  {
+    "objectID": "reference/jaxify.html#parameters",
+    "href": "reference/jaxify.html#parameters",
+    "title": "",
+    "section": "Parameters",
+    "text": "Parameters\n\n\n\nName\nType\nDescription\nDefault\n\n\n\n\nexperiment\nTVBO SimulationExperiment\nTVBO SimulationExperiment to convert.\nrequired\n\n\nenable_x64\nbool\nIf True, use float64 precision; otherwise float32. Transforms all arrays in state to correct precision and set jax config jax_enable_x64. Default is True.\nTrue\n\n\nreplace_temporal_averaging\nbool\nIf False, BOLD uses TemporalAverage monitor as TVB does. If True, uses faster SubSample monitor with similar results.\nrequired\n\n\nreturn_new_ics\nbool\nIf True, model returns an updated initial conditions TimeSeries along with simulation output for continuing simulations. Changes output from result to [result, initial_conditions].\nrequired\n\n\nscalar_pre\nbool\nIf True, applies performance optimization replacing dot product with matmul in coupling term. Only works with scalar-only pre expressions, no delays, and when pre expression has single x_j occurrence.\nrequired\n\n\nbold_fft_convolve\nbool\nIf True, BOLD monitor uses FFT convolution instead of dot product. Faster for most cases, time doesn’t scale with BOLD period. Dot product can be faster for large period values.\nrequired\n\n\nsmall_dt\nbool\nUses full history storage for faster simulations at small dt. Can cause memory explosion under jax.grad transformation.\nrequired\n\n\n**kwargs\ndict\nAdditional keyword arguments passed to downstream functions.\n{}",
+    "crumbs": [
+      "Reference",
+      "Jaxify",
+      "jaxify"
+    ]
+  },
+  {
+    "objectID": "reference/jaxify.html#returns",
+    "href": "reference/jaxify.html#returns",
+    "title": "",
+    "section": "Returns",
+    "text": "Returns\n\n\n\nName\nType\nDescription\n\n\n\n\n\ntuple\nA tuple containing (model_function, state_collection) where model_function takes state_collection and returns simulation results. Usage: result = model_function(state_collection)",
+    "crumbs": [
+      "Reference",
+      "Jaxify",
+      "jaxify"
+    ]
+  },
+  {
+    "objectID": "reference/spaces.DataSpace.html",
+    "href": "reference/spaces.DataSpace.html",
+    "title": "",
+    "section": "",
+    "text": "Code",
+    "crumbs": [
+      "Reference",
+      "Spaces",
+      "spaces.DataSpace"
+    ]
+  },
+  {
+    "objectID": "reference/spaces.DataSpace.html#parameters",
+    "href": "reference/spaces.DataSpace.html#parameters",
+    "title": "",
+    "section": "Parameters",
+    "text": "Parameters\n\n\n\nName\nType\nDescription\nDefault\n\n\n\n\nstate\nPyTree\nThe initial state containing parameter data. All free parameters must have the same size in the first dimension (data dimension).\nrequired",
+    "crumbs": [
+      "Reference",
+      "Spaces",
+      "spaces.DataSpace"
+    ]
+  },
+  {
+    "objectID": "reference/spaces.DataSpace.html#attributes",
+    "href": "reference/spaces.DataSpace.html#attributes",
+    "title": "",
+    "section": "Attributes",
+    "text": "Attributes\n\n\n\nName\nType\nDescription\n\n\n\n\nstate\nPyTree\nThe original input state.\n\n\nN\nint\nNumber of data points (size of first dimension).",
+    "crumbs": [
+      "Reference",
+      "Spaces",
+      "spaces.DataSpace"
+    ]
+  },
+  {
+    "objectID": "reference/spaces.DataSpace.html#raises",
+    "href": "reference/spaces.DataSpace.html#raises",
+    "title": "",
+    "section": "Raises",
+    "text": "Raises\n\n\n\nName\nType\nDescription\n\n\n\n\n\nAssertionError\nIf free parameters don’t have the same number of data points in the first dimension.",
+    "crumbs": [
+      "Reference",
+      "Spaces",
+      "spaces.DataSpace"
+    ]
+  },
+  {
+    "objectID": "reference/spaces.DataSpace.html#examples",
+    "href": "reference/spaces.DataSpace.html#examples",
+    "title": "",
+    "section": "Examples",
+    "text": "Examples\n&gt;&gt;&gt; import jax.numpy as jnp\n&gt;&gt;&gt; state = {'param1': jnp.array([[1, 2], [3, 4], [5, 6]]),\n...          'param2': jnp.array([0.1, 0.2, 0.3])}\n&gt;&gt;&gt; ds = DataSpace(state)\n&gt;&gt;&gt; ds.N\n3\n&gt;&gt;&gt; single_state = ds[0]  # Get first parameter set\n&gt;&gt;&gt; for state in ds:     # Iterate over all parameter sets\n...     model(state)",
+    "crumbs": [
+      "Reference",
+      "Spaces",
+      "spaces.DataSpace"
+    ]
+  },
+  {
+    "objectID": "reference/spaces.DataSpace.html#methods",
+    "href": "reference/spaces.DataSpace.html#methods",
+    "title": "",
+    "section": "Methods",
+    "text": "Methods\n\n\n\nName\nDescription\n\n\n\n\ncollect\nGenerate and reshape grid points for efficient parallel execution.\n\n\n\n\ncollect\nspaces.DataSpace.collect(n_vmap=None, n_pmap=None, fill_value=jnp.nan)\nGenerate and reshape grid points for efficient parallel execution.\nCreates the full parameter grid and organizes it into a structure optimized for JAX’s vectorization and parallelization primitives.\n\nParameters\n\n\n\nName\nType\nDescription\nDefault\n\n\n\n\nn_vmap\nint\nNumber of states to vectorize over using vmap. If None, defaults to 1.\nNone\n\n\nn_pmap\nint\nNumber of devices for parallel mapping with pmap. If None, defaults to 1.\nNone\n\n\nfill_value\nfloat\nValue used to pad arrays when total requested size exceeds N. Default is jnp.nan.\njnp.nan\n\n\n\n\n\nReturns\n\n\n\nName\nType\nDescription\n\n\n\n\n\nPyTree\nReshaped state with grid points organized as: (n_pmap, n_vmap, n_map, …) where n_map is computed to accommodate all N grid points across the parallel execution strategy.",
+    "crumbs": [
+      "Reference",
+      "Spaces",
+      "spaces.DataSpace"
+    ]
+  },
+  {
+    "objectID": "reference/execution.ParallelExecution.html",
+    "href": "reference/execution.ParallelExecution.html",
+    "title": "",
+    "section": "",
+    "text": "Code",
+    "crumbs": [
+      "Reference",
+      "Executors & Results",
+      "execution.ParallelExecution"
+    ]
+  },
+  {
+    "objectID": "reference/execution.ParallelExecution.html#parameters",
+    "href": "reference/execution.ParallelExecution.html#parameters",
+    "title": "",
+    "section": "Parameters",
+    "text": "Parameters\n\n\n\nName\nType\nDescription\nDefault\n\n\n\n\nmodel\ncallable\nModel function to execute. Should accept a state parameter and return simulation results. Signature: model(state, *args, **kwargs).\nrequired\n\n\nstatespace\nAbstractSpace\nParameter space (DataSpace, UniformSpace, or GridSpace) defining the parameter combinations to execute across.\nrequired\n\n\n*args\ntuple\nPositional arguments passed directly to the model function.\n()\n\n\nn_vmap\nint\nNumber of states to vectorize over using jax.vmap. Controls batch size for vectorized execution within each device. Default is 1.\n1\n\n\nn_pmap\nint\nNumber of devices to parallelize over using jax.pmap. Should typically match the number of available devices. Default is 1.\n1\n\n\n**kwargs\ndict\nKeyword arguments passed directly to the model function.\n{}",
+    "crumbs": [
+      "Reference",
+      "Executors & Results",
+      "execution.ParallelExecution"
+    ]
+  },
+  {
+    "objectID": "reference/execution.ParallelExecution.html#examples",
+    "href": "reference/execution.ParallelExecution.html#examples",
+    "title": "",
+    "section": "Examples",
+    "text": "Examples\n&gt;&gt;&gt; import jax\n&gt;&gt;&gt; import jax.numpy as jnp\n&gt;&gt;&gt; from tvboptim.types.spaces import GridSpace\n&gt;&gt;&gt; from tvboptim.types.parameter import Parameter\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Define a simple model\n&gt;&gt;&gt; def simulate(state):\n...     return state['param1'] * state['param2']\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Create parameter space\n&gt;&gt;&gt; state = {\n...     'param1': Parameter(\"param1\", 0.0, low=0.0, high=1.0, free=True),\n...     'param2': Parameter(\"param2\", 0.0, low=-1.0, high=1.0, free=True)\n... }\n&gt;&gt;&gt; space = GridSpace(state, n=10)  # 100 parameter combinations\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Set up parallel execution\n&gt;&gt;&gt; n_devices = jax.device_count()\n&gt;&gt;&gt; executor = ParallelExecution(\n...     model=simulate,\n...     statespace=space,\n...     n_vmap=5,           # Vectorize over 5 states per device\n...     n_pmap=n_devices    # Use all available devices\n... )\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Execute across all parameter combinations\n&gt;&gt;&gt; results = executor.run()\n&gt;&gt;&gt; \n&gt;&gt;&gt; # Access individual results\n&gt;&gt;&gt; first_result = results[0]\n&gt;&gt;&gt; all_results = list(results)  # Convert to list\n&gt;&gt;&gt; subset_results = results[10:20]  # Slice notation",
+    "crumbs": [
+      "Reference",
+      "Executors & Results",
+      "execution.ParallelExecution"
+    ]
+  },
+  {
+    "objectID": "reference/execution.ParallelExecution.html#notes",
+    "href": "reference/execution.ParallelExecution.html#notes",
+    "title": "",
+    "section": "Notes",
+    "text": "Notes\nFor optimal performance:\n\nSet n_pmap to match the number of available devices - on CPU use the pmap trick to force XLA to use N devices: os.environ[‘XLA_FLAGS’] = f’–xla_force_host_platform_device_count={N}’\nTune n_vmap based on memory constraints and model complexity\n\nThe execution uses jax.block_until_ready() to ensure all computation completes before returning results, providing accurate timing measurements.",
+    "crumbs": [
+      "Reference",
+      "Executors & Results",
+      "execution.ParallelExecution"
+    ]
+  },
+  {
+    "objectID": "reference/execution.ParallelExecution.html#methods",
+    "href": "reference/execution.ParallelExecution.html#methods",
+    "title": "",
+    "section": "Methods",
+    "text": "Methods\n\n\n\nName\nDescription\n\n\n\n\nrun\nExecute the model across all parameter combinations in parallel.\n\n\n\n\nrun\nexecution.ParallelExecution.run()\nExecute the model across all parameter combinations in parallel.",
+    "crumbs": [
+      "Reference",
+      "Executors & Results",
+      "execution.ParallelExecution"
+    ]
+  },
+  {
+    "objectID": "reference/Parameter.html",
+    "href": "reference/Parameter.html",
+    "title": "",
+    "section": "",
+    "text": "Code",
+    "crumbs": [
+      "Reference",
+      "Parameter",
+      "Parameter"
+    ]
+  },
+  {
+    "objectID": "reference/Parameter.html#parameters",
+    "href": "reference/Parameter.html#parameters",
+    "title": "",
+    "section": "Parameters",
+    "text": "Parameters\n\n\n\nName\nType\nDescription\nDefault\n\n\n\n\nname\nstr\nParameter name\nrequired\n\n\nvalue\njax.ndarray\nParameter value\nrequired\n\n\nfree\nbool\nWhether the parameter is free. A free parameter is becomes part of ParameterSpaces and will be part of gradient computations. Defaults to False.\nFalse\n\n\nlow\nfloat\nLower bound of parameter value, relevant information for ParameterSpaces. Defaults to None.\nNone\n\n\nhigh\nfloat\nUpper bound of parameter value, relevant information for ParameterSpaces. Defaults to None.\nNone\n\n\ndoc\nstr\nDocumentation string for the parameter. Defaults to None.\nNone",
+    "crumbs": [
+      "Reference",
+      "Parameter",
+      "Parameter"
+    ]
+  },
+  {
+    "objectID": "reference/model.html",
+    "href": "reference/model.html",
+    "title": "",
+    "section": "",
+    "text": "Code"
+  },
+  {
+    "objectID": "reference/model.html#functions",
+    "href": "reference/model.html#functions",
+    "title": "",
+    "section": "Functions",
+    "text": "Functions\n\n\n\nName\nDescription\n\n\n\n\njaxify\nConvert TVBO SimulationExperiment to JAX-compatible model function and a state.\n\n\n\n\njaxify\nmodel.jaxify(experiment, enable_x64=True, **kwargs)\nConvert TVBO SimulationExperiment to JAX-compatible model function and a state.\nArgs: experiment: TVBO SimulationExperiment enable_x64: If True, use float64 precision; otherwise float32. Transforms all arrays in state to correct precision and set jax config jax_enable_x64 replace_temporal_averaging (bool): If False, BOLD uses TemporalAverage monitor as TVB does. If True, uses faster SubSample monitor with similar results. return_new_ics (bool): If True, model returns an updated initial conditions TimeSeries along with simulation output for continuing simulations. Changes output from result to [result, initial_conditions]. scalar_pre (bool): If True, applies performance optimization replacing dot product with matmul in coupling term. Only works with scalar-only pre expressions, no delays, and when pre expression has single x_j occurrence. bold_fft_convolve (bool): If True, BOLD monitor uses FFT convolution instead of dot product. Faster for most cases, time doesn’t scale with BOLD period. Dot product can be faster for large period values. small_dt (bool): Uses full history storage for faster simulations at small dt. Can cause memory explosion under jax.grad transformation.\nReturns: tuple: (model_function, state_collection) where model_function takes state_collection and returns simulation results. result = model_function(state_collection)"
+  },
+  {
+    "objectID": "reference/optim.html",
+    "href": "reference/optim.html",
+    "title": "",
+    "section": "",
+    "text": "Code\n\n\n\n\n\noptim\noptim"
+  },
+  {
+    "objectID": "reference/optim.optax.html",
+    "href": "reference/optim.optax.html",
+    "title": "",
+    "section": "",
+    "text": "Code"
+  },
+  {
+    "objectID": "reference/optim.optax.html#classes",
+    "href": "reference/optim.optax.html#classes",
+    "title": "",
+    "section": "Classes",
+    "text": "Classes\n\n\n\nName\nDescription\n\n\n\n\nOptaxOptimizer"
+  },
+  {
+    "objectID": "reference/optim.optax.html#tvboptim.optim.optax.OptaxOptimizer",
+    "href": "reference/optim.optax.html#tvboptim.optim.optax.OptaxOptimizer",
+    "title": "",
+    "section": "OptaxOptimizer",
+    "text": "OptaxOptimizer\noptim.optax.OptaxOptimizer(loss, optimizer, callback=None, has_aux=False)"
+  }
+]

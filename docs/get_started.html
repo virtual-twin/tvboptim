@@ -1,0 +1,2094 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.8.9">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>Get Started</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="site_libs/quarto-nav/headroom.min.js"></script>
+<script src="site_libs/clipboard/clipboard.min.js"></script>
+<script src="site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="site_libs/quarto-search/fuse.min.js"></script>
+<script src="site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="./">
+<script src="site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="site_libs/quarto-html/axe/axe-check.js" type="module"></script>
+<script src="site_libs/quarto-html/popper.min.js"></script>
+<script src="site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="site_libs/quarto-html/anchor.min.js"></script>
+<link href="site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="site_libs/quarto-html/quarto-syntax-highlighting-06f4ea4aeaed2a477ba1398aef8780a8.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="site_libs/bootstrap/bootstrap-eedbc41ce89a8f7825784d91a4a182bd.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "navbar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "end",
+  "type": "overlay",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+</head>
+
+<body class="nav-fixed quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+    <nav class="navbar navbar-expand-lg " data-bs-theme="dark">
+      <div class="navbar-container container-fluid">
+      <div class="navbar-brand-container mx-auto">
+    <a href="./index.html" class="navbar-brand navbar-brand-logo">
+    <img src="./images/tvboptim_logo_compact.svg" alt="" class="navbar-logo">
+    </a>
+  </div>
+            <div id="quarto-search" class="" title="Search"></div>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" role="menu" aria-expanded="false" aria-label="Toggle navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+  <span class="navbar-toggler-icon"></span>
+</button>
+          <div class="collapse navbar-collapse" id="navbarCollapse">
+            <ul class="navbar-nav navbar-nav-scroll me-auto">
+  <li class="nav-item">
+    <a class="nav-link active" href="./get_started.html" aria-current="page"> 
+<span class="menu-text">Get started</span></a>
+  </li>  
+  <li class="nav-item dropdown ">
+    <a class="nav-link dropdown-toggle" href="#" id="nav-menu-workflows" role="link" data-bs-toggle="dropdown" aria-expanded="false">
+ <span class="menu-text">Workflows</span>
+    </a>
+    <ul class="dropdown-menu" aria-labelledby="nav-menu-workflows">    
+        <li>
+    <a class="dropdown-item" href="./RWW.html">
+ <span class="dropdown-text">Reduced Wong Wang BOLD FC Optimization</span></a>
+  </li>  
+        <li>
+    <a class="dropdown-item" href="./JR.html">
+ <span class="dropdown-text">Jansen-Rit MEG Peak Frequency Optimization</span></a>
+  </li>  
+        <li class="dropdown-header">EI Tuning</li>
+    </ul>
+  </li>
+  <li class="nav-item dropdown ">
+    <a class="nav-link dropdown-toggle" href="#" id="nav-menu-advanced-topics" role="link" data-bs-toggle="dropdown" aria-expanded="false">
+ <span class="menu-text">Advanced Topics</span>
+    </a>
+    <ul class="dropdown-menu" aria-labelledby="nav-menu-advanced-topics">    
+        <li class="dropdown-header">Performance Tips</li>
+        <li class="dropdown-header">Constraining Parameters</li>
+    </ul>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" href="./reference/index.html"> 
+<span class="menu-text">Reference</span></a>
+  </li>  
+</ul>
+            <ul class="navbar-nav navbar-nav-scroll ms-auto">
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://nono"> <i class="bi bi-github" role="img" aria-label="TVBOptim on GitHub">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+</ul>
+          </div> <!-- /navcollapse -->
+            <div class="quarto-navbar-tools">
+</div>
+      </div> <!-- /container-fluid -->
+    </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
+<!-- sidebar -->
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">On this page</h2>
+   
+  <ul>
+  <li><a href="#installation-requirements" id="toc-installation-requirements" class="nav-link active" data-scroll-target="#installation-requirements">Installation &amp; Requirements</a></li>
+  <li><a href="#create-a-tvbo-simulation-experiment" id="toc-create-a-tvbo-simulation-experiment" class="nav-link" data-scroll-target="#create-a-tvbo-simulation-experiment">Create a TVBO Simulation Experiment</a></li>
+  <li><a href="#get-model-and-state" id="toc-get-model-and-state" class="nav-link" data-scroll-target="#get-model-and-state">Get Model and State</a>
+  <ul class="collapse">
+  <li><a href="#understand-the-state-object-parameters" id="toc-understand-the-state-object-parameters" class="nav-link" data-scroll-target="#understand-the-state-object-parameters">Understand the State Object &amp; Parameters</a></li>
+  <li><a href="#simulate-the-model" id="toc-simulate-the-model" class="nav-link" data-scroll-target="#simulate-the-model">Simulate the Model</a></li>
+  <li><a href="#wrap-the-model-to-create-observations" id="toc-wrap-the-model-to-create-observations" class="nav-link" data-scroll-target="#wrap-the-model-to-create-observations">Wrap the Model to create observations</a></li>
+  <li><a href="#explore-that-across-a-parameter-space" id="toc-explore-that-across-a-parameter-space" class="nav-link" data-scroll-target="#explore-that-across-a-parameter-space">Explore that across a parameter space</a></li>
+  <li><a href="#define-a-loss-and-optimize" id="toc-define-a-loss-and-optimize" class="nav-link" data-scroll-target="#define-a-loss-and-optimize">Define a Loss and Optimize</a></li>
+  <li><a href="#visualize-the-fitted-model" id="toc-visualize-the-fitted-model" class="nav-link" data-scroll-target="#visualize-the-fitted-model">Visualize the Fitted Model</a></li>
+  <li><a href="#heterogeneous-parameters" id="toc-heterogeneous-parameters" class="nav-link" data-scroll-target="#heterogeneous-parameters">Heterogeneous Parameters</a></li>
+  </ul></li>
+  <li><a href="#key-concepts-demonstrated" id="toc-key-concepts-demonstrated" class="nav-link" data-scroll-target="#key-concepts-demonstrated">Key Concepts Demonstrated</a></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<div class="quarto-title-block"><div><h1 class="title">Get Started</h1><button type="button" class="btn code-tools-button dropdown-toggle" id="quarto-code-tools-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi"></i> Code</button><ul class="dropdown-menu dropdown-menu-end" aria-labelelledby="quarto-code-tools-menu"><li><a id="quarto-show-all-code" class="dropdown-item" href="javascript:void(0)" role="button">Show All Code</a></li><li><a id="quarto-hide-all-code" class="dropdown-item" href="javascript:void(0)" role="button">Hide All Code</a></li><li><hr class="dropdown-divider"></li><li><a id="quarto-view-source" class="dropdown-item" href="javascript:void(0)" role="button">View Source</a></li></ul></div></div>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="installation-requirements" class="level2">
+<h2 class="anchored" data-anchor-id="installation-requirements">Installation &amp; Requirements</h2>
+<p>TVBOptim requires Python 3.9 or later and depends on JAX for high-performance computing and automatic differentiation.</p>
+<ol type="1">
+<li><p>Install the TVBO dependency</p>
+<p>This repository needs to be installed first. TVBO provides the brain simulation models, connectivity data and much more:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone git@github.com:virtual-twin/tvbo.git</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> tvbo</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="at">-e</span> .</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+<li><p>Install TVBOptim</p>
+<p>TVBOptim provides utilities for optimization algorithms, parameter spaces, and execution strategies for TVBO models:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone git@github.com:virtual-twin/tvboptim.git</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> tvboptim</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install <span class="at">-e</span> .</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div></li>
+</ol>
+</section>
+<section id="create-a-tvbo-simulation-experiment" class="level2">
+<h2 class="anchored" data-anchor-id="create-a-tvbo-simulation-experiment">Create a TVBO Simulation Experiment</h2>
+<p>For all the details on TVBO, see its <a href="https://virtual-twin.github.io/tvbo">Documentation</a>. A simple experiment can be created like this:</p>
+<div id="d0346f0f" class="cell" data-execution_count="1">
+<details class="code-fold">
+<summary>Imports</summary>
+<div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Set up environment</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> os</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> time</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Mock devices to force JAX to parallelize on CPU (pmap trick)</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="co"># This allows parallel execution even without multiple GPUs</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>cpu <span class="op">=</span> <span class="va">True</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> cpu:</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    N <span class="op">=</span> <span class="dv">8</span>  <span class="co"># Number of virtual devices to create</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    os.environ[<span class="st">'XLA_FLAGS'</span>] <span class="op">=</span> <span class="ss">f'--xla_force_host_platform_device_count=</span><span class="sc">{</span>N<span class="sc">}</span><span class="ss">'</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a><span class="co"># Import all required libraries</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> scipy <span class="im">import</span> io</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> jax</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> jax.numpy <span class="im">as</span> jnp</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> copy</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> optax  <span class="co"># JAX-based optimization library</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> IPython.display <span class="im">import</span> Markdown</span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a><span class="co"># Import from tvboptim - our optimization and execution framework</span></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim <span class="im">import</span> jaxify  <span class="co"># Converts TVBO experiments to JAX functions</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim.types <span class="im">import</span> Parameter, GridSpace  <span class="co"># Parameter types and spaces</span></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim.types.stateutils <span class="im">import</span> show_free_parameters  <span class="co"># Utility functions</span></span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim.utils <span class="im">import</span> set_cache_path, cache  <span class="co"># Caching for expensive computations</span></span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim <span class="im">import</span> observation <span class="im">as</span> obs  <span class="co"># Observation functions (FC, RMSE, etc.)</span></span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim.execution <span class="im">import</span> ParallelExecution, SequentialExecution  <span class="co"># Execution strategies</span></span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim.optim.optax <span class="im">import</span> OptaxOptimizer  <span class="co"># JAX-based optimizer with automatic differentiation</span></span>
+<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim.optim.callbacks <span class="im">import</span> MultiCallback, DefaultPrintCallback, SavingCallback  <span class="co"># Optimization callbacks</span></span>
+<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-32"><a href="#cb3-32" aria-hidden="true" tabindex="-1"></a><span class="co"># Import from tvbo - the brain simulation framework</span></span>
+<span id="cb3-33"><a href="#cb3-33" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvbo.export.experiment <span class="im">import</span> SimulationExperiment  <span class="co"># Main experiment class</span></span>
+<span id="cb3-34"><a href="#cb3-34" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvbo.datamodel <span class="im">import</span> tvbo_datamodel  <span class="co"># Data structures</span></span>
+<span id="cb3-35"><a href="#cb3-35" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvbo.utils <span class="im">import</span> numbered_print  <span class="co"># Utility functions</span></span>
+<span id="cb3-36"><a href="#cb3-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-37"><a href="#cb3-37" aria-hidden="true" tabindex="-1"></a><span class="co"># Set cache path for tvboptim - stores expensive computations for reuse</span></span>
+<span id="cb3-38"><a href="#cb3-38" aria-hidden="true" tabindex="-1"></a>set_cache_path(<span class="st">"./example_cache_get_started"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</details>
+</div>
+<div id="f2837cf6" class="cell" data-execution_count="2">
+<div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Create a brain simulation experiment using the Reduced Wong-Wang model</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="co"># This is a simplified neural mass model that captures excitatory dynamics</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>experiment <span class="op">=</span> SimulationExperiment(</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    model <span class="op">=</span> {</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>        <span class="st">"name"</span>: <span class="st">"ReducedWongWang"</span>,  <span class="co"># Simplified version of Wong-Wang model</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>        <span class="st">"parameters"</span>: {</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>            <span class="st">"w"</span>: {<span class="st">"name"</span>: <span class="st">"w"</span>, <span class="st">"value"</span>: <span class="fl">0.5</span>},      <span class="co"># Excitatory recurrence strength</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>            <span class="st">"I_o"</span>: {<span class="st">"name"</span>: <span class="st">"I_o"</span>, <span class="st">"value"</span>: <span class="fl">0.32</span>}, <span class="co"># External input current</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>        },</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>        <span class="st">"state_variables"</span>: {</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>            <span class="st">"S"</span>: {<span class="st">"initial_value"</span>: <span class="fl">0.3</span>},  <span class="co"># Set initial condition</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>    },</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>    connectivity <span class="op">=</span> {</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>        <span class="st">"parcellation"</span>: {<span class="st">"atlas"</span>: {<span class="st">"name"</span>: <span class="st">"DesikanKilliany"</span>}},  <span class="co"># 87-region brain atlas</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>        <span class="st">"conduction_speed"</span>: {<span class="st">"name"</span>: <span class="st">"cs"</span>, <span class="st">"value"</span>: np.array([np.inf])}  <span class="co"># Infinite speed = no delays</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>    },</span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>    coupling <span class="op">=</span> {</span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>        <span class="st">"name"</span>: <span class="st">"Linear"</span>,  <span class="co"># Linear coupling between brain regions</span></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>        <span class="st">"parameters"</span>: {<span class="st">"a"</span>: {<span class="st">"name"</span>: <span class="st">"a"</span>, <span class="st">"value"</span>: <span class="fl">0.75</span>}}  <span class="co"># Global coupling strength</span></span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>    },</span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>    integration<span class="op">=</span>{</span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>        <span class="st">"method"</span>: <span class="st">"Heun"</span>,      <span class="co"># Stochastic integration method</span></span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>        <span class="st">"step_size"</span>: <span class="fl">4.0</span>,      <span class="co"># Integration step size in ms</span></span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>        <span class="st">"noise"</span>: {<span class="st">"parameters"</span>: {<span class="st">"sigma"</span>: {<span class="st">'value'</span>: <span class="fl">0.00283</span>}}},  <span class="co"># Noise level</span></span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>        <span class="st">"duration"</span>: <span class="dv">10_000</span>     <span class="co"># Simulation duration in ms (10 seconds)</span></span>
+<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a>    },</span>
+<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a>    monitors<span class="op">=</span>{</span>
+<span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a>        <span class="st">"Raw"</span>: {<span class="st">"name"</span>: <span class="st">"Raw"</span>},  <span class="co"># Raw neural activity</span></span>
+<span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a>        <span class="st">"Bold"</span>: {<span class="st">"name"</span>: <span class="st">"Bold"</span>, <span class="st">"period"</span>: <span class="fl">1000.0</span>}},  <span class="co"># BOLD signal sampled every 1000ms</span></span>
+<span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a><span class="co"># Normalize connectivity weights to prevent runaway dynamics</span></span>
+<span id="cb4-34"><a href="#cb4-34" aria-hidden="true" tabindex="-1"></a>experiment.connectivity.normalize_weights()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div class="callout callout-style-default callout-note callout-titled" title="Create a Model Report">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-1-contents" aria-controls="callout-1" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Create a Model Report
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-1" class="callout-1-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div id="1b91fdf0" class="cell" data-execution_count="3">
+<div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>Markdown(experiment.model.generate_report())</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<section id="reducedwongwang" class="level1 cell-output cell-output-display cell-output-markdown" data-execution_count="3">
+<h1>ReducedWongWang</h1>
+<p>Reduced WongWang (RWW) is a biologically-inspired one-dimensional (i.e., only one state-variable ‘S’) neural mass model that approximates the realistic temporal dynamics of a detailed spiking and conductance-based synaptic large-scale network (Deco et al., 2013).</p>
+<p>RWW is the dynamical mean-field (DMF) reduction of the Reduced WongWang Exc-Inh model, that consists in disentangling the contribution of the two neuronal populations (excitatory and inhibitory) in order to study the time evolution of just one pool of neurons for each network node (Wong &amp; Wang, 2006). It results that the dynamics of each network node described the temporal evolution of the opening probability of the NMDA channels.</p>
+<section id="equations" class="level2">
+<h2 class="anchored" data-anchor-id="equations">Equations</h2>
+<section id="derived-variables" class="level3">
+<h3 class="anchored" data-anchor-id="derived-variables">Derived Variables</h3>
+<p><span class="math display">\[
+x = I_{o} + J_{N}*c_{global} + J_{N}*S*c_{local} + J_{N}*S*w
+\]</span> <span class="math display">\[
+H = \frac{- b + a*x}{1 - e^{- d*\left(- b + a*x\right)}}
+\]</span></p>
+</section>
+<section id="state-equations" class="level3">
+<h3 class="anchored" data-anchor-id="state-equations">State Equations</h3>
+<p><span class="math display">\[
+\frac{d}{d t} S = - \frac{S}{\tau_{s}} + H*\gamma*\left(1 - S\right)
+\]</span></p>
+</section>
+</section>
+<section id="parameters" class="level2">
+<h2 class="anchored" data-anchor-id="parameters">Parameters</h2>
+<table class="caption-top table table-sm table-striped small">
+<colgroup>
+<col style="width: 28%">
+<col style="width: 20%">
+<col style="width: 18%">
+<col style="width: 32%">
+</colgroup>
+<thead>
+<tr class="header">
+<th><strong>Parameter</strong></th>
+<th><strong>Value</strong></th>
+<th><strong>Unit</strong></th>
+<th><strong>Description</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><span class="math inline">\(w\)</span></td>
+<td>0.5</td>
+<td>dimensionless</td>
+<td>Excitatory recurrence</td>
+</tr>
+<tr class="even">
+<td><span class="math inline">\(I_{o}\)</span></td>
+<td>0.32</td>
+<td>nA</td>
+<td>External input current to the neurons population (Deco et al</td>
+</tr>
+<tr class="odd">
+<td><span class="math inline">\(J_{N}\)</span></td>
+<td>0.2609</td>
+<td>nA</td>
+<td>Excitatory recurrence</td>
+</tr>
+<tr class="even">
+<td><span class="math inline">\(a\)</span></td>
+<td>0.27</td>
+<td>(pC)^-1</td>
+<td>Slope (or gain) parameter of the sigmoid input-output function H_RWW (Deco et al</td>
+</tr>
+<tr class="odd">
+<td><span class="math inline">\(b\)</span></td>
+<td>0.108</td>
+<td>kHz</td>
+<td>Shift parameter of the sigmoid input-output function H_RWW (Deco et al</td>
+</tr>
+<tr class="even">
+<td><span class="math inline">\(d\)</span></td>
+<td>154.0</td>
+<td>ms</td>
+<td>Scaling parameter of the sigmoid input-output function H_RWW (Deco et al</td>
+</tr>
+<tr class="odd">
+<td><span class="math inline">\(\gamma\)</span></td>
+<td>0.641</td>
+<td>N/A</td>
+<td>Kinetic parameter</td>
+</tr>
+<tr class="even">
+<td><span class="math inline">\(\tau_{s}\)</span></td>
+<td>100.0</td>
+<td>ms</td>
+<td>Kinetic parameter</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="references" class="level2">
+<h2 class="anchored" data-anchor-id="references">References</h2>
+<p>Citation key ‘WongWang2006’ not found.</p>
+<p>Citation key ‘Deco2013’ not found.</p>
+</section>
+</section>
+</div>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-note callout-titled" title="You can inspect the rendered JAX code">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-2-contents" aria-controls="callout-2" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>You can inspect the rendered JAX code
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-2" class="callout-2-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div id="5e939fef" class="cell" data-execution_count="4">
+<div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>numbered_print(experiment.render_code(<span class="bu">format</span> <span class="op">=</span> <span class="st">"jax"</span>, scalar_pre <span class="op">=</span> <span class="va">True</span>))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>001 
+002 import jax.scipy.signal as sig
+003 from collections import namedtuple
+004 import jax
+005 from tvbo.data.types import TimeSeries
+006 import jax.numpy as jnp
+007 import jax.scipy as jsp
+008 
+009 
+010 def cfun(weights, history, current_state, p, delay_indices, t):
+011     n_node = weights.shape[0]
+012     a, b = p.a, p.b
+013 
+014     x_j = jnp.array([
+015 
+016         current_state[0],
+017 
+018     ])
+019 
+020     pre = x_j
+021 
+022     def op(x): return weights @ x
+023     gx = jax.vmap(op, in_axes=0)(pre)
+024     return b + a*gx
+025 
+026 
+027 def dfun(current_state, cX, _p, local_coupling=0):
+028     w, I_o, J_N, a, b, d, gamma, tau_s = _p.w, _p.I_o, _p.J_N, _p.a, _p.b, _p.d, _p.gamma, _p.tau_s
+029     # unpack coupling terms and states as in dfun
+030     c_pop0 = cX[0]
+031 
+032     S = current_state[0]
+033 
+034     # compute internal states for dfun
+035     x = I_o + J_N*c_pop0 + J_N*S*local_coupling + J_N*S*w
+036     H = (-b + a*x)/(1 - jnp.exp(-d*(-b + a*x)))
+037 
+038     return jnp.array([
+039         -S/tau_s + H*gamma*(1 - S),  # S
+040     ])
+041 
+042 
+043 def integrate(state, weights, dt, params_integrate, delay_indices, external_input):
+044     """
+045     Heun Integration
+046     ================
+047     """
+048     t, noise = external_input
+049 
+050     params_dfun, params_cfun, params_stimulus = params_integrate
+051 
+052     history, current_state = state
+053     stimulus = 0
+054 
+055     inf = jnp.inf
+056     min_bounds = jnp.array([[[0.0]]])
+057     max_bounds = jnp.array([[[1.0]]])
+058 
+059     cX = jax.vmap(cfun, in_axes=(None, -1, -1, None, None, None), out_axes=-
+060                   1)(weights, history, current_state, params_cfun, delay_indices, t)
+061 
+062     dX0 = dfun(current_state, cX, params_dfun)
+063 
+064     X = current_state
+065 
+066     # Calculate intermediate step X1
+067     X1 = X + dX0 * dt + noise + stimulus * dt
+068     X1 = jnp.clip(X1, min_bounds, max_bounds)
+069 
+070     # Calculate derivative X1
+071     dX1 = dfun(X1, cX, params_dfun)
+072     # Calculate the state change dX
+073     dX = (dX0 + dX1) * (dt / 2)
+074     next_state = current_state + (dX) + noise
+075     next_state = jnp.clip(next_state, min_bounds, max_bounds)
+076 
+077     return (history, next_state), next_state
+078 
+079 
+080 timeseries = namedtuple("timeseries", ["time", "trace"])
+081 
+082 
+083 def monitor_raw_0(time_steps, trace, params, t_offset=0):
+084     dt = 4.0
+085     return TimeSeries(time=(time_steps + t_offset) * dt, data=trace, title="Raw")
+086 
+087 
+088 def monitor_temporal_average_1(time_steps, trace, params, t_offset=0):
+089     dt = 4.0
+090     voi = jnp.array([0])
+091     istep = 1
+092     t_map = time_steps[::istep] - 1
+093 
+094     def op(ts):
+095         start_indices = (ts,) + (0,) * (trace.ndim - 1)
+096         slice_sizes = (istep,) + voi.shape + trace.shape[2:]
+097         return jnp.mean(jax.lax.dynamic_slice(trace[:, voi, :], start_indices, slice_sizes), axis=0)
+098     vmap_op = jax.vmap(op)
+099     trace_out = vmap_op(t_map)
+100 
+101     idxs = jnp.arange(((istep - 2) // 2), time_steps.shape[0], istep)
+102     return TimeSeries(time=(time_steps[idxs]) * dt, data=trace_out[0:idxs.shape[0], :, :], title="TemporalAverage")
+103 
+104 
+105 exp, sin, sqrt = jnp.exp, jnp.sin, jnp.sqrt
+106 
+107 
+108 def monitor_bold_1(time_steps, trace, params, t_offset=0):
+109     # downsampling via temporal average / subsample
+110     dt = 4.0
+111     voi = jnp.array([0])
+112     period = 1000.0  # sampling period of the BOLD Monitor in ms
+113     istep_int = 1  # steps taken by the averaging/subsampling monitor to get an interim period of 4 ms
+114     istep = 250
+115     final_istep = 250  # steps to take on the downsampled signal
+116 
+117     res = monitor_temporal_average_1(time_steps, trace, None)
+118     time_steps_i = res.time
+119     trace_new = res.data
+120 
+121     time_steps_new = time_steps[jnp.arange(
+122         istep-1, time_steps.shape[0], istep)]
+123 
+124     # hemodynamic response function
+125     tau_s = params.tau_s
+126     tau_f = params.tau_f
+127     k_1 = params.k_1
+128     V_0 = params.V_0
+129     stock = params.stock
+130 
+131     trace_new = jnp.vstack([stock, trace_new])
+132 
+133     def op(var): return 1/3. * exp(-0.5*(var / tau_s)) * (sin(sqrt(1. /
+134                                                                    tau_f - 1./(4.*tau_s**2)) * var)) / (sqrt(1./tau_f - 1./(4.*tau_s**2)))
+135     stock_steps = 5000
+136     stock_time_max = 20.0  # stock time has to be in seconds
+137     stock_time_step = stock_time_max / stock_steps
+138     stock_time = jnp.arange(0.0, stock_time_max, stock_time_step)
+139     hrf = op(stock_time)
+140 
+141     # Convolution along time axis
+142     # via fft
+143     def op1(x): return sig.fftconvolve(x, hrf, mode="valid")
+144 
+145     def op2(x): return jax.vmap(op1, in_axes=(
+146         1), out_axes=(1))(x)  # map over nodes
+147     def op3(x): return jax.vmap(op2, in_axes=(1), out_axes=(1))(
+148         x)  # map over state variables
+149     bold = jax.vmap(op3, in_axes=(3), out_axes=(3))(
+150         trace_new)  # map over modes
+151 
+152     bold = k_1 * V_0 * (bold - 1.0)
+153 
+154     bold_idx = jnp.arange(
+155         final_istep-2, time_steps_i.shape[0], final_istep)[0:time_steps_new.shape[0]] + 1
+156     return TimeSeries(time=(time_steps_new + t_offset) * dt, data=bold[bold_idx, :, :], title="BOLD")
+157 
+158 
+159 def transform_parameters(_p):
+160     w, I_o, J_N, a, b, d, gamma, tau_s = _p.w, _p.I_o, _p.J_N, _p.a, _p.b, _p.d, _p.gamma, _p.tau_s
+161 
+162     return _p
+163 
+164 
+165 c_vars = jnp.array([0])
+166 
+167 
+168 def kernel(state):
+169     # problem dimensions
+170     n_nodes = 87
+171     n_svar = 1
+172     n_cvar = 1
+173     n_modes = 1
+174     nh = 1
+175 
+176     # history = current_state
+177     current_state, history = (state.initial_conditions.data[-1], None)
+178 
+179     ics = (history, current_state)
+180     weights = state.connectivity.weights
+181 
+182     dn = jnp.arange(n_nodes) * jnp.ones((n_nodes, n_nodes)).astype(int)
+183     idelays = jnp.round(state.connectivity.lengths /
+184                         state.connectivity.metadata.conduction_speed.value / state.dt).astype(int)
+185     di = -1 * idelays - 1
+186     delay_indices = (di, dn)
+187 
+188     dt = state.dt
+189     nt = state.nt
+190     time_steps = jnp.arange(0, nt)
+191 
+192     key = jax.random.PRNGKey(state.noise.metadata.seed)
+193     _noise = jax.random.normal(key, (nt, n_svar, n_nodes, n_modes))
+194     noise = (jnp.sqrt(dt) * state.noise.sigma[None, ..., None, None]) * _noise
+195 
+196     p = transform_parameters(state.parameters.model)
+197     params_integrate = (p, state.parameters.coupling, state.stimulus)
+198 
+199     def op(ics, external_input): return integrate(ics, weights,
+200                                                   dt, params_integrate, delay_indices, external_input)
+201 
+202     latest_carry, res = jax.lax.scan(op, ics, (time_steps, noise))
+203 
+204     trace = res
+205 
+206     t_offset = 0
+207     time_steps = time_steps + 1
+208 
+209     params_monitors = state.monitor_parameters
+210     result = [monitor_raw_0(time_steps, trace, params_monitors[0], t_offset=t_offset),
+211               monitor_bold_1(time_steps, trace,
+212                              params_monitors[1], t_offset=t_offset),
+213               ]
+214 
+215     return result</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section id="get-model-and-state" class="level2">
+<h2 class="anchored" data-anchor-id="get-model-and-state">Get Model and State</h2>
+<p>The <code>jaxify</code> function converts the TVBO experiment into a JAX-compatible model function and state object. The <em>scalar_pre</em> option is used to improve performance when we have no delay (infinite conduction speed):</p>
+<div id="380d2256" class="cell" data-execution_count="5">
+<div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Convert TVBO experiment to JAX function and state</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="co"># scalar_pre=True optimizes for no-delay scenarios</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>model, state <span class="op">=</span> jaxify(experiment, scalar_pre <span class="op">=</span> <span class="va">True</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<p>The <code>model</code> is now a JAX-compiled function that can be called with a state to run the simulation. The <code>state</code> contains all parameters, initial conditions, and configuration needed for the simulation.</p>
+<section id="understand-the-state-object-parameters" class="level3">
+<h3 class="anchored" data-anchor-id="understand-the-state-object-parameters">Understand the State Object &amp; Parameters</h3>
+<p>The state is of type <code>tvbo.datamodel.tvbo_datamodel.Bunch</code>, which is a <code>dict</code> with convenient get and set functions. At the same time, it is also a <a href="https://docs.jax.dev/en/latest/pytrees.html"><code>jax.Pytree</code></a>, making it compatible with all of JAX’s transformations. You can think of it as a big tree holding all parameters and initial conditions that uniquely define a simulation:</p>
+<div class="callout callout-style-default callout-note callout-titled" title="View full *state*">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>View full <em>state</em>
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-3" class="callout-3-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div id="6909c261" class="cell" data-execution_count="6">
+<div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>state</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display" data-execution_count="6">
+<pre><code>SimulationState
+├── initial_conditions
+│   ├── time
+│   │   ├── _name: ""
+│   │   ├── _value: f64[1]
+│   │   ├── _free: False
+│   │   ├── low: NoneType
+│   │   ├── high: NoneType
+│   │   └── doc: NoneType
+│   ├── data
+│   │   ├── _name: ""
+│   │   ├── _value: f64[1,1,87,1]
+│   │   ├── _free: False
+│   │   ├── low: NoneType
+│   │   ├── high: NoneType
+│   │   └── doc: NoneType
+│   ├── labels_dimensions
+│   │   ├── [0]: "Time"
+│   │   ├── [1]: "State Variable"
+│   │   ├── [2]: "Space"
+│   │   └── [3]: "Mode"
+│   ├── title: "TimeSeries"
+│   ├── connectivity: NoneType
+│   ├── sample_period: NoneType
+│   ├── dt: NoneType
+│   ├── sample_period_unit: "ms"
+│   └── labels_ordering
+│       ├── [0]: "Time"
+│       ├── [1]: "State Variable"
+│       ├── [2]: "Space"
+│       └── [3]: "Mode"
+├── connectivity
+│   ├── weights
+│   │   ├── _name: ""
+│   │   ├── _value: f64[87,87]
+│   │   ├── _free: False
+│   │   ├── low: NoneType
+│   │   ├── high: NoneType
+│   │   └── doc: NoneType
+│   ├── lengths: f64[87,87](numpy)
+│   └── metadata: Connectome
+├── dt
+│   ├── _name: ""
+│   ├── _value: f64[]
+│   ├── _free: False
+│   ├── low: NoneType
+│   ├── high: NoneType
+│   └── doc: NoneType
+├── noise
+│   ├── sigma
+│   │   ├── _name: ""
+│   │   ├── _value: f64[]
+│   │   ├── _free: False
+│   │   ├── low: NoneType
+│   │   ├── high: NoneType
+│   │   └── doc: NoneType
+│   ├── nsig
+│   │   ├── _name: ""
+│   │   ├── _value: f64[]
+│   │   ├── _free: False
+│   │   ├── low: NoneType
+│   │   ├── high: NoneType
+│   │   └── doc: NoneType
+│   └── metadata: Noise
+├── parameters
+│   ├── model
+│   │   ├── w
+│   │   │   ├── _name: ""
+│   │   │   ├── _value: f64[]
+│   │   │   ├── _free: False
+│   │   │   ├── low: NoneType
+│   │   │   ├── high: NoneType
+│   │   │   └── doc: NoneType
+│   │   ├── I_o
+│   │   │   ├── _name: ""
+│   │   │   ├── _value: f64[]
+│   │   │   ├── _free: False
+│   │   │   ├── low: NoneType
+│   │   │   ├── high: NoneType
+│   │   │   └── doc: NoneType
+│   │   ├── J_N
+│   │   │   ├── _name: ""
+│   │   │   ├── _value: f64[]
+│   │   │   ├── _free: False
+│   │   │   ├── low: NoneType
+│   │   │   ├── high: NoneType
+│   │   │   └── doc: NoneType
+│   │   ├── a
+│   │   │   ├── _name: ""
+│   │   │   ├── _value: f64[]
+│   │   │   ├── _free: False
+│   │   │   ├── low: NoneType
+│   │   │   ├── high: NoneType
+│   │   │   └── doc: NoneType
+│   │   ├── b
+│   │   │   ├── _name: ""
+│   │   │   ├── _value: f64[]
+│   │   │   ├── _free: False
+│   │   │   ├── low: NoneType
+│   │   │   ├── high: NoneType
+│   │   │   └── doc: NoneType
+│   │   ├── d
+│   │   │   ├── _name: ""
+│   │   │   ├── _value: f64[]
+│   │   │   ├── _free: False
+│   │   │   ├── low: NoneType
+│   │   │   ├── high: NoneType
+│   │   │   └── doc: NoneType
+│   │   ├── gamma
+│   │   │   ├── _name: ""
+│   │   │   ├── _value: f64[]
+│   │   │   ├── _free: False
+│   │   │   ├── low: NoneType
+│   │   │   ├── high: NoneType
+│   │   │   └── doc: NoneType
+│   │   └── tau_s
+│   │       ├── _name: ""
+│   │       ├── _value: f64[]
+│   │       ├── _free: False
+│   │       ├── low: NoneType
+│   │       ├── high: NoneType
+│   │       └── doc: NoneType
+│   ├── integration
+│   │   └── noise
+│   │       └── sigma
+│   │           ├── _name: ""
+│   │           ├── _value: f64[]
+│   │           ├── _free: False
+│   │           ├── low: NoneType
+│   │           ├── high: NoneType
+│   │           └── doc: NoneType
+│   └── coupling
+│       ├── a
+│       │   ├── _name: ""
+│       │   ├── _value: f64[]
+│       │   ├── _free: False
+│       │   ├── low: NoneType
+│       │   ├── high: NoneType
+│       │   └── doc: NoneType
+│       └── b
+│           ├── _name: ""
+│           ├── _value: f64[]
+│           ├── _free: False
+│           ├── low: NoneType
+│           ├── high: NoneType
+│           └── doc: NoneType
+├── stimulus: NoneType
+├── monitor_parameters
+│   ├── 0: Bunch
+│   └── 1
+│       ├── tau_s
+│       │   ├── _name: ""
+│       │   ├── _value: f64[]
+│       │   ├── _free: False
+│       │   ├── low: NoneType
+│       │   ├── high: NoneType
+│       │   └── doc: NoneType
+│       ├── tau_f
+│       │   ├── _name: ""
+│       │   ├── _value: f64[]
+│       │   ├── _free: False
+│       │   ├── low: NoneType
+│       │   ├── high: NoneType
+│       │   └── doc: NoneType
+│       ├── k_1
+│       │   ├── _name: ""
+│       │   ├── _value: f64[]
+│       │   ├── _free: False
+│       │   ├── low: NoneType
+│       │   ├── high: NoneType
+│       │   └── doc: NoneType
+│       ├── V_0
+│       │   ├── _name: ""
+│       │   ├── _value: f64[]
+│       │   ├── _free: False
+│       │   ├── low: NoneType
+│       │   ├── high: NoneType
+│       │   └── doc: NoneType
+│       └── stock
+│           ├── _name: ""
+│           ├── _value: f64[5000,1,87,1]
+│           ├── _free: False
+│           ├── low: NoneType
+│           ├── high: NoneType
+│           └── doc: NoneType
+└── nt: 2500</code></pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<p>Each leaf of the tree (in JAX, that is each JAX Array) is wrapped in the Parameter type. This enables additional convenience functionality. A Parameter can be declared free, making it available to Spaces or to gradients during optimization.</p>
+<div id="635bfbbc" class="cell" data-execution_count="7">
+<div class="sourceCode cell-code" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Mark the excitatory recurrence parameter as free for optimization</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>state.parameters.model.J_N.free <span class="op">=</span> <span class="va">True</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>show_free_parameters(state)  <span class="co"># Display all parameters marked as free</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>FreeState
+├── initial_conditions: TimeSeries
+├── connectivity: Connectome
+├── noise: Noise
+├── parameters
+│   ├── model
+│   │   ├── J_N
+│   │   │   ├── _name: ""
+│   │   │   ├── _value: 0.2609
+│   │   │   ├── _free: True
+│   ├── integration: Bunch
+│   └── coupling: Bunch
+├── monitor_parameters: dict
+└── nt: 2500</code></pre>
+</div>
+</div>
+<p>If your simulation needs additional Parameters or data, you can simply put a new leaf into the state:</p>
+<div id="bea6e63d" class="cell" data-execution_count="8">
+<div class="sourceCode cell-code" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Example: Add a custom optimizable parameter to the state</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="co"># This demonstrates how to extend the state with additional parameters</span></span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>state.parameters.important_extras <span class="op">=</span> Parameter(<span class="st">"Important"</span>, jnp.zeros(<span class="dv">10</span>), free <span class="op">=</span> <span class="va">True</span>)</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>show_free_parameters(state)  <span class="co"># Now shows both J_N and our custom parameter</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>FreeState
+├── initial_conditions: TimeSeries
+├── connectivity: Connectome
+├── noise: Noise
+├── parameters
+│   ├── model
+│   │   ├── J_N
+│   │   │   ├── _name: ""
+│   │   │   ├── _value: 0.2609
+│   │   │   ├── _free: True
+│   ├── integration: Bunch
+│   ├── coupling: Bunch
+│   └── important_extras
+│       ├── _name: "Important"
+│       ├── _value: [0. 0. 0. 0. 0. 0. 0. 0. 0. 0.]
+│       ├── _free: True
+├── monitor_parameters: dict
+└── nt: 2500</code></pre>
+</div>
+</div>
+</section>
+<section id="simulate-the-model" class="level3">
+<h3 class="anchored" data-anchor-id="simulate-the-model">Simulate the Model</h3>
+<p>To run a simulation, you can simply call the model.</p>
+<div id="c505ac59" class="cell" data-execution_count="9">
+<div class="sourceCode cell-code" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Run the simulation - model returns (raw_activity, bold_signal)</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>result <span class="op">=</span> model(state)</span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>raw, bold <span class="op">=</span> result</span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot raw neural activity for all 87 brain regions over time</span></span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a><span class="co"># Shape: [time_points, state_variables, regions, modes]</span></span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>plt.plot(raw.data[:,<span class="dv">0</span>,:,<span class="dv">0</span>], color <span class="op">=</span> <span class="st">"royalblue"</span>, alpha <span class="op">=</span> <span class="fl">0.5</span>)</span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a>plt.xlabel(<span class="st">"Time (ms)"</span>)</span>
+<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a>plt.ylabel(<span class="st">"Neural Activity"</span>)</span>
+<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a>plt.title(<span class="st">"Raw Neural Activity Across All Brain Regions"</span>)<span class="op">;</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="get_started_files/figure-html/cell-10-output-1.png" class="img-fluid figure-img"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="wrap-the-model-to-create-observations" class="level3">
+<h3 class="anchored" data-anchor-id="wrap-the-model-to-create-observations">Wrap the Model to create observations</h3>
+<p>We look at the mean activity of the last 500 timesteps as an easy observation.</p>
+<div id="baed2d68" class="cell" data-execution_count="10">
+<div class="sourceCode cell-code" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> observation(state):</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a><span class="co">    Extract a simple observation from the simulation.</span></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="co">    We use the mean activity of the last 500 timesteps to avoid transient effects.</span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a><span class="co">    """</span></span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>    ts <span class="op">=</span> model(state)[<span class="dv">0</span>].data[<span class="op">-</span><span class="dv">500</span>:,<span class="dv">0</span>,:,<span class="dv">0</span>]  <span class="co"># Last 500 timesteps, skip transient</span></span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>    mean_activity <span class="op">=</span> jnp.mean(ts)  <span class="co"># Average across time and regions</span></span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> mean_activity</span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a><span class="co"># Test the observation function</span></span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Mean activity: </span><span class="sc">{</span>observation(state)<span class="sc">:.4f}</span><span class="ss">"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Mean activity: 0.1752</code></pre>
+</div>
+</div>
+</section>
+<section id="explore-that-across-a-parameter-space" class="level3">
+<h3 class="anchored" data-anchor-id="explore-that-across-a-parameter-space">Explore that across a parameter space</h3>
+<p>We can use a <code>GridSpace</code> to explore how parameters <code>J_N</code> (excitatory recurrence) and <code>a</code> (global coupling) affect the observation. We use the cache decorator to save computationally demanding operations. We also parallelize the exploration using the <code>ParallelExecution</code> class with <code>n_pmap = 8</code>, which is possible because we told JAX that our CPU has 8 devices - known as the pmap trick.</p>
+<div id="1d985bbe" class="cell" data-execution_count="11">
+<div class="sourceCode cell-code" id="cb18"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Clean up: disable the custom parameter we added earlier</span></span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>state.parameters.important_extras.free <span class="op">=</span> <span class="va">False</span></span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Set up parameter exploration for two key parameters</span></span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a><span class="co"># a: global coupling strength</span></span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>state.parameters.coupling.a.free <span class="op">=</span> <span class="va">True</span></span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>state.parameters.coupling.a.low <span class="op">=</span> <span class="fl">0.0</span>   <span class="co"># Lower bound</span></span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a>state.parameters.coupling.a.high <span class="op">=</span> <span class="fl">1.0</span>  <span class="co"># Upper bound</span></span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a><span class="co"># J_N: NMDA synaptic coupling strength</span></span>
+<span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a>state.parameters.model.J_N.free <span class="op">=</span> <span class="va">True</span></span>
+<span id="cb18-12"><a href="#cb18-12" aria-hidden="true" tabindex="-1"></a>state.parameters.model.J_N.low <span class="op">=</span> <span class="fl">0.0</span></span>
+<span id="cb18-13"><a href="#cb18-13" aria-hidden="true" tabindex="-1"></a>state.parameters.model.J_N.high <span class="op">=</span> <span class="fl">1.0</span></span>
+<span id="cb18-14"><a href="#cb18-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-15"><a href="#cb18-15" aria-hidden="true" tabindex="-1"></a><span class="co"># Create a grid space for systematic parameter exploration</span></span>
+<span id="cb18-16"><a href="#cb18-16" aria-hidden="true" tabindex="-1"></a>n <span class="op">=</span> <span class="dv">32</span>  <span class="co"># 32x32 grid = 1024 parameter combinations</span></span>
+<span id="cb18-17"><a href="#cb18-17" aria-hidden="true" tabindex="-1"></a>params_set <span class="op">=</span> GridSpace(state, n<span class="op">=</span>n)</span>
+<span id="cb18-18"><a href="#cb18-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-19"><a href="#cb18-19" aria-hidden="true" tabindex="-1"></a><span class="at">@cache</span>(<span class="st">"explore"</span>, redo <span class="op">=</span> <span class="va">False</span>)  <span class="co"># Cache results to avoid recomputation</span></span>
+<span id="cb18-20"><a href="#cb18-20" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> explore():</span>
+<span id="cb18-21"><a href="#cb18-21" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Use parallel execution with 8 virtual devices (pmap trick)</span></span>
+<span id="cb18-22"><a href="#cb18-22" aria-hidden="true" tabindex="-1"></a>    <span class="bu">exec</span> <span class="op">=</span> ParallelExecution(observation, params_set, n_pmap<span class="op">=</span><span class="dv">8</span>)</span>
+<span id="cb18-23"><a href="#cb18-23" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="bu">exec</span>.run()</span>
+<span id="cb18-24"><a href="#cb18-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-25"><a href="#cb18-25" aria-hidden="true" tabindex="-1"></a><span class="co"># Run the exploration (or load from cache)</span></span>
+<span id="cb18-26"><a href="#cb18-26" aria-hidden="true" tabindex="-1"></a>exploration <span class="op">=</span> explore()</span>
+<span id="cb18-27"><a href="#cb18-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-28"><a href="#cb18-28" aria-hidden="true" tabindex="-1"></a><span class="co"># Visualize the parameter space exploration</span></span>
+<span id="cb18-29"><a href="#cb18-29" aria-hidden="true" tabindex="-1"></a>plt.figure(figsize<span class="op">=</span>(<span class="dv">8</span>, <span class="dv">6</span>))</span>
+<span id="cb18-30"><a href="#cb18-30" aria-hidden="true" tabindex="-1"></a>plt.imshow(jnp.stack(exploration).reshape(n, n), aspect <span class="op">=</span> <span class="st">"auto"</span>, extent<span class="op">=</span>[<span class="dv">0</span>, <span class="dv">1</span>, <span class="dv">0</span>, <span class="dv">1</span>])</span>
+<span id="cb18-31"><a href="#cb18-31" aria-hidden="true" tabindex="-1"></a>plt.xlabel(<span class="st">"a"</span>)</span>
+<span id="cb18-32"><a href="#cb18-32" aria-hidden="true" tabindex="-1"></a>plt.ylabel(<span class="st">"J_N"</span>)</span>
+<span id="cb18-33"><a href="#cb18-33" aria-hidden="true" tabindex="-1"></a>plt.title(<span class="st">"Mean Activity Across Parameter Space"</span>)</span>
+<span id="cb18-34"><a href="#cb18-34" aria-hidden="true" tabindex="-1"></a>plt.colorbar(label<span class="op">=</span><span class="st">"Mean Activity"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Loading explore from cache, last modified 2025-07-03 15:06:34.498307</code></pre>
+</div>
+<div class="cell-output cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="get_started_files/figure-html/cell-12-output-2.png" class="img-fluid figure-img"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="define-a-loss-and-optimize" class="level3">
+<h3 class="anchored" data-anchor-id="define-a-loss-and-optimize">Define a Loss and Optimize</h3>
+<p>Let’s say our goal is to have a mean activity of 0.5. We can define a loss function that penalizes deviations from this target.</p>
+<div id="fb33ce31" class="cell" data-execution_count="12">
+<div class="sourceCode cell-code" id="cb20"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> loss(state):</span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""</span></span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a><span class="co">    Define a loss function that penalizes deviations from target activity.</span></span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a><span class="co">    Goal: Each brain region should have mean activity of 0.5</span></span>
+<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a><span class="co">    """</span></span>
+<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a>    ts <span class="op">=</span> model(state)[<span class="dv">0</span>].data[<span class="op">-</span><span class="dv">500</span>:,<span class="dv">0</span>,:,<span class="dv">0</span>]  <span class="co"># Skip transient period</span></span>
+<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a>    mean_activity <span class="op">=</span> jnp.mean(ts, axis <span class="op">=</span> <span class="dv">0</span>)  <span class="co"># Average over time for each region</span></span>
+<span id="cb20-8"><a href="#cb20-8" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Compute mean squared error between actual and target (0.5) activity</span></span>
+<span id="cb20-9"><a href="#cb20-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> jnp.mean((mean_activity <span class="op">-</span> <span class="fl">0.5</span>)<span class="op">**</span><span class="dv">2</span>)  <span class="co"># Region-wise difference</span></span>
+<span id="cb20-10"><a href="#cb20-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb20-11"><a href="#cb20-11" aria-hidden="true" tabindex="-1"></a><span class="co"># Test the loss function</span></span>
+<span id="cb20-12"><a href="#cb20-12" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Current loss: </span><span class="sc">{</span>loss(state)<span class="sc">:.6f}</span><span class="ss">"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Current loss: 0.135816</code></pre>
+</div>
+</div>
+<p>Then we optimize it with Optax and gradient descent:</p>
+<div id="e4f19cc7" class="cell" data-execution_count="13">
+<div class="sourceCode cell-code" id="cb22"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Create an optimizer using Adam with automatic differentiation</span></span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>optimizer <span class="op">=</span> OptaxOptimizer(</span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>    loss,                           <span class="co"># Loss function to minimize</span></span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>    optax.adam(<span class="fl">0.005</span>),             <span class="co"># Adam optimizer with learning rate 0.005</span></span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>    callback<span class="op">=</span>DefaultPrintCallback(every<span class="op">=</span><span class="dv">5</span>) <span class="co"># Print progress during optimization</span></span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-8"><a href="#cb22-8" aria-hidden="true" tabindex="-1"></a><span class="co"># Run optimization using forward-mode automatic differentiation</span></span>
+<span id="cb22-9"><a href="#cb22-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Forward mode is efficient when we have few parameters (like here: a and J_N)</span></span>
+<span id="cb22-10"><a href="#cb22-10" aria-hidden="true" tabindex="-1"></a>optimized_state, _ <span class="op">=</span> optimizer.run(state, max_steps<span class="op">=</span><span class="dv">50</span>, mode<span class="op">=</span><span class="st">"fwd"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Step 0: 0.135816
+Step 5: 0.107015
+Step 10: 0.087062
+Step 15: 0.077474
+Step 20: 0.074584
+Step 25: 0.073727
+Step 30: 0.073262
+Step 35: 0.073115
+Step 40: 0.073099
+Step 45: 0.073084</code></pre>
+</div>
+</div>
+</section>
+<section id="visualize-the-fitted-model" class="level3">
+<h3 class="anchored" data-anchor-id="visualize-the-fitted-model">Visualize the Fitted Model</h3>
+<div id="00b10b18" class="cell" data-execution_count="14">
+<div class="sourceCode cell-code" id="cb24"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Simulate with optimized parameters and visualize results</span></span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>ts_optimized <span class="op">=</span> model(optimized_state)[<span class="dv">0</span>].data[:,<span class="dv">0</span>,:,<span class="dv">0</span>]</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>plt.figure(figsize<span class="op">=</span>(<span class="dv">10</span>, <span class="dv">6</span>))</span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>plt.plot(ts_optimized, alpha <span class="op">=</span> <span class="fl">0.5</span>, color <span class="op">=</span> <span class="st">"royalblue"</span>)</span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a>plt.hlines(<span class="fl">0.5</span>, <span class="dv">0</span>, <span class="dv">2500</span>, color <span class="op">=</span> <span class="st">"black"</span>, linewidth <span class="op">=</span> <span class="fl">2.5</span>, label<span class="op">=</span><span class="st">"Target (0.5)"</span>)</span>
+<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a>plt.hlines(observation(optimized_state), <span class="dv">0</span>, <span class="dv">2500</span>, color <span class="op">=</span> <span class="st">"red"</span>, linewidth <span class="op">=</span> <span class="fl">2.5</span>, </span>
+<span id="cb24-8"><a href="#cb24-8" aria-hidden="true" tabindex="-1"></a>           label<span class="op">=</span><span class="ss">f"Actual Mean (</span><span class="sc">{</span>observation(optimized_state)<span class="sc">:.3f}</span><span class="ss">)"</span>)</span>
+<span id="cb24-9"><a href="#cb24-9" aria-hidden="true" tabindex="-1"></a>plt.xlabel(<span class="st">"Time (ms)"</span>)</span>
+<span id="cb24-10"><a href="#cb24-10" aria-hidden="true" tabindex="-1"></a>plt.ylabel(<span class="st">"Neural Activity"</span>)</span>
+<span id="cb24-11"><a href="#cb24-11" aria-hidden="true" tabindex="-1"></a>plt.title(<span class="st">"Optimized Neural Activity"</span>)</span>
+<span id="cb24-12"><a href="#cb24-12" aria-hidden="true" tabindex="-1"></a>plt.legend()</span>
+<span id="cb24-13"><a href="#cb24-13" aria-hidden="true" tabindex="-1"></a>plt.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="get_started_files/figure-html/cell-15-output-1.png" class="img-fluid figure-img"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>Well, the mean is close to the target, but most regions are either too high or too low. We can make parameters heterogeneous to adjust that.</p>
+</section>
+<section id="heterogeneous-parameters" class="level3">
+<h3 class="anchored" data-anchor-id="heterogeneous-parameters">Heterogeneous Parameters</h3>
+<p>The previous optimization used global parameters (same value for all brain regions). Now we’ll make parameters region-specific to achieve better control:</p>
+<div id="fa5d7d1a" class="cell" data-execution_count="15">
+<div class="sourceCode cell-code" id="cb25"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Make parameters heterogeneous: one value per brain region (87 regions)</span></span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>optimized_state.parameters.model.J_N.shape <span class="op">=</span> (<span class="dv">87</span>,<span class="dv">1</span>)  <span class="co"># Excitatory recurrence per region</span></span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"J_N parameter shape: </span><span class="sc">{</span>optimized_state<span class="sc">.</span>parameters<span class="sc">.</span>model<span class="sc">.</span>J_N<span class="sc">.</span>shape<span class="sc">}</span><span class="ss">"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>J_N parameter shape: (87, 1)</code></pre>
+</div>
+</div>
+<p>We switch to reverse mode automatic differentiation, which is more efficient when we have many parameters (87 parameters):</p>
+<div id="485b8cc9" class="cell" data-execution_count="16">
+<div class="sourceCode cell-code" id="cb27"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Create optimizer for heterogeneous parameters</span></span>
+<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>optimizer_het <span class="op">=</span> OptaxOptimizer(</span>
+<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>    loss,                                    <span class="co"># Same loss function</span></span>
+<span id="cb27-4"><a href="#cb27-4" aria-hidden="true" tabindex="-1"></a>    optax.adam(<span class="fl">0.002</span>),                      <span class="co"># Lower learning rate for stability</span></span>
+<span id="cb27-5"><a href="#cb27-5" aria-hidden="true" tabindex="-1"></a>    callback<span class="op">=</span>DefaultPrintCallback(every<span class="op">=</span><span class="dv">10</span>) <span class="co"># Print every 10 steps</span></span>
+<span id="cb27-6"><a href="#cb27-6" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb27-7"><a href="#cb27-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb27-8"><a href="#cb27-8" aria-hidden="true" tabindex="-1"></a><span class="co"># Use reverse-mode AD (more efficient for many parameters)</span></span>
+<span id="cb27-9"><a href="#cb27-9" aria-hidden="true" tabindex="-1"></a>optimized_state_het, _ <span class="op">=</span> optimizer_het.run(optimized_state, max_steps<span class="op">=</span><span class="dv">200</span>, mode<span class="op">=</span><span class="st">"rev"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Step 0: 0.073036
+Step 10: 0.061548
+Step 20: 0.050403
+Step 30: 0.041717
+Step 40: 0.032587
+Step 50: 0.024754
+Step 60: 0.014539
+Step 70: 0.006013
+Step 80: 0.008035
+Step 90: 0.005476
+Step 100: 0.011970
+Step 110: 0.013880
+Step 120: 0.015561
+Step 130: 0.013589
+Step 140: 0.014465
+Step 150: 0.014972
+Step 160: 0.011115
+Step 170: 0.013463
+Step 180: 0.012640
+Step 190: 0.011850</code></pre>
+</div>
+</div>
+<p>Now most regions are close to the target level after passing the initial transient. Setting the initial conditions to the target activity could be a solution to this problem.</p>
+<div id="1acf39f0" class="cell" data-execution_count="17">
+<div class="sourceCode cell-code" id="cb29"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Visualize results with heterogeneous parameters</span></span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>ts_optimized_het <span class="op">=</span> model(optimized_state_het)[<span class="dv">0</span>].data[:,<span class="dv">0</span>,:,<span class="dv">0</span>]</span>
+<span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb29-4"><a href="#cb29-4" aria-hidden="true" tabindex="-1"></a>plt.figure(figsize<span class="op">=</span>(<span class="dv">15</span>, <span class="dv">10</span>))</span>
+<span id="cb29-5"><a href="#cb29-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb29-6"><a href="#cb29-6" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot 1: Time series for all regions</span></span>
+<span id="cb29-7"><a href="#cb29-7" aria-hidden="true" tabindex="-1"></a>plt.subplot(<span class="dv">2</span>, <span class="dv">1</span>, <span class="dv">1</span>)</span>
+<span id="cb29-8"><a href="#cb29-8" aria-hidden="true" tabindex="-1"></a>plt.plot(ts_optimized_het, alpha <span class="op">=</span> <span class="fl">0.5</span>, color <span class="op">=</span> <span class="st">"royalblue"</span>)</span>
+<span id="cb29-9"><a href="#cb29-9" aria-hidden="true" tabindex="-1"></a>plt.hlines(<span class="fl">0.5</span>, <span class="dv">0</span>, <span class="dv">2500</span>, color <span class="op">=</span> <span class="st">"black"</span>, linewidth <span class="op">=</span> <span class="fl">2.5</span>, label<span class="op">=</span><span class="st">"Target (0.5)"</span>)</span>
+<span id="cb29-10"><a href="#cb29-10" aria-hidden="true" tabindex="-1"></a>plt.hlines(observation(optimized_state_het), <span class="dv">0</span>, <span class="dv">2500</span>, color <span class="op">=</span> <span class="st">"red"</span>, linewidth <span class="op">=</span> <span class="fl">2.5</span>, </span>
+<span id="cb29-11"><a href="#cb29-11" aria-hidden="true" tabindex="-1"></a>           label<span class="op">=</span><span class="ss">f"Mean (</span><span class="sc">{</span>observation(optimized_state_het)<span class="sc">:.3f}</span><span class="ss">)"</span>)</span>
+<span id="cb29-12"><a href="#cb29-12" aria-hidden="true" tabindex="-1"></a>plt.xlabel(<span class="st">"Time (ms)"</span>)</span>
+<span id="cb29-13"><a href="#cb29-13" aria-hidden="true" tabindex="-1"></a>plt.ylabel(<span class="st">"Neural Activity"</span>)</span>
+<span id="cb29-14"><a href="#cb29-14" aria-hidden="true" tabindex="-1"></a>plt.title(<span class="st">"Heterogeneous Optimization"</span>)</span>
+<span id="cb29-15"><a href="#cb29-15" aria-hidden="true" tabindex="-1"></a>plt.legend()</span>
+<span id="cb29-16"><a href="#cb29-16" aria-hidden="true" tabindex="-1"></a>plt.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb29-17"><a href="#cb29-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb29-18"><a href="#cb29-18" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot 2: J_N parameters vs mean regionwise coupling</span></span>
+<span id="cb29-19"><a href="#cb29-19" aria-hidden="true" tabindex="-1"></a>mean_coupling <span class="op">=</span> jnp.mean(experiment.connectivity.weights, axis<span class="op">=</span><span class="dv">1</span>)</span>
+<span id="cb29-20"><a href="#cb29-20" aria-hidden="true" tabindex="-1"></a>plt.subplot(<span class="dv">2</span>, <span class="dv">1</span>, <span class="dv">2</span>)</span>
+<span id="cb29-21"><a href="#cb29-21" aria-hidden="true" tabindex="-1"></a>plt.scatter(mean_coupling, optimized_state_het.parameters.model.J_N.value.flatten(), alpha<span class="op">=</span><span class="fl">0.7</span>, color<span class="op">=</span><span class="st">"k"</span>, s<span class="op">=</span><span class="dv">30</span>)</span>
+<span id="cb29-22"><a href="#cb29-22" aria-hidden="true" tabindex="-1"></a>plt.xlabel(<span class="st">"Mean Regionwise Coupling"</span>)</span>
+<span id="cb29-23"><a href="#cb29-23" aria-hidden="true" tabindex="-1"></a>plt.ylabel(<span class="st">"J_N [nA]"</span>)</span>
+<span id="cb29-24"><a href="#cb29-24" aria-hidden="true" tabindex="-1"></a>plt.title(<span class="st">"Fitted J_N Parameters"</span>)</span>
+<span id="cb29-25"><a href="#cb29-25" aria-hidden="true" tabindex="-1"></a>plt.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb29-26"><a href="#cb29-26" aria-hidden="true" tabindex="-1"></a>plt.legend()</span>
+<span id="cb29-27"><a href="#cb29-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb29-28"><a href="#cb29-28" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stderr">
+<pre><code>/tmp/ipykernel_152160/1020819468.py:26: UserWarning:
+
+No artists with labels found to put in legend.  Note that artists whose label start with an underscore are ignored when legend() is called with no argument.
+</code></pre>
+</div>
+<div class="cell-output cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="get_started_files/figure-html/cell-18-output-2.png" class="img-fluid figure-img"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>Why is this problem interesting? The Reduced Wong Wang model has two fixed point branches - low activity (~0.1) and high activity (~0.9). Each region tends to approach one of them, but for the desired target level, we need to find a balance between the two. This concept is also known as feedback inhibition control (FIC).</p>
+</section>
+</section>
+<section id="key-concepts-demonstrated" class="level2">
+<h2 class="anchored" data-anchor-id="key-concepts-demonstrated">Key Concepts Demonstrated</h2>
+<p>This tutorial showcased several important TVBOptim concepts:</p>
+<ol type="1">
+<li><strong>Parameter Types</strong>: The <code>Parameter</code> class wraps JAX arrays with additional metadata (bounds, free/fixed status)</li>
+<li><strong>State Management</strong>: The state object is a JAX PyTree containing all simulation parameters and initial conditions</li>
+<li><strong>Spaces</strong>: <code>GridSpace</code> and <code>UniformSpace</code> enable systematic parameter exploration</li>
+<li><strong>Execution Strategies</strong>: <code>ParallelExecution</code> leverages JAX’s pmap for efficient computation across parameter sets</li>
+<li><strong>Optimization</strong>: <code>OptaxOptimizer</code> provides gradient-based optimization with automatic differentiation</li>
+<li><strong>Caching</strong>: The <code>@cache</code> decorator saves expensive computations for reuse</li>
+<li><strong>Heterogeneous Parameters</strong>: Region-specific parameters enable fine-grained control over brain dynamics</li>
+</ol>
+<p>These tools enable efficient exploration and optimization of complex brain network models at scale.</p>
+
+
+<!-- -->
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+        const codeEl = trigger.previousElementSibling.cloneNode(true);
+        for (const childEl of codeEl.children) {
+          if (isCodeAnnotation(childEl)) {
+            childEl.remove();
+          }
+        }
+        return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+    const viewSource = window.document.getElementById('quarto-view-source') ||
+                       window.document.getElementById('quarto-code-tools-source');
+    if (viewSource) {
+      const sourceUrl = viewSource.getAttribute("data-quarto-source-url");
+      viewSource.addEventListener("click", function(e) {
+        if (sourceUrl) {
+          // rstudio viewer pane
+          if (/\bcapabilities=\b/.test(window.location)) {
+            window.open(sourceUrl);
+          } else {
+            window.location.href = sourceUrl;
+          }
+        } else {
+          const modal = new bootstrap.Modal(document.getElementById('quarto-embedded-source-code-modal'));
+          modal.show();
+        }
+        return false;
+      });
+    }
+    function toggleCodeHandler(show) {
+      return function(e) {
+        const detailsSrc = window.document.querySelectorAll(".cell > details > .sourceCode");
+        for (let i=0; i<detailsSrc.length; i++) {
+          const details = detailsSrc[i].parentElement;
+          if (show) {
+            details.open = true;
+          } else {
+            details.removeAttribute("open");
+          }
+        }
+        const cellCodeDivs = window.document.querySelectorAll(".cell > .sourceCode");
+        const fromCls = show ? "hidden" : "unhidden";
+        const toCls = show ? "unhidden" : "hidden";
+        for (let i=0; i<cellCodeDivs.length; i++) {
+          const codeDiv = cellCodeDivs[i];
+          if (codeDiv.classList.contains(fromCls)) {
+            codeDiv.classList.remove(fromCls);
+            codeDiv.classList.add(toCls);
+          } 
+        }
+        return false;
+      }
+    }
+    const hideAllCode = window.document.getElementById("quarto-hide-all-code");
+    if (hideAllCode) {
+      hideAllCode.addEventListener("click", toggleCodeHandler(false));
+    }
+    const showAllCode = window.document.getElementById("quarto-show-all-code");
+    if (showAllCode) {
+      showAllCode.addEventListener("click", toggleCodeHandler(true));
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script><div class="modal fade" id="quarto-embedded-source-code-modal" tabindex="-1" aria-labelledby="quarto-embedded-source-code-modal-label" aria-hidden="true"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="quarto-embedded-source-code-modal-label">Source Code</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="">
+<div class="sourceCode" id="cb31" data-shortcodes="false"><pre class="sourceCode markdown code-with-copy"><code class="sourceCode markdown"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
+<span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a><span class="an">title:</span><span class="co"> "Get Started"</span></span>
+<span id="cb31-3"><a href="#cb31-3" aria-hidden="true" tabindex="-1"></a><span class="an">format:</span><span class="co"> </span></span>
+<span id="cb31-4"><a href="#cb31-4" aria-hidden="true" tabindex="-1"></a><span class="co">  html:</span></span>
+<span id="cb31-5"><a href="#cb31-5" aria-hidden="true" tabindex="-1"></a><span class="co">    code-fold: false</span></span>
+<span id="cb31-6"><a href="#cb31-6" aria-hidden="true" tabindex="-1"></a><span class="co">    toc: true</span></span>
+<span id="cb31-7"><a href="#cb31-7" aria-hidden="true" tabindex="-1"></a><span class="co">    echo: false</span></span>
+<span id="cb31-8"><a href="#cb31-8" aria-hidden="true" tabindex="-1"></a><span class="an">jupyter:</span><span class="co"> python3</span></span>
+<span id="cb31-9"><a href="#cb31-9" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
+<span id="cb31-10"><a href="#cb31-10" aria-hidden="true" tabindex="-1"></a><span class="fu">## Installation &amp; Requirements</span></span>
+<span id="cb31-11"><a href="#cb31-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-12"><a href="#cb31-12" aria-hidden="true" tabindex="-1"></a>TVBOptim requires Python 3.9 or later and depends on JAX for high-performance computing and automatic differentiation.</span>
+<span id="cb31-13"><a href="#cb31-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-14"><a href="#cb31-14" aria-hidden="true" tabindex="-1"></a><span class="ss">1. </span>Install the TVBO dependency</span>
+<span id="cb31-15"><a href="#cb31-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-16"><a href="#cb31-16" aria-hidden="true" tabindex="-1"></a>    This repository needs to be installed first. TVBO provides the brain simulation models, connectivity data and much more:</span>
+<span id="cb31-17"><a href="#cb31-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-18"><a href="#cb31-18" aria-hidden="true" tabindex="-1"></a>    <span class="in">```bash</span></span>
+<span id="cb31-19"><a href="#cb31-19" aria-hidden="true" tabindex="-1"></a>    <span class="fu">git</span> clone git@github.com:virtual-twin/tvbo.git</span>
+<span id="cb31-20"><a href="#cb31-20" aria-hidden="true" tabindex="-1"></a>    <span class="bu">cd</span> tvbo</span>
+<span id="cb31-21"><a href="#cb31-21" aria-hidden="true" tabindex="-1"></a>    <span class="ex">pip</span> install <span class="at">-e</span> .</span>
+<span id="cb31-22"><a href="#cb31-22" aria-hidden="true" tabindex="-1"></a>    <span class="in">```</span></span>
+<span id="cb31-23"><a href="#cb31-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-24"><a href="#cb31-24" aria-hidden="true" tabindex="-1"></a><span class="ss">2. </span>Install TVBOptim</span>
+<span id="cb31-25"><a href="#cb31-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-26"><a href="#cb31-26" aria-hidden="true" tabindex="-1"></a>    TVBOptim provides utilities for optimization algorithms, parameter spaces, and execution strategies for TVBO models:</span>
+<span id="cb31-27"><a href="#cb31-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-28"><a href="#cb31-28" aria-hidden="true" tabindex="-1"></a>    <span class="in">```bash</span></span>
+<span id="cb31-29"><a href="#cb31-29" aria-hidden="true" tabindex="-1"></a>    <span class="fu">git</span> clone git@github.com:virtual-twin/tvboptim.git</span>
+<span id="cb31-30"><a href="#cb31-30" aria-hidden="true" tabindex="-1"></a>    <span class="bu">cd</span> tvboptim</span>
+<span id="cb31-31"><a href="#cb31-31" aria-hidden="true" tabindex="-1"></a>    <span class="ex">pip</span> install <span class="at">-e</span> .</span>
+<span id="cb31-32"><a href="#cb31-32" aria-hidden="true" tabindex="-1"></a>    <span class="in">```</span></span>
+<span id="cb31-33"><a href="#cb31-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-34"><a href="#cb31-34" aria-hidden="true" tabindex="-1"></a><span class="fu">## Create a TVBO Simulation Experiment</span></span>
+<span id="cb31-35"><a href="#cb31-35" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-36"><a href="#cb31-36" aria-hidden="true" tabindex="-1"></a>For all the details on TVBO, see its <span class="co">[</span><span class="ot">Documentation</span><span class="co">](https://virtual-twin.github.io/tvbo)</span>. A simple experiment can be created like this:</span>
+<span id="cb31-37"><a href="#cb31-37" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-40"><a href="#cb31-40" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb31-41"><a href="#cb31-41" aria-hidden="true" tabindex="-1"></a><span class="co">#| output: false</span></span>
+<span id="cb31-42"><a href="#cb31-42" aria-hidden="true" tabindex="-1"></a><span class="co">#| code-fold: true</span></span>
+<span id="cb31-43"><a href="#cb31-43" aria-hidden="true" tabindex="-1"></a><span class="co">#| code-summary: "Imports"</span></span>
+<span id="cb31-44"><a href="#cb31-44" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb31-45"><a href="#cb31-45" aria-hidden="true" tabindex="-1"></a><span class="co"># Set up environment</span></span>
+<span id="cb31-46"><a href="#cb31-46" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> os</span>
+<span id="cb31-47"><a href="#cb31-47" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> time</span>
+<span id="cb31-48"><a href="#cb31-48" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-49"><a href="#cb31-49" aria-hidden="true" tabindex="-1"></a><span class="co"># Mock devices to force JAX to parallelize on CPU (pmap trick)</span></span>
+<span id="cb31-50"><a href="#cb31-50" aria-hidden="true" tabindex="-1"></a><span class="co"># This allows parallel execution even without multiple GPUs</span></span>
+<span id="cb31-51"><a href="#cb31-51" aria-hidden="true" tabindex="-1"></a>cpu <span class="op">=</span> <span class="va">True</span></span>
+<span id="cb31-52"><a href="#cb31-52" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> cpu:</span>
+<span id="cb31-53"><a href="#cb31-53" aria-hidden="true" tabindex="-1"></a>    N <span class="op">=</span> <span class="dv">8</span>  <span class="co"># Number of virtual devices to create</span></span>
+<span id="cb31-54"><a href="#cb31-54" aria-hidden="true" tabindex="-1"></a>    os.environ[<span class="st">'XLA_FLAGS'</span>] <span class="op">=</span> <span class="ss">f'--xla_force_host_platform_device_count=</span><span class="sc">{</span>N<span class="sc">}</span><span class="ss">'</span></span>
+<span id="cb31-55"><a href="#cb31-55" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-56"><a href="#cb31-56" aria-hidden="true" tabindex="-1"></a><span class="co"># Import all required libraries</span></span>
+<span id="cb31-57"><a href="#cb31-57" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> scipy <span class="im">import</span> io</span>
+<span id="cb31-58"><a href="#cb31-58" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb31-59"><a href="#cb31-59" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
+<span id="cb31-60"><a href="#cb31-60" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> jax</span>
+<span id="cb31-61"><a href="#cb31-61" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> jax.numpy <span class="im">as</span> jnp</span>
+<span id="cb31-62"><a href="#cb31-62" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> copy</span>
+<span id="cb31-63"><a href="#cb31-63" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> optax  <span class="co"># JAX-based optimization library</span></span>
+<span id="cb31-64"><a href="#cb31-64" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> IPython.display <span class="im">import</span> Markdown</span>
+<span id="cb31-65"><a href="#cb31-65" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-66"><a href="#cb31-66" aria-hidden="true" tabindex="-1"></a><span class="co"># Import from tvboptim - our optimization and execution framework</span></span>
+<span id="cb31-67"><a href="#cb31-67" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim <span class="im">import</span> jaxify  <span class="co"># Converts TVBO experiments to JAX functions</span></span>
+<span id="cb31-68"><a href="#cb31-68" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim.types <span class="im">import</span> Parameter, GridSpace  <span class="co"># Parameter types and spaces</span></span>
+<span id="cb31-69"><a href="#cb31-69" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim.types.stateutils <span class="im">import</span> show_free_parameters  <span class="co"># Utility functions</span></span>
+<span id="cb31-70"><a href="#cb31-70" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim.utils <span class="im">import</span> set_cache_path, cache  <span class="co"># Caching for expensive computations</span></span>
+<span id="cb31-71"><a href="#cb31-71" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim <span class="im">import</span> observation <span class="im">as</span> obs  <span class="co"># Observation functions (FC, RMSE, etc.)</span></span>
+<span id="cb31-72"><a href="#cb31-72" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim.execution <span class="im">import</span> ParallelExecution, SequentialExecution  <span class="co"># Execution strategies</span></span>
+<span id="cb31-73"><a href="#cb31-73" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim.optim.optax <span class="im">import</span> OptaxOptimizer  <span class="co"># JAX-based optimizer with automatic differentiation</span></span>
+<span id="cb31-74"><a href="#cb31-74" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvboptim.optim.callbacks <span class="im">import</span> MultiCallback, DefaultPrintCallback, SavingCallback  <span class="co"># Optimization callbacks</span></span>
+<span id="cb31-75"><a href="#cb31-75" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-76"><a href="#cb31-76" aria-hidden="true" tabindex="-1"></a><span class="co"># Import from tvbo - the brain simulation framework</span></span>
+<span id="cb31-77"><a href="#cb31-77" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvbo.export.experiment <span class="im">import</span> SimulationExperiment  <span class="co"># Main experiment class</span></span>
+<span id="cb31-78"><a href="#cb31-78" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvbo.datamodel <span class="im">import</span> tvbo_datamodel  <span class="co"># Data structures</span></span>
+<span id="cb31-79"><a href="#cb31-79" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> tvbo.utils <span class="im">import</span> numbered_print  <span class="co"># Utility functions</span></span>
+<span id="cb31-80"><a href="#cb31-80" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-81"><a href="#cb31-81" aria-hidden="true" tabindex="-1"></a><span class="co"># Set cache path for tvboptim - stores expensive computations for reuse</span></span>
+<span id="cb31-82"><a href="#cb31-82" aria-hidden="true" tabindex="-1"></a>set_cache_path(<span class="st">"./example_cache_get_started"</span>)</span>
+<span id="cb31-83"><a href="#cb31-83" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb31-84"><a href="#cb31-84" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-87"><a href="#cb31-87" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb31-88"><a href="#cb31-88" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb31-89"><a href="#cb31-89" aria-hidden="true" tabindex="-1"></a><span class="co">#| output: true</span></span>
+<span id="cb31-90"><a href="#cb31-90" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-91"><a href="#cb31-91" aria-hidden="true" tabindex="-1"></a><span class="co"># Create a brain simulation experiment using the Reduced Wong-Wang model</span></span>
+<span id="cb31-92"><a href="#cb31-92" aria-hidden="true" tabindex="-1"></a><span class="co"># This is a simplified neural mass model that captures excitatory dynamics</span></span>
+<span id="cb31-93"><a href="#cb31-93" aria-hidden="true" tabindex="-1"></a>experiment <span class="op">=</span> SimulationExperiment(</span>
+<span id="cb31-94"><a href="#cb31-94" aria-hidden="true" tabindex="-1"></a>    model <span class="op">=</span> {</span>
+<span id="cb31-95"><a href="#cb31-95" aria-hidden="true" tabindex="-1"></a>        <span class="st">"name"</span>: <span class="st">"ReducedWongWang"</span>,  <span class="co"># Simplified version of Wong-Wang model</span></span>
+<span id="cb31-96"><a href="#cb31-96" aria-hidden="true" tabindex="-1"></a>        <span class="st">"parameters"</span>: {</span>
+<span id="cb31-97"><a href="#cb31-97" aria-hidden="true" tabindex="-1"></a>            <span class="st">"w"</span>: {<span class="st">"name"</span>: <span class="st">"w"</span>, <span class="st">"value"</span>: <span class="fl">0.5</span>},      <span class="co"># Excitatory recurrence strength</span></span>
+<span id="cb31-98"><a href="#cb31-98" aria-hidden="true" tabindex="-1"></a>            <span class="st">"I_o"</span>: {<span class="st">"name"</span>: <span class="st">"I_o"</span>, <span class="st">"value"</span>: <span class="fl">0.32</span>}, <span class="co"># External input current</span></span>
+<span id="cb31-99"><a href="#cb31-99" aria-hidden="true" tabindex="-1"></a>        },</span>
+<span id="cb31-100"><a href="#cb31-100" aria-hidden="true" tabindex="-1"></a>        <span class="st">"state_variables"</span>: {</span>
+<span id="cb31-101"><a href="#cb31-101" aria-hidden="true" tabindex="-1"></a>            <span class="st">"S"</span>: {<span class="st">"initial_value"</span>: <span class="fl">0.3</span>},  <span class="co"># Set initial condition</span></span>
+<span id="cb31-102"><a href="#cb31-102" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb31-103"><a href="#cb31-103" aria-hidden="true" tabindex="-1"></a>    },</span>
+<span id="cb31-104"><a href="#cb31-104" aria-hidden="true" tabindex="-1"></a>    connectivity <span class="op">=</span> {</span>
+<span id="cb31-105"><a href="#cb31-105" aria-hidden="true" tabindex="-1"></a>        <span class="st">"parcellation"</span>: {<span class="st">"atlas"</span>: {<span class="st">"name"</span>: <span class="st">"DesikanKilliany"</span>}},  <span class="co"># 87-region brain atlas</span></span>
+<span id="cb31-106"><a href="#cb31-106" aria-hidden="true" tabindex="-1"></a>        <span class="st">"conduction_speed"</span>: {<span class="st">"name"</span>: <span class="st">"cs"</span>, <span class="st">"value"</span>: np.array([np.inf])}  <span class="co"># Infinite speed = no delays</span></span>
+<span id="cb31-107"><a href="#cb31-107" aria-hidden="true" tabindex="-1"></a>    },</span>
+<span id="cb31-108"><a href="#cb31-108" aria-hidden="true" tabindex="-1"></a>    coupling <span class="op">=</span> {</span>
+<span id="cb31-109"><a href="#cb31-109" aria-hidden="true" tabindex="-1"></a>        <span class="st">"name"</span>: <span class="st">"Linear"</span>,  <span class="co"># Linear coupling between brain regions</span></span>
+<span id="cb31-110"><a href="#cb31-110" aria-hidden="true" tabindex="-1"></a>        <span class="st">"parameters"</span>: {<span class="st">"a"</span>: {<span class="st">"name"</span>: <span class="st">"a"</span>, <span class="st">"value"</span>: <span class="fl">0.75</span>}}  <span class="co"># Global coupling strength</span></span>
+<span id="cb31-111"><a href="#cb31-111" aria-hidden="true" tabindex="-1"></a>    },</span>
+<span id="cb31-112"><a href="#cb31-112" aria-hidden="true" tabindex="-1"></a>    integration<span class="op">=</span>{</span>
+<span id="cb31-113"><a href="#cb31-113" aria-hidden="true" tabindex="-1"></a>        <span class="st">"method"</span>: <span class="st">"Heun"</span>,      <span class="co"># Stochastic integration method</span></span>
+<span id="cb31-114"><a href="#cb31-114" aria-hidden="true" tabindex="-1"></a>        <span class="st">"step_size"</span>: <span class="fl">4.0</span>,      <span class="co"># Integration step size in ms</span></span>
+<span id="cb31-115"><a href="#cb31-115" aria-hidden="true" tabindex="-1"></a>        <span class="st">"noise"</span>: {<span class="st">"parameters"</span>: {<span class="st">"sigma"</span>: {<span class="st">'value'</span>: <span class="fl">0.00283</span>}}},  <span class="co"># Noise level</span></span>
+<span id="cb31-116"><a href="#cb31-116" aria-hidden="true" tabindex="-1"></a>        <span class="st">"duration"</span>: <span class="dv">10_000</span>     <span class="co"># Simulation duration in ms (10 seconds)</span></span>
+<span id="cb31-117"><a href="#cb31-117" aria-hidden="true" tabindex="-1"></a>    },</span>
+<span id="cb31-118"><a href="#cb31-118" aria-hidden="true" tabindex="-1"></a>    monitors<span class="op">=</span>{</span>
+<span id="cb31-119"><a href="#cb31-119" aria-hidden="true" tabindex="-1"></a>        <span class="st">"Raw"</span>: {<span class="st">"name"</span>: <span class="st">"Raw"</span>},  <span class="co"># Raw neural activity</span></span>
+<span id="cb31-120"><a href="#cb31-120" aria-hidden="true" tabindex="-1"></a>        <span class="st">"Bold"</span>: {<span class="st">"name"</span>: <span class="st">"Bold"</span>, <span class="st">"period"</span>: <span class="fl">1000.0</span>}},  <span class="co"># BOLD signal sampled every 1000ms</span></span>
+<span id="cb31-121"><a href="#cb31-121" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb31-122"><a href="#cb31-122" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-123"><a href="#cb31-123" aria-hidden="true" tabindex="-1"></a><span class="co"># Normalize connectivity weights to prevent runaway dynamics</span></span>
+<span id="cb31-124"><a href="#cb31-124" aria-hidden="true" tabindex="-1"></a>experiment.connectivity.normalize_weights()</span>
+<span id="cb31-125"><a href="#cb31-125" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb31-126"><a href="#cb31-126" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-127"><a href="#cb31-127" aria-hidden="true" tabindex="-1"></a>::: {.callout-note collapse="true" title="Create a Model Report"}</span>
+<span id="cb31-130"><a href="#cb31-130" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb31-131"><a href="#cb31-131" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb31-132"><a href="#cb31-132" aria-hidden="true" tabindex="-1"></a>Markdown(experiment.model.generate_report())</span>
+<span id="cb31-133"><a href="#cb31-133" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb31-134"><a href="#cb31-134" aria-hidden="true" tabindex="-1"></a>:::</span>
+<span id="cb31-135"><a href="#cb31-135" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-136"><a href="#cb31-136" aria-hidden="true" tabindex="-1"></a>::: {.callout-note collapse="true" title="You can inspect the rendered JAX code"}</span>
+<span id="cb31-139"><a href="#cb31-139" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb31-140"><a href="#cb31-140" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb31-141"><a href="#cb31-141" aria-hidden="true" tabindex="-1"></a>numbered_print(experiment.render_code(<span class="bu">format</span> <span class="op">=</span> <span class="st">"jax"</span>, scalar_pre <span class="op">=</span> <span class="va">True</span>))</span>
+<span id="cb31-142"><a href="#cb31-142" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb31-143"><a href="#cb31-143" aria-hidden="true" tabindex="-1"></a>:::</span>
+<span id="cb31-144"><a href="#cb31-144" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-145"><a href="#cb31-145" aria-hidden="true" tabindex="-1"></a><span class="fu">## Get Model and State</span></span>
+<span id="cb31-146"><a href="#cb31-146" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-147"><a href="#cb31-147" aria-hidden="true" tabindex="-1"></a>The <span class="in">`jaxify`</span> function converts the TVBO experiment into a JAX-compatible model function and state object. The *scalar_pre* option is used to improve performance when we have no delay (infinite conduction speed):</span>
+<span id="cb31-148"><a href="#cb31-148" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-151"><a href="#cb31-151" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb31-152"><a href="#cb31-152" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb31-153"><a href="#cb31-153" aria-hidden="true" tabindex="-1"></a><span class="co"># Convert TVBO experiment to JAX function and state</span></span>
+<span id="cb31-154"><a href="#cb31-154" aria-hidden="true" tabindex="-1"></a><span class="co"># scalar_pre=True optimizes for no-delay scenarios</span></span>
+<span id="cb31-155"><a href="#cb31-155" aria-hidden="true" tabindex="-1"></a>model, state <span class="op">=</span> jaxify(experiment, scalar_pre <span class="op">=</span> <span class="va">True</span>)</span>
+<span id="cb31-156"><a href="#cb31-156" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb31-157"><a href="#cb31-157" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-158"><a href="#cb31-158" aria-hidden="true" tabindex="-1"></a>The <span class="in">`model`</span> is now a JAX-compiled function that can be called with a state to run the simulation. The <span class="in">`state`</span> contains all parameters, initial conditions, and configuration needed for the simulation.</span>
+<span id="cb31-159"><a href="#cb31-159" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-160"><a href="#cb31-160" aria-hidden="true" tabindex="-1"></a><span class="fu">### Understand the State Object &amp; Parameters</span></span>
+<span id="cb31-161"><a href="#cb31-161" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-162"><a href="#cb31-162" aria-hidden="true" tabindex="-1"></a>The state is of type <span class="in">`tvbo.datamodel.tvbo_datamodel.Bunch`</span>, which is a <span class="in">`dict`</span> with convenient get and set functions. At the same time, it is also a <span class="co">[</span><span class="ot">`jax.Pytree`</span><span class="co">](https://docs.jax.dev/en/latest/pytrees.html)</span>, making it compatible with all of JAX's transformations. You can think of it as a big tree holding all parameters and initial conditions that uniquely define a simulation:</span>
+<span id="cb31-163"><a href="#cb31-163" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-164"><a href="#cb31-164" aria-hidden="true" tabindex="-1"></a>::: {.callout-note collapse="true" title="View full *state*"}</span>
+<span id="cb31-167"><a href="#cb31-167" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb31-168"><a href="#cb31-168" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb31-169"><a href="#cb31-169" aria-hidden="true" tabindex="-1"></a>state</span>
+<span id="cb31-170"><a href="#cb31-170" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb31-171"><a href="#cb31-171" aria-hidden="true" tabindex="-1"></a>:::</span>
+<span id="cb31-172"><a href="#cb31-172" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-173"><a href="#cb31-173" aria-hidden="true" tabindex="-1"></a>Each leaf of the tree (in JAX, that is each JAX Array) is wrapped in the Parameter type. This enables additional convenience functionality. A Parameter can be declared free, making it available to Spaces or to gradients during optimization.</span>
+<span id="cb31-174"><a href="#cb31-174" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-175"><a href="#cb31-175" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-178"><a href="#cb31-178" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb31-179"><a href="#cb31-179" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb31-180"><a href="#cb31-180" aria-hidden="true" tabindex="-1"></a><span class="co"># Mark the excitatory recurrence parameter as free for optimization</span></span>
+<span id="cb31-181"><a href="#cb31-181" aria-hidden="true" tabindex="-1"></a>state.parameters.model.J_N.free <span class="op">=</span> <span class="va">True</span></span>
+<span id="cb31-182"><a href="#cb31-182" aria-hidden="true" tabindex="-1"></a>show_free_parameters(state)  <span class="co"># Display all parameters marked as free</span></span>
+<span id="cb31-183"><a href="#cb31-183" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb31-184"><a href="#cb31-184" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-185"><a href="#cb31-185" aria-hidden="true" tabindex="-1"></a>If your simulation needs additional Parameters or data, you can simply put a new leaf into the state:</span>
+<span id="cb31-186"><a href="#cb31-186" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-189"><a href="#cb31-189" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb31-190"><a href="#cb31-190" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb31-191"><a href="#cb31-191" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-192"><a href="#cb31-192" aria-hidden="true" tabindex="-1"></a><span class="co"># Example: Add a custom optimizable parameter to the state</span></span>
+<span id="cb31-193"><a href="#cb31-193" aria-hidden="true" tabindex="-1"></a><span class="co"># This demonstrates how to extend the state with additional parameters</span></span>
+<span id="cb31-194"><a href="#cb31-194" aria-hidden="true" tabindex="-1"></a>state.parameters.important_extras <span class="op">=</span> Parameter(<span class="st">"Important"</span>, jnp.zeros(<span class="dv">10</span>), free <span class="op">=</span> <span class="va">True</span>)</span>
+<span id="cb31-195"><a href="#cb31-195" aria-hidden="true" tabindex="-1"></a>show_free_parameters(state)  <span class="co"># Now shows both J_N and our custom parameter</span></span>
+<span id="cb31-196"><a href="#cb31-196" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb31-197"><a href="#cb31-197" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-198"><a href="#cb31-198" aria-hidden="true" tabindex="-1"></a><span class="fu">### Simulate the Model</span></span>
+<span id="cb31-199"><a href="#cb31-199" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-200"><a href="#cb31-200" aria-hidden="true" tabindex="-1"></a>To run a simulation, you can simply call the model.</span>
+<span id="cb31-201"><a href="#cb31-201" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-204"><a href="#cb31-204" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb31-205"><a href="#cb31-205" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb31-206"><a href="#cb31-206" aria-hidden="true" tabindex="-1"></a><span class="co"># Run the simulation - model returns (raw_activity, bold_signal)</span></span>
+<span id="cb31-207"><a href="#cb31-207" aria-hidden="true" tabindex="-1"></a>result <span class="op">=</span> model(state)</span>
+<span id="cb31-208"><a href="#cb31-208" aria-hidden="true" tabindex="-1"></a>raw, bold <span class="op">=</span> result</span>
+<span id="cb31-209"><a href="#cb31-209" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-210"><a href="#cb31-210" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot raw neural activity for all 87 brain regions over time</span></span>
+<span id="cb31-211"><a href="#cb31-211" aria-hidden="true" tabindex="-1"></a><span class="co"># Shape: [time_points, state_variables, regions, modes]</span></span>
+<span id="cb31-212"><a href="#cb31-212" aria-hidden="true" tabindex="-1"></a>plt.plot(raw.data[:,<span class="dv">0</span>,:,<span class="dv">0</span>], color <span class="op">=</span> <span class="st">"royalblue"</span>, alpha <span class="op">=</span> <span class="fl">0.5</span>)</span>
+<span id="cb31-213"><a href="#cb31-213" aria-hidden="true" tabindex="-1"></a>plt.xlabel(<span class="st">"Time (ms)"</span>)</span>
+<span id="cb31-214"><a href="#cb31-214" aria-hidden="true" tabindex="-1"></a>plt.ylabel(<span class="st">"Neural Activity"</span>)</span>
+<span id="cb31-215"><a href="#cb31-215" aria-hidden="true" tabindex="-1"></a>plt.title(<span class="st">"Raw Neural Activity Across All Brain Regions"</span>)<span class="op">;</span></span>
+<span id="cb31-216"><a href="#cb31-216" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb31-217"><a href="#cb31-217" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-218"><a href="#cb31-218" aria-hidden="true" tabindex="-1"></a><span class="fu">### Wrap the Model to create observations</span></span>
+<span id="cb31-219"><a href="#cb31-219" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-220"><a href="#cb31-220" aria-hidden="true" tabindex="-1"></a>We look at the mean activity of the last 500 timesteps as an easy observation.</span>
+<span id="cb31-221"><a href="#cb31-221" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-224"><a href="#cb31-224" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb31-225"><a href="#cb31-225" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb31-226"><a href="#cb31-226" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-227"><a href="#cb31-227" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> observation(state):</span>
+<span id="cb31-228"><a href="#cb31-228" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""</span></span>
+<span id="cb31-229"><a href="#cb31-229" aria-hidden="true" tabindex="-1"></a><span class="co">    Extract a simple observation from the simulation.</span></span>
+<span id="cb31-230"><a href="#cb31-230" aria-hidden="true" tabindex="-1"></a><span class="co">    We use the mean activity of the last 500 timesteps to avoid transient effects.</span></span>
+<span id="cb31-231"><a href="#cb31-231" aria-hidden="true" tabindex="-1"></a><span class="co">    """</span></span>
+<span id="cb31-232"><a href="#cb31-232" aria-hidden="true" tabindex="-1"></a>    ts <span class="op">=</span> model(state)[<span class="dv">0</span>].data[<span class="op">-</span><span class="dv">500</span>:,<span class="dv">0</span>,:,<span class="dv">0</span>]  <span class="co"># Last 500 timesteps, skip transient</span></span>
+<span id="cb31-233"><a href="#cb31-233" aria-hidden="true" tabindex="-1"></a>    mean_activity <span class="op">=</span> jnp.mean(ts)  <span class="co"># Average across time and regions</span></span>
+<span id="cb31-234"><a href="#cb31-234" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> mean_activity</span>
+<span id="cb31-235"><a href="#cb31-235" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-236"><a href="#cb31-236" aria-hidden="true" tabindex="-1"></a><span class="co"># Test the observation function</span></span>
+<span id="cb31-237"><a href="#cb31-237" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Mean activity: </span><span class="sc">{</span>observation(state)<span class="sc">:.4f}</span><span class="ss">"</span>)</span>
+<span id="cb31-238"><a href="#cb31-238" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb31-239"><a href="#cb31-239" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-240"><a href="#cb31-240" aria-hidden="true" tabindex="-1"></a><span class="fu">### Explore that across a parameter space</span></span>
+<span id="cb31-241"><a href="#cb31-241" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-242"><a href="#cb31-242" aria-hidden="true" tabindex="-1"></a>We can use a <span class="in">`GridSpace`</span> to explore how parameters <span class="in">`J_N`</span> (excitatory recurrence) and <span class="in">`a`</span> (global coupling) affect the observation. We use the cache decorator to save computationally demanding operations. We also parallelize the exploration using the <span class="in">`ParallelExecution`</span> class with <span class="in">`n_pmap = 8`</span>, which is possible because we told JAX that our CPU has 8 devices - known as the pmap trick.</span>
+<span id="cb31-243"><a href="#cb31-243" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-246"><a href="#cb31-246" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb31-247"><a href="#cb31-247" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb31-248"><a href="#cb31-248" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-249"><a href="#cb31-249" aria-hidden="true" tabindex="-1"></a><span class="co"># Clean up: disable the custom parameter we added earlier</span></span>
+<span id="cb31-250"><a href="#cb31-250" aria-hidden="true" tabindex="-1"></a>state.parameters.important_extras.free <span class="op">=</span> <span class="va">False</span></span>
+<span id="cb31-251"><a href="#cb31-251" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-252"><a href="#cb31-252" aria-hidden="true" tabindex="-1"></a><span class="co"># Set up parameter exploration for two key parameters</span></span>
+<span id="cb31-253"><a href="#cb31-253" aria-hidden="true" tabindex="-1"></a><span class="co"># a: global coupling strength</span></span>
+<span id="cb31-254"><a href="#cb31-254" aria-hidden="true" tabindex="-1"></a>state.parameters.coupling.a.free <span class="op">=</span> <span class="va">True</span></span>
+<span id="cb31-255"><a href="#cb31-255" aria-hidden="true" tabindex="-1"></a>state.parameters.coupling.a.low <span class="op">=</span> <span class="fl">0.0</span>   <span class="co"># Lower bound</span></span>
+<span id="cb31-256"><a href="#cb31-256" aria-hidden="true" tabindex="-1"></a>state.parameters.coupling.a.high <span class="op">=</span> <span class="fl">1.0</span>  <span class="co"># Upper bound</span></span>
+<span id="cb31-257"><a href="#cb31-257" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-258"><a href="#cb31-258" aria-hidden="true" tabindex="-1"></a><span class="co"># J_N: NMDA synaptic coupling strength</span></span>
+<span id="cb31-259"><a href="#cb31-259" aria-hidden="true" tabindex="-1"></a>state.parameters.model.J_N.free <span class="op">=</span> <span class="va">True</span></span>
+<span id="cb31-260"><a href="#cb31-260" aria-hidden="true" tabindex="-1"></a>state.parameters.model.J_N.low <span class="op">=</span> <span class="fl">0.0</span></span>
+<span id="cb31-261"><a href="#cb31-261" aria-hidden="true" tabindex="-1"></a>state.parameters.model.J_N.high <span class="op">=</span> <span class="fl">1.0</span></span>
+<span id="cb31-262"><a href="#cb31-262" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-263"><a href="#cb31-263" aria-hidden="true" tabindex="-1"></a><span class="co"># Create a grid space for systematic parameter exploration</span></span>
+<span id="cb31-264"><a href="#cb31-264" aria-hidden="true" tabindex="-1"></a>n <span class="op">=</span> <span class="dv">32</span>  <span class="co"># 32x32 grid = 1024 parameter combinations</span></span>
+<span id="cb31-265"><a href="#cb31-265" aria-hidden="true" tabindex="-1"></a>params_set <span class="op">=</span> GridSpace(state, n<span class="op">=</span>n)</span>
+<span id="cb31-266"><a href="#cb31-266" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-267"><a href="#cb31-267" aria-hidden="true" tabindex="-1"></a><span class="at">@cache</span>(<span class="st">"explore"</span>, redo <span class="op">=</span> <span class="va">False</span>)  <span class="co"># Cache results to avoid recomputation</span></span>
+<span id="cb31-268"><a href="#cb31-268" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> explore():</span>
+<span id="cb31-269"><a href="#cb31-269" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Use parallel execution with 8 virtual devices (pmap trick)</span></span>
+<span id="cb31-270"><a href="#cb31-270" aria-hidden="true" tabindex="-1"></a>    <span class="bu">exec</span> <span class="op">=</span> ParallelExecution(observation, params_set, n_pmap<span class="op">=</span><span class="dv">8</span>)</span>
+<span id="cb31-271"><a href="#cb31-271" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="bu">exec</span>.run()</span>
+<span id="cb31-272"><a href="#cb31-272" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-273"><a href="#cb31-273" aria-hidden="true" tabindex="-1"></a><span class="co"># Run the exploration (or load from cache)</span></span>
+<span id="cb31-274"><a href="#cb31-274" aria-hidden="true" tabindex="-1"></a>exploration <span class="op">=</span> explore()</span>
+<span id="cb31-275"><a href="#cb31-275" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-276"><a href="#cb31-276" aria-hidden="true" tabindex="-1"></a><span class="co"># Visualize the parameter space exploration</span></span>
+<span id="cb31-277"><a href="#cb31-277" aria-hidden="true" tabindex="-1"></a>plt.figure(figsize<span class="op">=</span>(<span class="dv">8</span>, <span class="dv">6</span>))</span>
+<span id="cb31-278"><a href="#cb31-278" aria-hidden="true" tabindex="-1"></a>plt.imshow(jnp.stack(exploration).reshape(n, n), aspect <span class="op">=</span> <span class="st">"auto"</span>, extent<span class="op">=</span>[<span class="dv">0</span>, <span class="dv">1</span>, <span class="dv">0</span>, <span class="dv">1</span>])</span>
+<span id="cb31-279"><a href="#cb31-279" aria-hidden="true" tabindex="-1"></a>plt.xlabel(<span class="st">"a"</span>)</span>
+<span id="cb31-280"><a href="#cb31-280" aria-hidden="true" tabindex="-1"></a>plt.ylabel(<span class="st">"J_N"</span>)</span>
+<span id="cb31-281"><a href="#cb31-281" aria-hidden="true" tabindex="-1"></a>plt.title(<span class="st">"Mean Activity Across Parameter Space"</span>)</span>
+<span id="cb31-282"><a href="#cb31-282" aria-hidden="true" tabindex="-1"></a>plt.colorbar(label<span class="op">=</span><span class="st">"Mean Activity"</span>)</span>
+<span id="cb31-283"><a href="#cb31-283" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb31-284"><a href="#cb31-284" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-285"><a href="#cb31-285" aria-hidden="true" tabindex="-1"></a><span class="fu">### Define a Loss and Optimize</span></span>
+<span id="cb31-286"><a href="#cb31-286" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-287"><a href="#cb31-287" aria-hidden="true" tabindex="-1"></a>Let's say our goal is to have a mean activity of 0.5. We can define a loss function that penalizes deviations from this target.</span>
+<span id="cb31-288"><a href="#cb31-288" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-291"><a href="#cb31-291" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb31-292"><a href="#cb31-292" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb31-293"><a href="#cb31-293" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> loss(state):</span>
+<span id="cb31-294"><a href="#cb31-294" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""</span></span>
+<span id="cb31-295"><a href="#cb31-295" aria-hidden="true" tabindex="-1"></a><span class="co">    Define a loss function that penalizes deviations from target activity.</span></span>
+<span id="cb31-296"><a href="#cb31-296" aria-hidden="true" tabindex="-1"></a><span class="co">    Goal: Each brain region should have mean activity of 0.5</span></span>
+<span id="cb31-297"><a href="#cb31-297" aria-hidden="true" tabindex="-1"></a><span class="co">    """</span></span>
+<span id="cb31-298"><a href="#cb31-298" aria-hidden="true" tabindex="-1"></a>    ts <span class="op">=</span> model(state)[<span class="dv">0</span>].data[<span class="op">-</span><span class="dv">500</span>:,<span class="dv">0</span>,:,<span class="dv">0</span>]  <span class="co"># Skip transient period</span></span>
+<span id="cb31-299"><a href="#cb31-299" aria-hidden="true" tabindex="-1"></a>    mean_activity <span class="op">=</span> jnp.mean(ts, axis <span class="op">=</span> <span class="dv">0</span>)  <span class="co"># Average over time for each region</span></span>
+<span id="cb31-300"><a href="#cb31-300" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Compute mean squared error between actual and target (0.5) activity</span></span>
+<span id="cb31-301"><a href="#cb31-301" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> jnp.mean((mean_activity <span class="op">-</span> <span class="fl">0.5</span>)<span class="op">**</span><span class="dv">2</span>)  <span class="co"># Region-wise difference</span></span>
+<span id="cb31-302"><a href="#cb31-302" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-303"><a href="#cb31-303" aria-hidden="true" tabindex="-1"></a><span class="co"># Test the loss function</span></span>
+<span id="cb31-304"><a href="#cb31-304" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Current loss: </span><span class="sc">{</span>loss(state)<span class="sc">:.6f}</span><span class="ss">"</span>)</span>
+<span id="cb31-305"><a href="#cb31-305" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb31-306"><a href="#cb31-306" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-307"><a href="#cb31-307" aria-hidden="true" tabindex="-1"></a>Then we optimize it with Optax and gradient descent:</span>
+<span id="cb31-308"><a href="#cb31-308" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-311"><a href="#cb31-311" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb31-312"><a href="#cb31-312" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb31-313"><a href="#cb31-313" aria-hidden="true" tabindex="-1"></a><span class="co"># Create an optimizer using Adam with automatic differentiation</span></span>
+<span id="cb31-314"><a href="#cb31-314" aria-hidden="true" tabindex="-1"></a>optimizer <span class="op">=</span> OptaxOptimizer(</span>
+<span id="cb31-315"><a href="#cb31-315" aria-hidden="true" tabindex="-1"></a>    loss,                           <span class="co"># Loss function to minimize</span></span>
+<span id="cb31-316"><a href="#cb31-316" aria-hidden="true" tabindex="-1"></a>    optax.adam(<span class="fl">0.005</span>),             <span class="co"># Adam optimizer with learning rate 0.005</span></span>
+<span id="cb31-317"><a href="#cb31-317" aria-hidden="true" tabindex="-1"></a>    callback<span class="op">=</span>DefaultPrintCallback(every<span class="op">=</span><span class="dv">5</span>) <span class="co"># Print progress during optimization</span></span>
+<span id="cb31-318"><a href="#cb31-318" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb31-319"><a href="#cb31-319" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-320"><a href="#cb31-320" aria-hidden="true" tabindex="-1"></a><span class="co"># Run optimization using forward-mode automatic differentiation</span></span>
+<span id="cb31-321"><a href="#cb31-321" aria-hidden="true" tabindex="-1"></a><span class="co"># Forward mode is efficient when we have few parameters (like here: a and J_N)</span></span>
+<span id="cb31-322"><a href="#cb31-322" aria-hidden="true" tabindex="-1"></a>optimized_state, _ <span class="op">=</span> optimizer.run(state, max_steps<span class="op">=</span><span class="dv">50</span>, mode<span class="op">=</span><span class="st">"fwd"</span>)</span>
+<span id="cb31-323"><a href="#cb31-323" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb31-324"><a href="#cb31-324" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-325"><a href="#cb31-325" aria-hidden="true" tabindex="-1"></a><span class="fu">### Visualize the Fitted Model</span></span>
+<span id="cb31-326"><a href="#cb31-326" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-329"><a href="#cb31-329" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb31-330"><a href="#cb31-330" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb31-331"><a href="#cb31-331" aria-hidden="true" tabindex="-1"></a><span class="co"># Simulate with optimized parameters and visualize results</span></span>
+<span id="cb31-332"><a href="#cb31-332" aria-hidden="true" tabindex="-1"></a>ts_optimized <span class="op">=</span> model(optimized_state)[<span class="dv">0</span>].data[:,<span class="dv">0</span>,:,<span class="dv">0</span>]</span>
+<span id="cb31-333"><a href="#cb31-333" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-334"><a href="#cb31-334" aria-hidden="true" tabindex="-1"></a>plt.figure(figsize<span class="op">=</span>(<span class="dv">10</span>, <span class="dv">6</span>))</span>
+<span id="cb31-335"><a href="#cb31-335" aria-hidden="true" tabindex="-1"></a>plt.plot(ts_optimized, alpha <span class="op">=</span> <span class="fl">0.5</span>, color <span class="op">=</span> <span class="st">"royalblue"</span>)</span>
+<span id="cb31-336"><a href="#cb31-336" aria-hidden="true" tabindex="-1"></a>plt.hlines(<span class="fl">0.5</span>, <span class="dv">0</span>, <span class="dv">2500</span>, color <span class="op">=</span> <span class="st">"black"</span>, linewidth <span class="op">=</span> <span class="fl">2.5</span>, label<span class="op">=</span><span class="st">"Target (0.5)"</span>)</span>
+<span id="cb31-337"><a href="#cb31-337" aria-hidden="true" tabindex="-1"></a>plt.hlines(observation(optimized_state), <span class="dv">0</span>, <span class="dv">2500</span>, color <span class="op">=</span> <span class="st">"red"</span>, linewidth <span class="op">=</span> <span class="fl">2.5</span>, </span>
+<span id="cb31-338"><a href="#cb31-338" aria-hidden="true" tabindex="-1"></a>           label<span class="op">=</span><span class="ss">f"Actual Mean (</span><span class="sc">{</span>observation(optimized_state)<span class="sc">:.3f}</span><span class="ss">)"</span>)</span>
+<span id="cb31-339"><a href="#cb31-339" aria-hidden="true" tabindex="-1"></a>plt.xlabel(<span class="st">"Time (ms)"</span>)</span>
+<span id="cb31-340"><a href="#cb31-340" aria-hidden="true" tabindex="-1"></a>plt.ylabel(<span class="st">"Neural Activity"</span>)</span>
+<span id="cb31-341"><a href="#cb31-341" aria-hidden="true" tabindex="-1"></a>plt.title(<span class="st">"Optimized Neural Activity"</span>)</span>
+<span id="cb31-342"><a href="#cb31-342" aria-hidden="true" tabindex="-1"></a>plt.legend()</span>
+<span id="cb31-343"><a href="#cb31-343" aria-hidden="true" tabindex="-1"></a>plt.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb31-344"><a href="#cb31-344" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb31-345"><a href="#cb31-345" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-346"><a href="#cb31-346" aria-hidden="true" tabindex="-1"></a>Well, the mean is close to the target, but most regions are either too high or too low. We can make parameters heterogeneous to adjust that.</span>
+<span id="cb31-347"><a href="#cb31-347" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-348"><a href="#cb31-348" aria-hidden="true" tabindex="-1"></a><span class="fu">### Heterogeneous Parameters</span></span>
+<span id="cb31-349"><a href="#cb31-349" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-350"><a href="#cb31-350" aria-hidden="true" tabindex="-1"></a>The previous optimization used global parameters (same value for all brain regions). Now we'll make parameters region-specific to achieve better control:</span>
+<span id="cb31-351"><a href="#cb31-351" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-354"><a href="#cb31-354" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb31-355"><a href="#cb31-355" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb31-356"><a href="#cb31-356" aria-hidden="true" tabindex="-1"></a><span class="co"># Make parameters heterogeneous: one value per brain region (87 regions)</span></span>
+<span id="cb31-357"><a href="#cb31-357" aria-hidden="true" tabindex="-1"></a>optimized_state.parameters.model.J_N.shape <span class="op">=</span> (<span class="dv">87</span>,<span class="dv">1</span>)  <span class="co"># Excitatory recurrence per region</span></span>
+<span id="cb31-358"><a href="#cb31-358" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"J_N parameter shape: </span><span class="sc">{</span>optimized_state<span class="sc">.</span>parameters<span class="sc">.</span>model<span class="sc">.</span>J_N<span class="sc">.</span>shape<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb31-359"><a href="#cb31-359" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb31-360"><a href="#cb31-360" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-361"><a href="#cb31-361" aria-hidden="true" tabindex="-1"></a>We switch to reverse mode automatic differentiation, which is more efficient when we have many parameters (87 parameters):</span>
+<span id="cb31-362"><a href="#cb31-362" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-365"><a href="#cb31-365" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb31-366"><a href="#cb31-366" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb31-367"><a href="#cb31-367" aria-hidden="true" tabindex="-1"></a><span class="co"># Create optimizer for heterogeneous parameters</span></span>
+<span id="cb31-368"><a href="#cb31-368" aria-hidden="true" tabindex="-1"></a>optimizer_het <span class="op">=</span> OptaxOptimizer(</span>
+<span id="cb31-369"><a href="#cb31-369" aria-hidden="true" tabindex="-1"></a>    loss,                                    <span class="co"># Same loss function</span></span>
+<span id="cb31-370"><a href="#cb31-370" aria-hidden="true" tabindex="-1"></a>    optax.adam(<span class="fl">0.002</span>),                      <span class="co"># Lower learning rate for stability</span></span>
+<span id="cb31-371"><a href="#cb31-371" aria-hidden="true" tabindex="-1"></a>    callback<span class="op">=</span>DefaultPrintCallback(every<span class="op">=</span><span class="dv">10</span>) <span class="co"># Print every 10 steps</span></span>
+<span id="cb31-372"><a href="#cb31-372" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb31-373"><a href="#cb31-373" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-374"><a href="#cb31-374" aria-hidden="true" tabindex="-1"></a><span class="co"># Use reverse-mode AD (more efficient for many parameters)</span></span>
+<span id="cb31-375"><a href="#cb31-375" aria-hidden="true" tabindex="-1"></a>optimized_state_het, _ <span class="op">=</span> optimizer_het.run(optimized_state, max_steps<span class="op">=</span><span class="dv">200</span>, mode<span class="op">=</span><span class="st">"rev"</span>)</span>
+<span id="cb31-376"><a href="#cb31-376" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb31-377"><a href="#cb31-377" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-378"><a href="#cb31-378" aria-hidden="true" tabindex="-1"></a>Now most regions are close to the target level after passing the initial transient. Setting the initial conditions to the target activity could be a solution to this problem.</span>
+<span id="cb31-379"><a href="#cb31-379" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-382"><a href="#cb31-382" aria-hidden="true" tabindex="-1"></a><span class="in">```{python}</span></span>
+<span id="cb31-383"><a href="#cb31-383" aria-hidden="true" tabindex="-1"></a><span class="co">#| echo: true</span></span>
+<span id="cb31-384"><a href="#cb31-384" aria-hidden="true" tabindex="-1"></a><span class="co"># Visualize results with heterogeneous parameters</span></span>
+<span id="cb31-385"><a href="#cb31-385" aria-hidden="true" tabindex="-1"></a>ts_optimized_het <span class="op">=</span> model(optimized_state_het)[<span class="dv">0</span>].data[:,<span class="dv">0</span>,:,<span class="dv">0</span>]</span>
+<span id="cb31-386"><a href="#cb31-386" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-387"><a href="#cb31-387" aria-hidden="true" tabindex="-1"></a>plt.figure(figsize<span class="op">=</span>(<span class="dv">15</span>, <span class="dv">10</span>))</span>
+<span id="cb31-388"><a href="#cb31-388" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-389"><a href="#cb31-389" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot 1: Time series for all regions</span></span>
+<span id="cb31-390"><a href="#cb31-390" aria-hidden="true" tabindex="-1"></a>plt.subplot(<span class="dv">2</span>, <span class="dv">1</span>, <span class="dv">1</span>)</span>
+<span id="cb31-391"><a href="#cb31-391" aria-hidden="true" tabindex="-1"></a>plt.plot(ts_optimized_het, alpha <span class="op">=</span> <span class="fl">0.5</span>, color <span class="op">=</span> <span class="st">"royalblue"</span>)</span>
+<span id="cb31-392"><a href="#cb31-392" aria-hidden="true" tabindex="-1"></a>plt.hlines(<span class="fl">0.5</span>, <span class="dv">0</span>, <span class="dv">2500</span>, color <span class="op">=</span> <span class="st">"black"</span>, linewidth <span class="op">=</span> <span class="fl">2.5</span>, label<span class="op">=</span><span class="st">"Target (0.5)"</span>)</span>
+<span id="cb31-393"><a href="#cb31-393" aria-hidden="true" tabindex="-1"></a>plt.hlines(observation(optimized_state_het), <span class="dv">0</span>, <span class="dv">2500</span>, color <span class="op">=</span> <span class="st">"red"</span>, linewidth <span class="op">=</span> <span class="fl">2.5</span>, </span>
+<span id="cb31-394"><a href="#cb31-394" aria-hidden="true" tabindex="-1"></a>           label<span class="op">=</span><span class="ss">f"Mean (</span><span class="sc">{</span>observation(optimized_state_het)<span class="sc">:.3f}</span><span class="ss">)"</span>)</span>
+<span id="cb31-395"><a href="#cb31-395" aria-hidden="true" tabindex="-1"></a>plt.xlabel(<span class="st">"Time (ms)"</span>)</span>
+<span id="cb31-396"><a href="#cb31-396" aria-hidden="true" tabindex="-1"></a>plt.ylabel(<span class="st">"Neural Activity"</span>)</span>
+<span id="cb31-397"><a href="#cb31-397" aria-hidden="true" tabindex="-1"></a>plt.title(<span class="st">"Heterogeneous Optimization"</span>)</span>
+<span id="cb31-398"><a href="#cb31-398" aria-hidden="true" tabindex="-1"></a>plt.legend()</span>
+<span id="cb31-399"><a href="#cb31-399" aria-hidden="true" tabindex="-1"></a>plt.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb31-400"><a href="#cb31-400" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-401"><a href="#cb31-401" aria-hidden="true" tabindex="-1"></a><span class="co"># Plot 2: J_N parameters vs mean regionwise coupling</span></span>
+<span id="cb31-402"><a href="#cb31-402" aria-hidden="true" tabindex="-1"></a>mean_coupling <span class="op">=</span> jnp.mean(experiment.connectivity.weights, axis<span class="op">=</span><span class="dv">1</span>)</span>
+<span id="cb31-403"><a href="#cb31-403" aria-hidden="true" tabindex="-1"></a>plt.subplot(<span class="dv">2</span>, <span class="dv">1</span>, <span class="dv">2</span>)</span>
+<span id="cb31-404"><a href="#cb31-404" aria-hidden="true" tabindex="-1"></a>plt.scatter(mean_coupling, optimized_state_het.parameters.model.J_N.value.flatten(), alpha<span class="op">=</span><span class="fl">0.7</span>, color<span class="op">=</span><span class="st">"k"</span>, s<span class="op">=</span><span class="dv">30</span>)</span>
+<span id="cb31-405"><a href="#cb31-405" aria-hidden="true" tabindex="-1"></a>plt.xlabel(<span class="st">"Mean Regionwise Coupling"</span>)</span>
+<span id="cb31-406"><a href="#cb31-406" aria-hidden="true" tabindex="-1"></a>plt.ylabel(<span class="st">"J_N [nA]"</span>)</span>
+<span id="cb31-407"><a href="#cb31-407" aria-hidden="true" tabindex="-1"></a>plt.title(<span class="st">"Fitted J_N Parameters"</span>)</span>
+<span id="cb31-408"><a href="#cb31-408" aria-hidden="true" tabindex="-1"></a>plt.grid(<span class="va">True</span>, alpha<span class="op">=</span><span class="fl">0.3</span>)</span>
+<span id="cb31-409"><a href="#cb31-409" aria-hidden="true" tabindex="-1"></a>plt.legend()</span>
+<span id="cb31-410"><a href="#cb31-410" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-411"><a href="#cb31-411" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb31-412"><a href="#cb31-412" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb31-413"><a href="#cb31-413" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-414"><a href="#cb31-414" aria-hidden="true" tabindex="-1"></a>Why is this problem interesting? The Reduced Wong Wang model has two fixed point branches - low activity (~0.1) and high activity (~0.9). Each region tends to approach one of them, but for the desired target level, we need to find a balance between the two. This concept is also known as feedback inhibition control (FIC).</span>
+<span id="cb31-415"><a href="#cb31-415" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-416"><a href="#cb31-416" aria-hidden="true" tabindex="-1"></a><span class="fu">## Key Concepts Demonstrated</span></span>
+<span id="cb31-417"><a href="#cb31-417" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-418"><a href="#cb31-418" aria-hidden="true" tabindex="-1"></a>This tutorial showcased several important TVBOptim concepts:</span>
+<span id="cb31-419"><a href="#cb31-419" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-420"><a href="#cb31-420" aria-hidden="true" tabindex="-1"></a><span class="ss">1. </span>**Parameter Types**: The <span class="in">`Parameter`</span> class wraps JAX arrays with additional metadata (bounds, free/fixed status)</span>
+<span id="cb31-421"><a href="#cb31-421" aria-hidden="true" tabindex="-1"></a><span class="ss">2. </span>**State Management**: The state object is a JAX PyTree containing all simulation parameters and initial conditions</span>
+<span id="cb31-422"><a href="#cb31-422" aria-hidden="true" tabindex="-1"></a><span class="ss">3. </span>**Spaces**: <span class="in">`GridSpace`</span> and <span class="in">`UniformSpace`</span> enable systematic parameter exploration</span>
+<span id="cb31-423"><a href="#cb31-423" aria-hidden="true" tabindex="-1"></a><span class="ss">4. </span>**Execution Strategies**: <span class="in">`ParallelExecution`</span> leverages JAX's pmap for efficient computation across parameter sets</span>
+<span id="cb31-424"><a href="#cb31-424" aria-hidden="true" tabindex="-1"></a><span class="ss">5. </span>**Optimization**: <span class="in">`OptaxOptimizer`</span> provides gradient-based optimization with automatic differentiation</span>
+<span id="cb31-425"><a href="#cb31-425" aria-hidden="true" tabindex="-1"></a><span class="ss">6. </span>**Caching**: The <span class="in">`@cache`</span> decorator saves expensive computations for reuse</span>
+<span id="cb31-426"><a href="#cb31-426" aria-hidden="true" tabindex="-1"></a><span class="ss">7. </span>**Heterogeneous Parameters**: Region-specific parameters enable fine-grained control over brain dynamics</span>
+<span id="cb31-427"><a href="#cb31-427" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb31-428"><a href="#cb31-428" aria-hidden="true" tabindex="-1"></a>These tools enable efficient exploration and optimization of complex brain network models at scale.</span>
+</code><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal=""><i class="bi"></i></button></pre></div>
+</div></div></div></div></div>
+</div> <!-- /content -->
+
+
+
+
+</body></html>
