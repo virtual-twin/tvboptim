@@ -1,6 +1,6 @@
 
 > [!IMPORTANT]
-> **Repository Status:** This repository serves as a placeholder. The complete source code, documentation, and examples will be published here once our associated paper has been accepted and published. Please check back or watch this repository for updates.
+> **Repository Status:** This repository is currently a placeholder. The complete source code and additional examples will be published here once our paper has been submitted. In the meantime, please review the [documentation](https://virtual-twin.github.io/tvboptim/) for an initial overview and check back for updates
 
 ![](./images/tvboptim_logo_long.svg)
 
