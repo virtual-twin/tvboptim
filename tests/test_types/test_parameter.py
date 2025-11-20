@@ -405,7 +405,9 @@ class TestBoundedParameter(unittest.TestCase):
         grad = grad_fn(p)
 
         # Verify gradient computation works (gradient exists and is finite)
-        grad_value = grad.__jax_array__() if hasattr(grad, '__jax_array__') else float(grad)
+        grad_value = (
+            grad.__jax_array__() if hasattr(grad, "__jax_array__") else float(grad)
+        )
         self.assertTrue(jnp.isfinite(grad_value))
 
         # But the parameter value when used stays within bounds
