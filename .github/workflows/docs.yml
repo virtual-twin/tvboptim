@@ -63,6 +63,7 @@ jobs:
 
       - name: Render Quarto documentation
         run: |
+          source .venv/bin/activate
           quarto render docs/
         env:
           # JAX configuration for CPU-only (no GPU in CI)
