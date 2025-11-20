@@ -10,7 +10,8 @@ readme = "README.md"
 authors = [
     {name = "Marius Pille", email = "marius.pille@bih-charite.de"},
 ]
-license = {text = "EUPL-1.2"}
+license = "EUPL-1.2"
+license-files = ["LICENSE"]
 keywords = ["tvb", "optimization", "neuroscience", "brain", "virtual-brain", "jax", "neural-simulation"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -20,7 +21,6 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "License :: OSI Approved :: European Union Public Licence 1.2 (EUPL 1.2)",
     "Operating System :: OS Independent",
 ]
 requires-python = ">=3.11"
