@@ -1,0 +1,193 @@
+project:
+  type: website
+  output-dir: _site
+  
+website:
+  title: ""
+  favicon: images/tvboptim_compact_2.png
+  navbar:
+    logo: images/tvboptim.png
+    right:
+      - icon: github
+        href: https://github.com/virtual-twin/tvboptim
+        aria-label: TVBOptim on GitHub
+    left:
+      - text: "Get started"
+        file: basics/get_started.qmd
+      - text: "Basics"
+        menu:
+          - file: basics/parameters_and_optimization.qmd
+          - file: basics/axes_and_spaces.qmd
+      - text: "Workflows"
+        menu:
+          # - text: "Functional Connectivity Dynamics in the Reduced Wong Wang Model"
+          - file: workflows/RWW.qmd
+          - file: workflows/JR.qmd
+          - file: workflows/EI_Tuning.qmd
+      - text: "Network Dynamics"
+        menu:
+          - file: network_dynamics/network_dynamics.qmd
+          - file: network_dynamics/dynamics.qmd
+          - file: network_dynamics/coupling.qmd
+          - file: network_dynamics/graph.qmd
+          - file: network_dynamics/noise.qmd
+          - file: network_dynamics/external_inputs.qmd
+          - file: network_dynamics/solvers.qmd
+      - text: "Advanced Topics"
+        menu:
+          - text: "Surface Simulations"
+          - text: "Performance Tips"
+          - text: "Constraining Parameters"
+      - text: "Reference"
+        file: reference/index.qmd
+  # sidebar:
+  #   style: docked
+  #   contents:
+  #     - section: "Getting Started"
+  #       contents:
+  #         - index.qmd
+  #         - installation.qmd
+  #     - section: "API Reference"
+  #       contents:
+  #         - api/index.qmd
+  #         - api/core.qmd
+  #         - api/utils.qmd
+# tell quarto to read the generated sidebar
+metadata-files:
+  - _sidebar.yml
+
+format:
+  html:
+    # theme: cosmo
+    respect-user-color-scheme: true
+    theme:
+      light: flatly
+      dark: darkly
+    css: custom.css
+    toc: true
+    code-copy: true
+    code-tools:
+      source: true
+      toggle: true
+    code-download: true
+    highlight-style: github
+
+quartodoc:
+  render_interlinks: true
+  # the name used to import the package you want to create reference docs for
+  title: Reference
+  # out_index: _api_index.qmd
+  package: tvboptim
+  # write sidebar and style data
+  sidebar: _sidebar.yml
+  css: _styles-quartodoc.css
+  sections:
+    - title: Parameter
+      desc: "Base class wrapping a JAX array for extra capabilities." 
+      contents:
+        - name: parameter.Parameter
+        - name: parameter.NormalizedParameter
+        - name: parameter.BoundedParameter
+        - name: parameter.TransformedParameter
+        - name: parameter.SigmoidBoundedParameter
+        - name: parameter.LogPositiveParameter
+        - name: parameter.LogNegativeParameter
+        - name: parameter.MaskedParameter
+
+    - title: Spaces
+      desc: A space is a collection of states that a function can be applied over. 
+      contents:
+        - spaces.Space
+        - spaces.GridAxis
+        - spaces.UniformAxis
+        - spaces.DataAxis
+    - title: Executors & Results
+      desc: Executors are used to apply a function over a state space.
+      contents:
+        - execution.SequentialExecution
+        - execution.ParallelExecution
+    - title: Optimization
+      desc: Everything needed to perform a gradient descent based optimization.
+      contents:
+        - name: optim.OptaxOptimizer
+        - name: optim.callbacks
+          include_empty: true
+        # - optim.callbacks
+    - title: Utilities
+      desc: Your little helpers.
+      contents:
+        - utils.caching
+        - utils.utils
+        - types.stateutils
+    - title: Network Dynamics (Experimental)
+      desc: JAX-based brain network modeling interface
+      package: tvboptim.experimental.network_dynamics
+      contents:
+        - Network
+        - Bunch
+        - solve
+        - prepare
+
+    - subtitle: Dynamics
+      desc: Neural mass and population models
+      package: tvboptim.experimental.network_dynamics.dynamics
+      contents:
+        - AbstractDynamics
+        - Lorenz
+        - tvb.Linear
+        - tvb.SupHopf
+        - tvb.Generic2dOscillator
+        - tvb.Kuramoto
+        - tvb.JansenRit
+        - tvb.ReducedWongWang
+        - tvb.WongWangExcInh
+        - tvb.WilsonCowan
+        - tvb.MontbrioPazoRoxin
+        - tvb.CoombesByrne2D
+        - tvb.LarterBreakspear
+        - tvb.Epileptor
+
+    - subtitle: Coupling
+      desc: Inter-region coupling functions
+      package: tvboptim.experimental.network_dynamics.coupling
+      contents:
+        - AbstractCoupling
+        - LinearCoupling
+        - FastLinearCoupling
+        - DelayedLinearCoupling
+        - DifferenceCoupling
+        - DelayedDifferenceCoupling
+        - SigmoidalJansenRit
+        - DelayedSigmoidalJansenRit
+
+    - subtitle: Graphs
+      desc: Connectivity and topology
+      package: tvboptim.experimental.network_dynamics.graph
+      contents:
+        - AbstractGraph
+        - DenseGraph
+        - DenseDelayGraph
+        - SparseGraph
+        - SparseDelayGraph
+
+    - subtitle: Noise
+      desc: Stochastic processes
+      package: tvboptim.experimental.network_dynamics.noise
+      contents:
+        - AbstractNoise
+        - AdditiveNoise
+        - MultiplicativeNoise
+
+    - subtitle: Solvers
+      desc: Integration methods
+      package: tvboptim.experimental.network_dynamics.solvers
+      contents:
+        - AbstractSolver
+        - NativeSolver
+        - DiffraxSolver
+        - Euler
+        - Heun
+    - title: Jaxify
+      desc: The entrypoint from TVB-O to the JAX domain
+      contents:
+        - jaxify

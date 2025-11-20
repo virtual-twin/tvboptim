@@ -1,0 +1,19 @@
+{
+  "package": "tvboptim",
+  "output_dir": "api",
+  "structure": {
+    "api": {
+      "title": "API Reference",
+      "children": {
+        "core": {
+          "title": "Core",
+          "contents": "tvboptim.core"
+        },
+        "utils": {
+          "title": "Utilities",
+          "contents": "tvboptim.utils"
+        }
+      }
+    }
+  }
+}

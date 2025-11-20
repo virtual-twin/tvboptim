@@ -1,0 +1,70 @@
+.github/
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.pytest_cache
+
+# uv lock file (library project - don't commit)
+uv.lock
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Custom
+/notebooks
+/data
+/examples
+
+# Quarto documentation
+docs/_site/                    
+docs/.quarto/                  
+.quarto/                       
+docs/_freeze/                  
+docs/.jupyter_cache/           
+docs/**/.jupyter_cache/        
+docs/reference/*.qmd
+docs/legacy
+docs/_styles-quartodoc.css
+
+# Generated notebooks (only want them in _site, not source dirs)
+docs/workflows/*.ipynb
+docs/basics/*.ipynb
+
+# Keep tvboptim cache directories (pickle files from @cache decorator)
+# These should be committed for reproducible builds
+# !docs/**/cache/
+
+# OS-specific
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db

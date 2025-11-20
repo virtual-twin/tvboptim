@@ -1,0 +1,84 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tvboptim"
+version = "0.2.0"
+description = "Optimization tools for The Virtual Brain"
+readme = "README.md"
+authors = [
+    {name = "Marius Pille", email = "marius.pille@bih-charite.de"},
+]
+license = {text = "EUPL-1.2"}
+keywords = ["tvb", "optimization", "neuroscience", "brain", "virtual-brain", "jax", "neural-simulation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: European Union Public Licence 1.2 (EUPL 1.2)",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "optax",
+    "optimistix",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "jax<0.8",
+    "equinox",
+    "dill",
+    "tqdm",
+    "numpyro>=0.19.0",
+    "diffrax",
+    "plum-dispatch",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/virtual-twin/tvboptim"
+"Bug Tracker" = "https://github.com/virtual-twin/tvboptim/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+pythonpath = ["src"]
+
+# uv-specific dependency groups for local development
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "isort>=5.10.0",
+    "quartodoc>=0.6.0",
+    "jupyter>=1.0.0",
+    "ipykernel",
+]
+docs = [
+    # "tvbo",
+    "jupyter-cache>=1.0.1",
+]
+
+# Standard PEP 621 optional dependencies (used by PyPI)
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "isort>=5.10.0",
+    "quartodoc>=0.6.0",
+    "jupyter>=1.0.0",
+    "ipykernel",
+]
+docs = [
+    # "tvbo",  # Uncomment when published to PyPI
+    "jupyter-cache>=1.0.1",
+]
