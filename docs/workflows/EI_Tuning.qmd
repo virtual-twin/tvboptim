@@ -7,6 +7,8 @@ format:
     toc: true
     echo: true
     embed-resources: true
+    fig-width: 8
+    out-width: "100%"
 jupyter: python3
 execute:
   cache: true

@@ -1,11 +1,13 @@
 ---
 title: "Get Started"
 description: "This page provides installation instructions and guides you through the TVB-Optim workflow. We follow a parallel structure depending on how you want to define your brain network model."
-format: 
+format:
   html:
     code-fold: false
     toc: true
     echo: false
+    fig-width: 8
+    out-width: "100%"
     code-tools:
       source: true
       toggle: true

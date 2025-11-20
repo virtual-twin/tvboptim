@@ -7,6 +7,8 @@ format:
     toc: true
     echo: false
     embed-resources: true
+    fig-width: 8
+    out-width: "100%"
 jupyter: python3
 execute:
   cache: true
@@ -704,4 +706,3 @@ This tutorial demonstrated the complete workflow for fitting brain network model
 6. **Heterogeneous Parameters**: We refined the model with region-specific parameters, achieving better FC fits by accounting for regional variations in neural dynamics.
 
 This approach showcases TVBOptim's capability to perform end-to-end optimization of complex, biophysically-realistic brain network models with automatic differentiation through stochastic simulations and signal processing pipelines.
-```

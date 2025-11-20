@@ -5,6 +5,8 @@ format:
     code-fold: false
     toc: true
     toc-depth: 3
+    fig-width: 8
+    out-width: "100%"
 jupyter: python3
 execute:
   cache: true
