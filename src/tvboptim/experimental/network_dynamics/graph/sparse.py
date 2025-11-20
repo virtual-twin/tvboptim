@@ -4,7 +4,7 @@ This module provides sparse alternatives to dense graphs for memory efficiency
 with large, sparse connectivity matrices.
 """
 
-from typing import Optional, Tuple, Union, List, Sequence
+from typing import Optional, Sequence, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -43,7 +43,12 @@ class SparseGraph(AbstractGraph):
         >>> sparse_graph = SparseGraph.from_dense(dense_graph, threshold=1e-10)
     """
 
-    def __init__(self, weights: Union[BCOO, jnp.ndarray], region_labels: Optional[Sequence[str]] = None, threshold: float = 0.0):
+    def __init__(
+        self,
+        weights: Union[BCOO, jnp.ndarray],
+        region_labels: Optional[Sequence[str]] = None,
+        threshold: float = 0.0,
+    ):
         """Initialize sparse graph from BCOO or dense array."""
         if isinstance(weights, BCOO):
             self._weights = weights
@@ -52,7 +57,9 @@ class SparseGraph(AbstractGraph):
             weights_arr = jnp.asarray(weights)
             # Apply threshold
             if threshold > 0.0:
-                weights_arr = jnp.where(jnp.abs(weights_arr) > threshold, weights_arr, 0.0)
+                weights_arr = jnp.where(
+                    jnp.abs(weights_arr) > threshold, weights_arr, 0.0
+                )
             self._weights = BCOO.fromdense(weights_arr)
 
         # Validate shape
@@ -78,7 +85,7 @@ class SparseGraph(AbstractGraph):
             self._region_labels = list(region_labels)
 
     @classmethod
-    def from_dense(cls, graph: 'AbstractGraph', threshold: float = 1e-10):
+    def from_dense(cls, graph: "AbstractGraph", threshold: float = 1e-10):
         """Convert dense graph to sparse.
 
         Args:
@@ -95,8 +102,13 @@ class SparseGraph(AbstractGraph):
         return cls(weights_masked, threshold=0.0)
 
     @classmethod
-    def from_coo(cls, data: jnp.ndarray, row: jnp.ndarray, col: jnp.ndarray,
-                 shape: Tuple[int, int]):
+    def from_coo(
+        cls,
+        data: jnp.ndarray,
+        row: jnp.ndarray,
+        col: jnp.ndarray,
+        shape: Tuple[int, int],
+    ):
         """Create sparse graph from COO format.
 
         Args:
@@ -196,7 +208,7 @@ class SparseGraph(AbstractGraph):
 
         if verbose:
             density_pct = self.sparsity * 100
-            print(f"SparseGraph verification passed:")
+            print("SparseGraph verification passed:")
             print(f"  Nodes: {self._n_nodes}")
             print(f"  Non-zeros: {self.nnz}")
             print(f"  Density: {density_pct:.3f}%")
@@ -205,13 +217,15 @@ class SparseGraph(AbstractGraph):
         return True
 
     @classmethod
-    def random(cls,
-               n_nodes: int,
-               sparsity: float = 0.7,
-               symmetric: bool = True,
-               weight_dist: str = 'lognormal',
-               allow_self_loops: bool = False,
-               key: Optional[jax.random.PRNGKey] = None) -> 'SparseGraph':
+    def random(
+        cls,
+        n_nodes: int,
+        sparsity: float = 0.7,
+        symmetric: bool = True,
+        weight_dist: str = "lognormal",
+        allow_self_loops: bool = False,
+        key: Optional[jax.random.PRNGKey] = None,
+    ) -> "SparseGraph":
         """Create a random sparse graph with brain-like connectivity.
 
         Args:
@@ -237,7 +251,9 @@ class SparseGraph(AbstractGraph):
         key_edges, key_weights = jax.random.split(key)
 
         # Calculate expected number of edges
-        max_edges = n_nodes * (n_nodes - 1) if not allow_self_loops else n_nodes * n_nodes
+        max_edges = (
+            n_nodes * (n_nodes - 1) if not allow_self_loops else n_nodes * n_nodes
+        )
         if symmetric:
             max_edges = max_edges // 2  # Only upper triangle
 
@@ -266,8 +282,12 @@ class SparseGraph(AbstractGraph):
                     key_extra = jax.random.fold_in(key_edges, 1)
                     extra_needed = n_edges - actual_n
                     key_row2, key_col2 = jax.random.split(key_extra)
-                    extra_row = jax.random.randint(key_row2, (extra_needed,), 0, n_nodes)
-                    extra_col = jax.random.randint(key_col2, (extra_needed,), 0, n_nodes)
+                    extra_row = jax.random.randint(
+                        key_row2, (extra_needed,), 0, n_nodes
+                    )
+                    extra_col = jax.random.randint(
+                        key_col2, (extra_needed,), 0, n_nodes
+                    )
                     needs_swap2 = extra_row >= extra_col
                     extra_row = jnp.where(needs_swap2, extra_row + 1, extra_row)
                     extra_row = jnp.clip(extra_row, 0, n_nodes - 1)
@@ -275,11 +295,11 @@ class SparseGraph(AbstractGraph):
                     col = jnp.concatenate([col, extra_col])
 
             # Generate weights for upper triangle edges
-            if weight_dist == 'lognormal':
+            if weight_dist == "lognormal":
                 edge_weights = jax.random.lognormal(key_weights, shape=(len(row),))
-            elif weight_dist == 'uniform':
+            elif weight_dist == "uniform":
                 edge_weights = jax.random.uniform(key_weights, shape=(len(row),))
-            elif weight_dist == 'binary':
+            elif weight_dist == "binary":
                 edge_weights = jnp.ones(len(row))
             else:
                 raise ValueError(f"Unknown weight_dist: {weight_dist}")
@@ -305,11 +325,11 @@ class SparseGraph(AbstractGraph):
                 row, col = row[valid], col[valid]
 
             # Generate weights
-            if weight_dist == 'lognormal':
+            if weight_dist == "lognormal":
                 edge_weights = jax.random.lognormal(key_weights, shape=(len(row),))
-            elif weight_dist == 'uniform':
+            elif weight_dist == "uniform":
                 edge_weights = jax.random.uniform(key_weights, shape=(len(row),))
-            elif weight_dist == 'binary':
+            elif weight_dist == "binary":
                 edge_weights = jnp.ones(len(row))
             else:
                 raise ValueError(f"Unknown weight_dist: {weight_dist}")
@@ -336,14 +356,18 @@ class SparseGraph(AbstractGraph):
         try:
             import matplotlib.pyplot as plt
         except ImportError:
-            raise ImportError("matplotlib is required for plotting. Install with: pip install matplotlib")
+            raise ImportError(
+                "matplotlib is required for plotting. Install with: pip install matplotlib"
+            )
 
         # Convert to dense for plotting
         weights_dense = self.todense()
 
         # Prepare weights for plotting
         if log_scale_weights:
-            weights_plot = jnp.where(weights_dense > 0, jnp.log10(weights_dense + 1e-10), jnp.nan)
+            weights_plot = jnp.where(
+                weights_dense > 0, jnp.log10(weights_dense + 1e-10), jnp.nan
+            )
             weight_label = "log10(Weight)"
         else:
             weights_plot = jnp.where(weights_dense > 0, weights_dense, jnp.nan)
@@ -354,13 +378,13 @@ class SparseGraph(AbstractGraph):
 
         # Create custom colormap with white for NaN (zeros)
         cmap = plt.cm.cividis.copy()
-        cmap.set_bad('white')
+        cmap.set_bad("white")
 
         # Plot connectivity matrix
-        im1 = ax1.imshow(weights_plot, cmap=cmap, aspect='auto')
-        ax1.set_title('Connectivity Matrix')
-        ax1.set_xlabel('Target Node')
-        ax1.set_ylabel('Source Node')
+        im1 = ax1.imshow(weights_plot, cmap=cmap, aspect="auto")
+        ax1.set_title("Connectivity Matrix")
+        ax1.set_xlabel("Target Node")
+        ax1.set_ylabel("Source Node")
         plt.colorbar(im1, ax=ax1, label=weight_label)
 
         # Plot weight distribution
@@ -368,18 +392,28 @@ class SparseGraph(AbstractGraph):
         if len(weights_nonzero) > 0:
             if log_scale_weights:
                 weights_nonzero = jnp.log10(weights_nonzero + 1e-10)
-            ax2.hist(weights_nonzero, bins=50, edgecolor='black', alpha=0.7)
+            ax2.hist(weights_nonzero, bins=50, edgecolor="black", alpha=0.7)
             ax2.set_xlabel(weight_label)
-            ax2.set_ylabel('Count')
-            ax2.set_title('Weight Distribution')
-            ax2.set_yscale('log')
+            ax2.set_ylabel("Count")
+            ax2.set_title("Weight Distribution")
+            ax2.set_yscale("log")
         else:
-            ax2.text(0.5, 0.5, 'No connections', ha='center', va='center', transform=ax2.transAxes)
-            ax2.set_title('Weight Distribution')
+            ax2.text(
+                0.5,
+                0.5,
+                "No connections",
+                ha="center",
+                va="center",
+                transform=ax2.transAxes,
+            )
+            ax2.set_title("Weight Distribution")
 
         # Main title with graph properties
-        fig.suptitle(f'{self.__class__.__name__}: {self.n_nodes} nodes, nnz={self.nnz}, sparsity={self.sparsity:.3f}, symmetric={self.symmetric}',
-                     fontsize=12, y=1.02)
+        fig.suptitle(
+            f"{self.__class__.__name__}: {self.n_nodes} nodes, nnz={self.nnz}, sparsity={self.sparsity:.3f}, symmetric={self.symmetric}",
+            fontsize=12,
+            y=1.02,
+        )
 
         plt.tight_layout()
         return fig, (ax1, ax2)
@@ -435,10 +469,13 @@ class SparseDelayGraph(SparseGraph):
         >>> sparse_graph = SparseDelayGraph.from_dense(dense_graph, threshold=1e-10)
     """
 
-    def __init__(self, weights: Union[BCOO, jnp.ndarray],
-                 delays: Union[BCOO, jnp.ndarray],
-                 region_labels: Optional[Sequence[str]] = None,
-                 threshold: float = 0.0):
+    def __init__(
+        self,
+        weights: Union[BCOO, jnp.ndarray],
+        delays: Union[BCOO, jnp.ndarray],
+        region_labels: Optional[Sequence[str]] = None,
+        threshold: float = 0.0,
+    ):
         """Initialize sparse delay graph."""
         # Initialize weights via parent
         super().__init__(weights, region_labels=region_labels, threshold=threshold)
@@ -474,10 +511,12 @@ class SparseDelayGraph(SparseGraph):
             )
 
         # Compute max delay from sparse data (keep as array for JAX tracing)
-        self._max_delay = jnp.max(self._delays.data) if self._delays.nse > 0 else jnp.array(0.0)
+        self._max_delay = (
+            jnp.max(self._delays.data) if self._delays.nse > 0 else jnp.array(0.0)
+        )
 
     @classmethod
-    def from_dense(cls, graph: 'AbstractGraph', threshold: float = 1e-10):
+    def from_dense(cls, graph: "AbstractGraph", threshold: float = 1e-10):
         """Convert dense delay graph to sparse.
 
         Applies the same sparsity pattern to both weights and delays.
@@ -489,8 +528,10 @@ class SparseDelayGraph(SparseGraph):
         Returns:
             SparseDelayGraph with same connectivity pattern for weights and delays
         """
-        if not hasattr(graph, 'delays'):
-            raise ValueError("Graph must have delays attribute to convert to SparseDelayGraph")
+        if not hasattr(graph, "delays"):
+            raise ValueError(
+                "Graph must have delays attribute to convert to SparseDelayGraph"
+            )
 
         weights = graph.weights
         delays = graph.delays
@@ -546,7 +587,7 @@ class SparseDelayGraph(SparseGraph):
 
         if verbose:
             density_pct = self.sparsity * 100
-            print(f"SparseDelayGraph verification passed:")
+            print("SparseDelayGraph verification passed:")
             print(f"  Nodes: {self._n_nodes}")
             print(f"  Non-zeros: {self.nnz}")
             print(f"  Density: {density_pct:.3f}%")
@@ -556,15 +597,17 @@ class SparseDelayGraph(SparseGraph):
         return True
 
     @classmethod
-    def random(cls,
-               n_nodes: int,
-               sparsity: float = 0.7,
-               symmetric: bool = True,
-               weight_dist: str = 'lognormal',
-               max_delay: float = 50.0,
-               delay_dist: str = 'uniform',
-               allow_self_loops: bool = False,
-               key: Optional[jax.random.PRNGKey] = None) -> 'SparseDelayGraph':
+    def random(
+        cls,
+        n_nodes: int,
+        sparsity: float = 0.7,
+        symmetric: bool = True,
+        weight_dist: str = "lognormal",
+        max_delay: float = 50.0,
+        delay_dist: str = "uniform",
+        allow_self_loops: bool = False,
+        key: Optional[jax.random.PRNGKey] = None,
+    ) -> "SparseDelayGraph":
         """Create a random sparse delay graph with brain-like connectivity.
 
         Args:
@@ -592,7 +635,9 @@ class SparseDelayGraph(SparseGraph):
         key_edges, key_weights, key_delays = jax.random.split(key, 3)
 
         # Calculate expected number of edges
-        max_edges = n_nodes * (n_nodes - 1) if not allow_self_loops else n_nodes * n_nodes
+        max_edges = (
+            n_nodes * (n_nodes - 1) if not allow_self_loops else n_nodes * n_nodes
+        )
         if symmetric:
             max_edges = max_edges // 2  # Only upper triangle
 
@@ -621,8 +666,12 @@ class SparseDelayGraph(SparseGraph):
                     key_extra = jax.random.fold_in(key_edges, 1)
                     extra_needed = n_edges - actual_n
                     key_row2, key_col2 = jax.random.split(key_extra)
-                    extra_row = jax.random.randint(key_row2, (extra_needed,), 0, n_nodes)
-                    extra_col = jax.random.randint(key_col2, (extra_needed,), 0, n_nodes)
+                    extra_row = jax.random.randint(
+                        key_row2, (extra_needed,), 0, n_nodes
+                    )
+                    extra_col = jax.random.randint(
+                        key_col2, (extra_needed,), 0, n_nodes
+                    )
                     needs_swap2 = extra_row >= extra_col
                     extra_row = jnp.where(needs_swap2, extra_row + 1, extra_row)
                     extra_row = jnp.clip(extra_row, 0, n_nodes - 1)
@@ -630,20 +679,21 @@ class SparseDelayGraph(SparseGraph):
                     col = jnp.concatenate([col, extra_col])
 
             # Generate weights for upper triangle edges
-            if weight_dist == 'lognormal':
+            if weight_dist == "lognormal":
                 edge_weights = jax.random.lognormal(key_weights, shape=(len(row),))
-            elif weight_dist == 'uniform':
+            elif weight_dist == "uniform":
                 edge_weights = jax.random.uniform(key_weights, shape=(len(row),))
-            elif weight_dist == 'binary':
+            elif weight_dist == "binary":
                 edge_weights = jnp.ones(len(row))
             else:
                 raise ValueError(f"Unknown weight_dist: {weight_dist}")
 
             # Generate delays for upper triangle edges
-            if delay_dist == 'uniform':
-                edge_delays = jax.random.uniform(key_delays, shape=(len(row),),
-                                                minval=0.0, maxval=max_delay)
-            elif delay_dist == 'constant':
+            if delay_dist == "uniform":
+                edge_delays = jax.random.uniform(
+                    key_delays, shape=(len(row),), minval=0.0, maxval=max_delay
+                )
+            elif delay_dist == "constant":
                 edge_delays = jnp.full((len(row),), max_delay)
             else:
                 raise ValueError(f"Unknown delay_dist: {delay_dist}")
@@ -671,20 +721,21 @@ class SparseDelayGraph(SparseGraph):
                 row, col = row[valid], col[valid]
 
             # Generate weights
-            if weight_dist == 'lognormal':
+            if weight_dist == "lognormal":
                 edge_weights = jax.random.lognormal(key_weights, shape=(len(row),))
-            elif weight_dist == 'uniform':
+            elif weight_dist == "uniform":
                 edge_weights = jax.random.uniform(key_weights, shape=(len(row),))
-            elif weight_dist == 'binary':
+            elif weight_dist == "binary":
                 edge_weights = jnp.ones(len(row))
             else:
                 raise ValueError(f"Unknown weight_dist: {weight_dist}")
 
             # Generate delays
-            if delay_dist == 'uniform':
-                edge_delays = jax.random.uniform(key_delays, shape=(len(row),),
-                                                minval=0.0, maxval=max_delay)
-            elif delay_dist == 'constant':
+            if delay_dist == "uniform":
+                edge_delays = jax.random.uniform(
+                    key_delays, shape=(len(row),), minval=0.0, maxval=max_delay
+                )
+            elif delay_dist == "constant":
                 edge_delays = jnp.full((len(row),), max_delay)
             else:
                 raise ValueError(f"Unknown delay_dist: {delay_dist}")
@@ -712,7 +763,9 @@ class SparseDelayGraph(SparseGraph):
         try:
             import matplotlib.pyplot as plt
         except ImportError:
-            raise ImportError("matplotlib is required for plotting. Install with: pip install matplotlib")
+            raise ImportError(
+                "matplotlib is required for plotting. Install with: pip install matplotlib"
+            )
 
         # Convert to dense for plotting
         weights_dense = self.todense()
@@ -720,7 +773,9 @@ class SparseDelayGraph(SparseGraph):
 
         # Prepare weights for plotting
         if log_scale_weights:
-            weights_plot = jnp.where(weights_dense > 0, jnp.log10(weights_dense + 1e-10), jnp.nan)
+            weights_plot = jnp.where(
+                weights_dense > 0, jnp.log10(weights_dense + 1e-10), jnp.nan
+            )
             weight_label = "log10(Weight)"
         else:
             weights_plot = jnp.where(weights_dense > 0, weights_dense, jnp.nan)
@@ -734,15 +789,15 @@ class SparseDelayGraph(SparseGraph):
 
         # Create custom colormap with white for NaN (zeros)
         cmap_weights = plt.cm.cividis.copy()
-        cmap_weights.set_bad('white')
+        cmap_weights.set_bad("white")
         cmap_delays = plt.cm.cividis_r.copy()
-        cmap_delays.set_bad('white')
+        cmap_delays.set_bad("white")
 
         # Plot connectivity matrix
-        im1 = axes[0, 0].imshow(weights_plot, cmap=cmap_weights, aspect='auto')
-        axes[0, 0].set_title('Connectivity Matrix')
-        axes[0, 0].set_xlabel('Target Node')
-        axes[0, 0].set_ylabel('Source Node')
+        im1 = axes[0, 0].imshow(weights_plot, cmap=cmap_weights, aspect="auto")
+        axes[0, 0].set_title("Connectivity Matrix")
+        axes[0, 0].set_xlabel("Target Node")
+        axes[0, 0].set_ylabel("Source Node")
         plt.colorbar(im1, ax=axes[0, 0], label=weight_label)
 
         # Plot weight distribution
@@ -750,37 +805,54 @@ class SparseDelayGraph(SparseGraph):
         if len(weights_nonzero) > 0:
             if log_scale_weights:
                 weights_nonzero = jnp.log10(weights_nonzero + 1e-10)
-            axes[0, 1].hist(weights_nonzero, bins=50, edgecolor='black', alpha=0.7)
+            axes[0, 1].hist(weights_nonzero, bins=50, edgecolor="black", alpha=0.7)
             axes[0, 1].set_xlabel(weight_label)
-            axes[0, 1].set_ylabel('Count')
-            axes[0, 1].set_title('Weight Distribution')
-            axes[0, 1].set_yscale('log')
+            axes[0, 1].set_ylabel("Count")
+            axes[0, 1].set_title("Weight Distribution")
+            axes[0, 1].set_yscale("log")
         else:
-            axes[0, 1].text(0.5, 0.5, 'No connections', ha='center', va='center', transform=axes[0, 1].transAxes)
-            axes[0, 1].set_title('Weight Distribution')
+            axes[0, 1].text(
+                0.5,
+                0.5,
+                "No connections",
+                ha="center",
+                va="center",
+                transform=axes[0, 1].transAxes,
+            )
+            axes[0, 1].set_title("Weight Distribution")
 
         # Plot delay matrix
-        im2 = axes[1, 0].imshow(delays_plot, cmap=cmap_delays, aspect='auto')
-        axes[1, 0].set_title('Transmission Delays')
-        axes[1, 0].set_xlabel('Target Node')
-        axes[1, 0].set_ylabel('Source Node')
-        plt.colorbar(im2, ax=axes[1, 0], label='Delay')
+        im2 = axes[1, 0].imshow(delays_plot, cmap=cmap_delays, aspect="auto")
+        axes[1, 0].set_title("Transmission Delays")
+        axes[1, 0].set_xlabel("Target Node")
+        axes[1, 0].set_ylabel("Source Node")
+        plt.colorbar(im2, ax=axes[1, 0], label="Delay")
 
         # Plot delay distribution
         delays_nonzero = delays_dense[delays_dense > 0]
         if len(delays_nonzero) > 0:
-            axes[1, 1].hist(delays_nonzero, bins=50, edgecolor='black', alpha=0.7)
-            axes[1, 1].set_xlabel('Delay')
-            axes[1, 1].set_ylabel('Count')
-            axes[1, 1].set_title('Delay Distribution')
-            axes[1, 1].set_yscale('log')
+            axes[1, 1].hist(delays_nonzero, bins=50, edgecolor="black", alpha=0.7)
+            axes[1, 1].set_xlabel("Delay")
+            axes[1, 1].set_ylabel("Count")
+            axes[1, 1].set_title("Delay Distribution")
+            axes[1, 1].set_yscale("log")
         else:
-            axes[1, 1].text(0.5, 0.5, 'No delays', ha='center', va='center', transform=axes[1, 1].transAxes)
-            axes[1, 1].set_title('Delay Distribution')
+            axes[1, 1].text(
+                0.5,
+                0.5,
+                "No delays",
+                ha="center",
+                va="center",
+                transform=axes[1, 1].transAxes,
+            )
+            axes[1, 1].set_title("Delay Distribution")
 
         # Main title with graph properties
-        fig.suptitle(f'{self.__class__.__name__}: {self.n_nodes} nodes, nnz={self.nnz}, sparsity={self.sparsity:.3f}, max_delay={self._max_delay:.2f}',
-                     fontsize=12, y=0.995)
+        fig.suptitle(
+            f"{self.__class__.__name__}: {self.n_nodes} nodes, nnz={self.nnz}, sparsity={self.sparsity:.3f}, max_delay={self._max_delay:.2f}",
+            fontsize=12,
+            y=0.995,
+        )
 
         plt.tight_layout()
         return fig, axes

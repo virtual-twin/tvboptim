@@ -16,8 +16,6 @@ References:
       realistic large-scale network dynamics. Bulletin of Mathematical Biology.
 """
 
-from typing import Tuple
-
 import jax.numpy as jnp
 
 from ...core.bunch import Bunch
@@ -66,35 +64,33 @@ class Generic2dOscillator(AbstractDynamics):
     of nerve membrane. Biophysical Journal, 1, 445.
     """
 
-    STATE_NAMES = ('V', 'W')
+    STATE_NAMES = ("V", "W")
     INITIAL_STATE = (0.0, 0.0)
 
     DEFAULT_PARAMS = Bunch(
         # Nullcline parameters
-        a=-2.0,            # Linear coefficient in W equation
-        b=-10.0,           # Linear V coefficient in W equation
-        c=0.0,             # Quadratic V coefficient in W equation
-        d=0.02,            # Global time scaling
-        e=3.0,             # Quadratic coefficient in V equation
-        f=1.0,             # Cubic coefficient in V equation
-        g=0.0,             # Linear coefficient in V equation
-
+        a=-2.0,  # Linear coefficient in W equation
+        b=-10.0,  # Linear V coefficient in W equation
+        c=0.0,  # Quadratic V coefficient in W equation
+        d=0.02,  # Global time scaling
+        e=3.0,  # Quadratic coefficient in V equation
+        f=1.0,  # Cubic coefficient in V equation
+        g=0.0,  # Linear coefficient in V equation
         # Coupling parameters
-        alpha=1.0,         # W to V coupling strength
-        beta=1.0,          # W decay rate
-        gamma=1.0,         # External input strength
-
+        alpha=1.0,  # W to V coupling strength
+        beta=1.0,  # W decay rate
+        gamma=1.0,  # External input strength
         # Other parameters
-        tau=1.0,           # Time scale separation (tau > 1: V faster than W)
-        I=0.0,             # External input current
+        tau=1.0,  # Time scale separation (tau > 1: V faster than W)
+        I=0.0,  # External input current
     )
 
     COUPLING_INPUTS = {
-        'instant': 1,   # Local/instantaneous coupling
-        'delayed': 1,   # Long-range delayed coupling
+        "instant": 1,  # Local/instantaneous coupling
+        "delayed": 1,  # Long-range delayed coupling
     }
 
-    EXTERNAL_INPUTS = {'stimulus': 1}
+    EXTERNAL_INPUTS = {"stimulus": 1}
 
     def dynamics(
         self,
@@ -102,7 +98,7 @@ class Generic2dOscillator(AbstractDynamics):
         state: jnp.ndarray,
         params: Bunch,
         coupling: Bunch,
-        external: Bunch
+        external: Bunch,
     ) -> jnp.ndarray:
         """Compute Generic2dOscillator dynamics.
 
@@ -127,22 +123,24 @@ class Generic2dOscillator(AbstractDynamics):
         stim = external.stimulus[0]  # Extract [1, n_nodes] -> [n_nodes]
 
         # V dynamics (cubic nullcline with external input)
-        dV_dt = params.d * params.tau * (
-            -params.f * V**3 +
-            params.e * V**2 +
-            params.g * V +
-            params.alpha * W +
-            params.gamma * params.I +
-            params.gamma * c_delayed +
-            c_instant
-        ) + stim
+        dV_dt = (
+            params.d
+            * params.tau
+            * (
+                -params.f * V**3
+                + params.e * V**2
+                + params.g * V
+                + params.alpha * W
+                + params.gamma * params.I
+                + params.gamma * c_delayed
+                + c_instant
+            )
+            + stim
+        )
 
         # W dynamics (polynomial nullcline)
         dW_dt = (params.d / params.tau) * (
-            params.a +
-            params.b * V +
-            params.c * V**2 -
-            params.beta * W
+            params.a + params.b * V + params.c * V**2 - params.beta * W
         )
 
         # Package results

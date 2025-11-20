@@ -60,7 +60,12 @@ class Lorenz(AbstractDynamics):
     }
 
     def dynamics(
-        self, t: float, state: jnp.ndarray, params: Bunch, coupling: Bunch, external: Bunch
+        self,
+        t: float,
+        state: jnp.ndarray,
+        params: Bunch,
+        coupling: Bunch,
+        external: Bunch,
     ) -> jnp.ndarray:
         """Compute Lorenz system derivatives with coupling.
 
@@ -157,7 +162,12 @@ class FlexibleLorenz(AbstractDynamics):
     }
 
     def dynamics(
-        self, t: float, state: jnp.ndarray, params: Bunch, coupling: Bunch, external: Bunch
+        self,
+        t: float,
+        state: jnp.ndarray,
+        params: Bunch,
+        coupling: Bunch,
+        external: Bunch,
     ) -> jnp.ndarray:
         """Compute Lorenz derivatives with multi-coupling.
 

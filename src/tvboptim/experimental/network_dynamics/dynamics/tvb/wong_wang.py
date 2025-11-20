@@ -49,22 +49,22 @@ class ReducedWongWang(AbstractDynamics):
     INITIAL_STATE = (0.1,)  # Small initial synaptic activity
 
     AUXILIARY_NAMES = ("H",)
-    
+
     DEFAULT_PARAMS = Bunch(
-        a=0.270,         # Input gain parameter [n/C]
-        b=0.108,         # Input shift parameter [kHz]
-        d=154.0,         # Parameter for H function [ms]
-        gamma=0.641,     # Kinetic parameter
-        tau_s=100.0,     # NMDA decay time constant [ms]
-        w=0.6,           # Excitatory recurrence
-        J_N=0.2609,      # Excitatory recurrence
-        I_o=0.33,        # Effective external input [nA]
+        a=0.270,  # Input gain parameter [n/C]
+        b=0.108,  # Input shift parameter [kHz]
+        d=154.0,  # Parameter for H function [ms]
+        gamma=0.641,  # Kinetic parameter
+        tau_s=100.0,  # NMDA decay time constant [ms]
+        w=0.6,  # Excitatory recurrence
+        J_N=0.2609,  # Excitatory recurrence
+        I_o=0.33,  # Effective external input [nA]
     )
 
     # Multi-coupling: instantaneous and delayed
     COUPLING_INPUTS = {
-        'instant': 1,
-        'delayed': 1,
+        "instant": 1,
+        "delayed": 1,
     }
 
     def dynamics(
@@ -73,7 +73,7 @@ class ReducedWongWang(AbstractDynamics):
         state: jnp.ndarray,
         params: Bunch,
         coupling: Bunch,
-        external: Bunch
+        external: Bunch,
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """Compute Wong-Wang dynamics with two coupling inputs.
 

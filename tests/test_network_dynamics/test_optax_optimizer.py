@@ -10,14 +10,13 @@ import optax
 jax.config.update("jax_enable_x64", True)
 
 from tvboptim.experimental.network_dynamics import Network
-from tvboptim.experimental.network_dynamics.solve import prepare
-from tvboptim.experimental.network_dynamics.dynamics.tvb import ReducedWongWang
 from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
+from tvboptim.experimental.network_dynamics.dynamics.tvb import ReducedWongWang
 from tvboptim.experimental.network_dynamics.graph import DenseGraph
+from tvboptim.experimental.network_dynamics.solve import prepare
 from tvboptim.experimental.network_dynamics.solvers import Heun
-
-from tvboptim.types import Parameter
 from tvboptim.optim import OptaxOptimizer
+from tvboptim.types import Parameter
 
 
 class TestOptaxOptimizerWithNetworkDynamics(unittest.TestCase):
@@ -38,14 +37,11 @@ class TestOptaxOptimizerWithNetworkDynamics(unittest.TestCase):
         # Create RWW network
         key = self.base_key
         graph = DenseGraph.random(n_nodes=self.n_nodes, key=key)
-        coupling = LinearCoupling(incoming_states='S', G=0.1)  # Start with G=0.1
+        coupling = LinearCoupling(incoming_states="S", G=0.1)  # Start with G=0.1
         dynamics = ReducedWongWang()
 
         network = Network(
-            dynamics=dynamics,
-            coupling={'instant': coupling},
-            graph=graph,
-            noise=None
+            dynamics=dynamics, coupling={"instant": coupling}, graph=graph, noise=None
         )
 
         # Prepare model
@@ -73,8 +69,7 @@ class TestOptaxOptimizerWithNetworkDynamics(unittest.TestCase):
 
         # Create optimizer
         optimizer = OptaxOptimizer(
-            loss=loss_fn,
-            optimizer=optax.adam(learning_rate=0.01)
+            loss=loss_fn, optimizer=optax.adam(learning_rate=0.01)
         )
 
         # Run optimization
@@ -89,8 +84,9 @@ class TestOptaxOptimizerWithNetworkDynamics(unittest.TestCase):
 
         # Verify loss decreased (or stayed roughly the same if already optimal)
         self.assertLessEqual(
-            final_loss, initial_loss * 1.1,  # Allow 10% tolerance
-            f"Final loss ({final_loss:.4f}) should be <= initial loss ({initial_loss:.4f})"
+            final_loss,
+            initial_loss * 1.1,  # Allow 10% tolerance
+            f"Final loss ({final_loss:.4f}) should be <= initial loss ({initial_loss:.4f})",
         )
 
         # Verify final loss is closer to target than initial
@@ -100,7 +96,7 @@ class TestOptaxOptimizerWithNetworkDynamics(unittest.TestCase):
         # At least some improvement or already good
         self.assertTrue(
             final_error <= initial_error or final_error < 0.1,
-            f"Final error ({final_error:.4f}) should improve or be small"
+            f"Final error ({final_error:.4f}) should improve or be small",
         )
 
         # Verify G parameter changed
@@ -108,12 +104,11 @@ class TestOptaxOptimizerWithNetworkDynamics(unittest.TestCase):
         final_G = final_state.coupling.instant.G
 
         self.assertNotEqual(
-            final_G, initial_G,
-            "G parameter should have changed during optimization"
+            final_G, initial_G, "G parameter should have changed during optimization"
         )
 
         # Print results for inspection
-        print(f"\nOptimization Results:")
+        print("\nOptimization Results:")
         print(f"  Initial G: {initial_G:.4f}")
         print(f"  Final G: {final_G:.4f}")
         print(f"  Initial loss: {initial_loss:.4f}")
@@ -128,14 +123,11 @@ class TestOptaxOptimizerWithNetworkDynamics(unittest.TestCase):
         # Create RWW network
         key = self.base_key
         graph = DenseGraph.random(n_nodes=self.n_nodes, key=key)
-        coupling = LinearCoupling(incoming_states='S', G=0.1)
+        coupling = LinearCoupling(incoming_states="S", G=0.1)
         dynamics = ReducedWongWang()
 
         network = Network(
-            dynamics=dynamics,
-            coupling={'instant': coupling},
-            graph=graph,
-            noise=None
+            dynamics=dynamics, coupling={"instant": coupling}, graph=graph, noise=None
         )
 
         # Prepare model
@@ -157,11 +149,12 @@ class TestOptaxOptimizerWithNetworkDynamics(unittest.TestCase):
 
         # Create and run optimizer
         optimizer = OptaxOptimizer(
-            loss=loss_fn,
-            optimizer=optax.adam(learning_rate=0.01)
+            loss=loss_fn, optimizer=optax.adam(learning_rate=0.01)
         )
 
-        final_state, fitting_data = optimizer.run(state, max_steps=5)  # Fewer steps for this test
+        final_state, fitting_data = optimizer.run(
+            state, max_steps=5
+        )  # Fewer steps for this test
 
         # Verify both parameters changed
         final_G = final_state.coupling.instant.G
@@ -173,13 +166,13 @@ class TestOptaxOptimizerWithNetworkDynamics(unittest.TestCase):
 
         self.assertTrue(
             G_changed or w_changed,
-            "At least one parameter should have changed during optimization"
+            "At least one parameter should have changed during optimization",
         )
 
-        print(f"\nMultiple Parameter Optimization:")
+        print("\nMultiple Parameter Optimization:")
         print(f"  Initial G: {initial_G:.4f}, Final G: {final_G:.4f}")
         print(f"  Initial w: {initial_w:.4f}, Final w: {final_w:.4f}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

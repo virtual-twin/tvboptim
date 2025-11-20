@@ -12,8 +12,6 @@ References:
       15009-15021.
 """
 
-from typing import Tuple
-
 import jax.numpy as jnp
 
 from ...core.bunch import Bunch
@@ -74,40 +72,37 @@ class Epileptor(AbstractDynamics):
     Jirsa et al. (2014). On the nature of seizure dynamics. Brain, 137(8), 2210-2230.
     """
 
-    STATE_NAMES = ('x1', 'y1', 'z', 'x2', 'y2', 'g')
+    STATE_NAMES = ("x1", "y1", "z", "x2", "y2", "g")
     INITIAL_STATE = (-1.5, -10.0, 3.5, -1.0, 0.0, 0.0)
 
     DEFAULT_PARAMS = Bunch(
         # Population 1 parameters
-        a=1.0,             # Cubic term coefficient in x1
-        b=3.0,             # Squared term coefficient in x1
-        c=1.0,             # Additive coefficient in y1
-        d=5.0,             # Squared term coefficient in y1
-        r=0.00035,         # Temporal scaling in z (1/tau_0)
-        s=4.0,             # Linear coefficient in z
-        x0=-1.6,           # Epileptogenicity parameter
-        Iext=3.1,          # External input to population 1
-        slope=0.0,         # Linear coefficient in x1
-
+        a=1.0,  # Cubic term coefficient in x1
+        b=3.0,  # Squared term coefficient in x1
+        c=1.0,  # Additive coefficient in y1
+        d=5.0,  # Squared term coefficient in y1
+        r=0.00035,  # Temporal scaling in z (1/tau_0)
+        s=4.0,  # Linear coefficient in z
+        x0=-1.6,  # Epileptogenicity parameter
+        Iext=3.1,  # External input to population 1
+        slope=0.0,  # Linear coefficient in x1
         # Population 2 parameters
-        Iext2=0.45,        # External input to population 2
-        tau=10.0,          # Temporal scaling in y2
-        aa=6.0,            # Linear coefficient in y2
-        bb=2.0,            # Coupling coefficient from g to x2
-
+        Iext2=0.45,  # External input to population 2
+        tau=10.0,  # Temporal scaling in y2
+        aa=6.0,  # Linear coefficient in y2
+        bb=2.0,  # Coupling coefficient from g to x2
         # Coupling parameters
-        Kvf=0.0,           # Very fast time scale coupling (to x1)
-        Kf=0.0,            # Fast time scale coupling (to x2)
-        Ks=0.0,            # Slow time scale coupling (to z, permittivity)
-
+        Kvf=0.0,  # Very fast time scale coupling (to x1)
+        Kf=0.0,  # Fast time scale coupling (to x2)
+        Ks=0.0,  # Slow time scale coupling (to z, permittivity)
         # Global parameters
-        tt=1.0,            # Global time scaling
+        tt=1.0,  # Global time scaling
         modification=False,  # Use nonlinear permittivity influence on z
     )
 
     COUPLING_INPUTS = {
-        'instant': 2,   # Local coupling [pop1, pop2]
-        'delayed': 2,   # Long-range coupling [pop1, pop2]
+        "instant": 2,  # Local coupling [pop1, pop2]
+        "delayed": 2,  # Long-range coupling [pop1, pop2]
     }
 
     def dynamics(
@@ -116,7 +111,7 @@ class Epileptor(AbstractDynamics):
         state: jnp.ndarray,
         params: Bunch,
         coupling: Bunch,
-        external: Bunch
+        external: Bunch,
     ) -> jnp.ndarray:
         """Compute Epileptor dynamics.
 
@@ -144,10 +139,10 @@ class Epileptor(AbstractDynamics):
         # Unpack state variables
         x1 = state[0]  # Fast population membrane potential
         y1 = state[1]  # Fast population recovery
-        z = state[2]   # Slow permittivity variable
+        z = state[2]  # Slow permittivity variable
         x2 = state[3]  # Slow population membrane potential
         y2 = state[4]  # Slow population recovery
-        g = state[5]   # Low-pass filter of x1
+        g = state[5]  # Low-pass filter of x1
 
         # Unpack coupling
         c_pop1 = coupling.instant[0] + coupling.delayed[0]  # Population 1 coupling
@@ -156,12 +151,10 @@ class Epileptor(AbstractDynamics):
         # Population 1 dynamics (fast time scale)
         # Piecewise function f1(x1, x2)
         f1_if_neg = -params.a * x1**2 + params.b * x1
-        f1_if_pos = params.slope - x2 + 0.6 * (z - 4.0)**2
+        f1_if_pos = params.slope - x2 + 0.6 * (z - 4.0) ** 2
         f1 = jnp.where(x1 < 0.0, f1_if_neg, f1_if_pos)
 
-        dx1_dt = params.tt * (
-            y1 - z + params.Iext + params.Kvf * c_pop1 + f1 * x1
-        )
+        dx1_dt = params.tt * (y1 - z + params.Iext + params.Kvf * c_pop1 + f1 * x1)
 
         dy1_dt = params.tt * (params.c - params.d * x1**2 - y1)
 
@@ -182,8 +175,13 @@ class Epileptor(AbstractDynamics):
 
         # Population 2 dynamics (ultra-slow time scale)
         dx2_dt = params.tt * (
-            -y2 + x2 - x2**3 + params.Iext2 + params.bb * g -
-            0.3 * (z - 3.5) + params.Kf * c_pop2
+            -y2
+            + x2
+            - x2**3
+            + params.Iext2
+            + params.bb * g
+            - 0.3 * (z - 3.5)
+            + params.Kf * c_pop2
         )
 
         # Piecewise function f2(x2)

@@ -10,18 +10,19 @@ Tests cover:
 """
 
 import unittest
+
 import jax
 import jax.numpy as jnp
-import numpy as np
 import numpy.testing as np_testing
-from typing import Tuple, Optional
 
-from tvboptim.types.spaces import GridAxis, UniformAxis, DataAxis, AbstractAxis
+from tvboptim.types.spaces import AbstractAxis, DataAxis, GridAxis, UniformAxis
 
 # NumPyro tests only if available
 try:
     import numpyro.distributions as dist
+
     from tvboptim.types.spaces import NumPyroAxis
+
     NUMPYRO_AVAILABLE = True
 except ImportError:
     NUMPYRO_AVAILABLE = False
@@ -386,7 +387,7 @@ class TestAbstractAxisBehavior(unittest.TestCase):
         axes_to_test = [
             GridAxis(0.0, 1.0, 5),
             UniformAxis(0.0, 1.0, 5),
-            DataAxis([1, 2, 3, 4, 5])
+            DataAxis([1, 2, 3, 4, 5]),
         ]
 
         if NUMPYRO_AVAILABLE:
@@ -394,11 +395,11 @@ class TestAbstractAxisBehavior(unittest.TestCase):
 
         for axis in axes_to_test:
             # Should have generate_values method
-            self.assertTrue(hasattr(axis, 'generate_values'))
+            self.assertTrue(hasattr(axis, "generate_values"))
             self.assertTrue(callable(axis.generate_values))
 
             # Should have size property
-            self.assertTrue(hasattr(axis, 'size'))
+            self.assertTrue(hasattr(axis, "size"))
             self.assertIsInstance(axis.size, int)
             self.assertGreater(axis.size, 0)
 
@@ -410,5 +411,5 @@ class TestAbstractAxisBehavior(unittest.TestCase):
             self.assertEqual(values.shape[0], axis.size)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

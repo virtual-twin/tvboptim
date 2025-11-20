@@ -1,18 +1,18 @@
 # %%
 import jax
-import jax.numpy as jnp 
-import numpy as np
-from tvboptim.types.parameter import Parameter
-import equinox as eqx
+import jax.numpy as jnp
 
 
-def jaxify(experiment, enable_x64: bool = True,
-           replace_temporal_averaging: bool = False,
-           return_new_ics: bool = False,
-           scalar_pre: bool = False,
-           bold_fft_convolve: bool = True,
-           small_dt: bool = False,
-           **kwargs):
+def jaxify(
+    experiment,
+    enable_x64: bool = True,
+    replace_temporal_averaging: bool = False,
+    return_new_ics: bool = False,
+    scalar_pre: bool = False,
+    bold_fft_convolve: bool = True,
+    small_dt: bool = False,
+    **kwargs,
+):
     """Convert TVBO SimulationExperiment to JAX-compatible model function and state.
 
     This function transforms a TVBO simulation experiment into a JAX-compiled
@@ -104,12 +104,8 @@ def jaxify(experiment, enable_x64: bool = True,
         scalar_pre=scalar_pre,
         bold_fft_convolve=bold_fft_convolve,
         small_dt=small_dt,
-        **kwargs
+        **kwargs,
     )
     simulator = _module["kernel"]
 
     return simulator, state
-        
-
-
-

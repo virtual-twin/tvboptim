@@ -9,15 +9,18 @@ Tests cover:
 """
 
 import unittest
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 import numpy.testing as np_testing
-from typing import Any
 
 from tvboptim.types.parameter import (
-    Parameter, NormalizedParameter, BoundedParameter,
-    is_parameter, extract_values
+    BoundedParameter,
+    NormalizedParameter,
+    Parameter,
+    extract_values,
+    is_parameter,
 )
 
 
@@ -115,10 +118,10 @@ class TestParameter(unittest.TestCase):
 
         # Division
         result = p1 / p2
-        self.assertAlmostEqual(result, 5.0/3.0)
+        self.assertAlmostEqual(result, 5.0 / 3.0)
 
         # Power
-        result = p1 ** 2
+        result = p1**2
         self.assertEqual(result, 25.0)
 
     def test_arithmetic_with_arrays(self):
@@ -188,8 +191,9 @@ class TestParameter(unittest.TestCase):
 
     def test_jax_transformations(self):
         """Test Parameter works with JAX transformations."""
+
         def square_sum(p):
-            return jnp.sum(p ** 2)
+            return jnp.sum(p**2)
 
         p = Parameter(jnp.array([1.0, 2.0, 3.0]))
 
@@ -278,7 +282,7 @@ class TestNormalizedParameter(unittest.TestCase):
         # for parameters with vastly different scales by working in normalized space
 
         def objective(p):
-            return jnp.sum(p ** 2)
+            return jnp.sum(p**2)
 
         # Create parameters with vastly different scales
         large_scale = NormalizedParameter(jnp.array([100.0, 200.0]))
@@ -289,8 +293,12 @@ class TestNormalizedParameter(unittest.TestCase):
         self.assertTrue(jnp.allclose(small_scale.value, jnp.ones(2)))
 
         # But present their original scales externally
-        self.assertTrue(jnp.allclose(large_scale.__jax_array__(), jnp.array([100.0, 200.0])))
-        self.assertTrue(jnp.allclose(small_scale.__jax_array__(), jnp.array([0.01, 0.02])))
+        self.assertTrue(
+            jnp.allclose(large_scale.__jax_array__(), jnp.array([100.0, 200.0]))
+        )
+        self.assertTrue(
+            jnp.allclose(small_scale.__jax_array__(), jnp.array([0.01, 0.02]))
+        )
 
         # Gradients computed on normalized space are more manageable for optimizers
         grad_fn = jax.grad(objective)
@@ -385,6 +393,7 @@ class TestBoundedParameter(unittest.TestCase):
 
     def test_optimization_with_bounds(self):
         """Test optimization respects bounds."""
+
         def objective(p):
             # Objective that would push parameter outside bounds
             return (p - 2.0) ** 2  # Minimum at 2.0, but bounds are [0, 1]
@@ -394,6 +403,10 @@ class TestBoundedParameter(unittest.TestCase):
         # Gradient should push towards 2.0
         grad_fn = jax.grad(objective)
         grad = grad_fn(p)
+
+        # Verify gradient computation works (gradient exists and is finite)
+        grad_value = grad.__jax_array__() if hasattr(grad, '__jax_array__') else float(grad)
+        self.assertTrue(jnp.isfinite(grad_value))
 
         # But the parameter value when used stays within bounds
         bounded_value = p.__jax_array__()
@@ -433,49 +446,46 @@ class TestParameterUtilities(unittest.TestCase):
         p2 = Parameter(jnp.array([2, 3]))
         regular_val = 4.0
 
-        tree = {'param1': p1, 'param2': p2, 'regular': regular_val}
+        tree = {"param1": p1, "param2": p2, "regular": regular_val}
         extracted = extract_values(tree)
 
-        self.assertEqual(extracted['param1'], 1.0)
-        np_testing.assert_array_equal(extracted['param2'], jnp.array([2, 3]))
-        self.assertEqual(extracted['regular'], 4.0)
+        self.assertEqual(extracted["param1"], 1.0)
+        np_testing.assert_array_equal(extracted["param2"], jnp.array([2, 3]))
+        self.assertEqual(extracted["regular"], 4.0)
 
     def test_extract_values_nested(self):
         """Test extract_values with nested structures."""
         tree = {
-            'level1': {
-                'param': Parameter(jnp.array([1, 2])),
-                'normalized': NormalizedParameter(jnp.array([3, 4])),
-                'bounded': BoundedParameter(2.5, 0.0, 3.0),
-                'regular': 'not_a_param'
+            "level1": {
+                "param": Parameter(jnp.array([1, 2])),
+                "normalized": NormalizedParameter(jnp.array([3, 4])),
+                "bounded": BoundedParameter(2.5, 0.0, 3.0),
+                "regular": "not_a_param",
             },
-            'scalar_param': Parameter(5.0)
+            "scalar_param": Parameter(5.0),
         }
 
         extracted = extract_values(tree)
 
         # Check extracted values
+        np_testing.assert_array_equal(extracted["level1"]["param"], jnp.array([1, 2]))
         np_testing.assert_array_equal(
-            extracted['level1']['param'],
-            jnp.array([1, 2])
-        )
-        np_testing.assert_array_equal(
-            extracted['level1']['normalized'],
-            jnp.array([3, 4])  # Scale * ones = [3, 4] * [1, 1]
+            extracted["level1"]["normalized"],
+            jnp.array([3, 4]),  # Scale * ones = [3, 4] * [1, 1]
         )
         self.assertEqual(
-            extracted['level1']['bounded'],
-            2.5  # Within bounds, so unchanged
+            extracted["level1"]["bounded"],
+            2.5,  # Within bounds, so unchanged
         )
-        self.assertEqual(extracted['level1']['regular'], 'not_a_param')
-        self.assertEqual(extracted['scalar_param'], 5.0)
+        self.assertEqual(extracted["level1"]["regular"], "not_a_param")
+        self.assertEqual(extracted["scalar_param"], 5.0)
 
     def test_extract_values_preserves_structure(self):
         """Test that extract_values preserves tree structure."""
         original_tree = [
             Parameter(1.0),
-            {'nested': [Parameter(2.0), 3.0]},
-            Parameter(jnp.array([4, 5]))
+            {"nested": [Parameter(2.0), 3.0]},
+            Parameter(jnp.array([4, 5])),
         ]
 
         extracted = extract_values(original_tree)
@@ -489,8 +499,8 @@ class TestParameterUtilities(unittest.TestCase):
 
         # Second element should preserve nested structure
         self.assertIsInstance(extracted[1], dict)
-        self.assertEqual(extracted[1]['nested'][0], 2.0)
-        self.assertEqual(extracted[1]['nested'][1], 3.0)
+        self.assertEqual(extracted[1]["nested"][0], 2.0)
+        self.assertEqual(extracted[1]["nested"][1], 3.0)
 
         # Third element should be array
         np_testing.assert_array_equal(extracted[2], jnp.array([4, 5]))
@@ -513,17 +523,13 @@ class TestParameterInteroperability(unittest.TestCase):
     def test_mixed_parameter_tree_operations(self):
         """Test JAX tree operations with mixed parameter types."""
         tree = {
-            'regular': Parameter(jnp.array([1, 2])),
-            'normalized': NormalizedParameter(jnp.array([3, 6])),
-            'bounded': BoundedParameter(jnp.array([4, 8]), 0.0, 10.0)
+            "regular": Parameter(jnp.array([1, 2])),
+            "normalized": NormalizedParameter(jnp.array([3, 6])),
+            "bounded": BoundedParameter(jnp.array([4, 8]), 0.0, 10.0),
         }
 
         def sum_squares(tree_params):
-            return jax.tree.reduce(
-                lambda acc, x: acc + jnp.sum(x ** 2),
-                tree_params,
-                0.0
-            )
+            return jax.tree.reduce(lambda acc, x: acc + jnp.sum(x**2), tree_params, 0.0)
 
         result = sum_squares(tree)
         # JAX tree operations use the pytree structure, not __jax_array__()
@@ -535,25 +541,26 @@ class TestParameterInteroperability(unittest.TestCase):
 
     def test_gradient_computation_mixed_types(self):
         """Test gradient computation with mixed parameter types."""
+
         def objective(tree_params):
-            return jnp.sum(tree_params['regular'] ** 2 + tree_params['normalized'] ** 2)
+            return jnp.sum(tree_params["regular"] ** 2 + tree_params["normalized"] ** 2)
 
         tree = {
-            'regular': Parameter(jnp.array([2.0, 3.0])),
-            'normalized': NormalizedParameter(jnp.array([4.0, 5.0]))
+            "regular": Parameter(jnp.array([2.0, 3.0])),
+            "normalized": NormalizedParameter(jnp.array([4.0, 5.0])),
         }
 
         grad_fn = jax.grad(objective)
         gradients = grad_fn(tree)
 
         # Check that gradients have the expected structure
-        self.assertIn('regular', gradients)
-        self.assertIn('normalized', gradients)
+        self.assertIn("regular", gradients)
+        self.assertIn("normalized", gradients)
 
         # Regular parameter gradients
         expected_regular = 2 * jnp.array([2.0, 3.0])
-        np_testing.assert_array_equal(gradients['regular'], expected_regular)
+        np_testing.assert_array_equal(gradients["regular"], expected_regular)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

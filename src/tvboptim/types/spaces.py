@@ -34,17 +34,18 @@ Examples
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Tuple, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
 
 from tvboptim.utils import safe_reshape
-import equinox as eqx
 
 try:
-    import numpyro.distributions as dist
+    import numpyro.distributions  # noqa: F401
+
     NUMPYRO_AVAILABLE = True
 except ImportError:
     NUMPYRO_AVAILABLE = False
@@ -52,6 +53,7 @@ except ImportError:
 # =============================================================================
 # Abstract Base Classes
 # =============================================================================
+
 
 class AbstractAxis(ABC):
     """Abstract base class for all parameter sampling axes.
@@ -124,6 +126,7 @@ class AbstractAxis(ABC):
 # Concrete Axis Implementations
 # =============================================================================
 
+
 class GridAxis(AbstractAxis):
     """Axis for systematic grid sampling over parameter bounds.
 
@@ -151,7 +154,9 @@ class GridAxis(AbstractAxis):
     >>> print(values)  # [0.0, 0.25, 0.5, 0.75, 1.0]
     """
 
-    def __init__(self, low: float, high: float, n: int, shape: Optional[Tuple[int, ...]] = None):
+    def __init__(
+        self, low: float, high: float, n: int, shape: Optional[Tuple[int, ...]] = None
+    ):
         """Initialize grid axis.
 
         Parameters
@@ -242,7 +247,9 @@ class UniformAxis(AbstractAxis):
     >>> print(values)  # Random values between 0 and 1
     """
 
-    def __init__(self, low: float, high: float, n: int, shape: Optional[Tuple[int, ...]] = None):
+    def __init__(
+        self, low: float, high: float, n: int, shape: Optional[Tuple[int, ...]] = None
+    ):
         """Initialize uniform axis.
 
         Parameters
@@ -431,9 +438,13 @@ class NumPyroAxis(AbstractAxis):
     >>> print(values.shape)  # (10,)
     """
 
-    def __init__(self, distribution, n: int,
-                 sample_shape: Optional[Tuple[int, ...]] = None,
-                 broadcast_mode: bool = False):
+    def __init__(
+        self,
+        distribution,
+        n: int,
+        sample_shape: Optional[Tuple[int, ...]] = None,
+        broadcast_mode: bool = False,
+    ):
         """Initialize NumPyro distribution axis.
 
         Parameters
@@ -451,10 +462,14 @@ class NumPyroAxis(AbstractAxis):
         super().__init__()
 
         if not NUMPYRO_AVAILABLE:
-            raise ImportError("NumPyro is required for NumPyroAxis. Install with: pip install numpyro")
+            raise ImportError(
+                "NumPyro is required for NumPyroAxis. Install with: pip install numpyro"
+            )
 
         # Check if distribution is a NumPyro distribution
-        if not hasattr(distribution, 'sample') or not hasattr(distribution, 'batch_shape'):
+        if not hasattr(distribution, "sample") or not hasattr(
+            distribution, "batch_shape"
+        ):
             raise TypeError("distribution must be a NumPyro distribution instance")
 
         if n <= 0:
@@ -512,13 +527,16 @@ class NumPyroAxis(AbstractAxis):
         return self.n
 
     def __repr__(self):
-        return (f"NumPyroAxis(distribution={self.distribution}, n={self.n}, "
-                f"sample_shape={self.sample_shape}, broadcast_mode={self.broadcast_mode})")
+        return (
+            f"NumPyroAxis(distribution={self.distribution}, n={self.n}, "
+            f"sample_shape={self.sample_shape}, broadcast_mode={self.broadcast_mode})"
+        )
 
 
 # =============================================================================
 # Space Class for Composing Axes
 # =============================================================================
+
 
 class Space:
     """Composable parameter space built from multiple axes.
@@ -576,8 +594,12 @@ class Space:
     >>> batched_states = space.collect(n_vmap=4, n_pmap=2)
     """
 
-    def __init__(self, state: Dict[str, Any], mode: str = 'zip',
-                 key: Optional[jax.random.PRNGKey] = None):
+    def __init__(
+        self,
+        state: Dict[str, Any],
+        mode: str = "zip",
+        key: Optional[jax.random.PRNGKey] = None,
+    ):
         """Initialize space from state tree.
 
         Parameters
@@ -593,73 +615,84 @@ class Space:
         self.state = state
         self.mode = mode
         self.key = key if key is not None else jax.random.key(0)
-        
-        if mode not in ['product', 'zip']:
+
+        if mode not in ["product", "zip"]:
             raise ValueError(f"Mode must be 'product' or 'zip', got {mode}")
-        
+
         # Use equinox.partition to separate axes from static values
         self.axis_state, self.static_state = eqx.partition(
             state, lambda x: isinstance(x, AbstractAxis)
         )
-        axes = jax.tree.leaves(self.axis_state, is_leaf=lambda x: isinstance(x, AbstractAxis))
+        axes = jax.tree.leaves(
+            self.axis_state, is_leaf=lambda x: isinstance(x, AbstractAxis)
+        )
         if not axes:
             # No axes found, raise error
             raise ValueError("Space must contain at least one AbstractAxis instance")
-        
+
         # Calculate total combinations
         self._N = self._calculate_total_size()
-    
+
     def _calculate_total_size(self) -> int:
         """Calculate total number of parameter combinations."""
-        axes = jax.tree.leaves(self.axis_state, is_leaf=lambda x: isinstance(x, AbstractAxis))
-        
+        axes = jax.tree.leaves(
+            self.axis_state, is_leaf=lambda x: isinstance(x, AbstractAxis)
+        )
+
         if not axes:
             return 1
-        
+
         axis_sizes = [axis.size for axis in axes]
-        
-        if self.mode == 'product':
+
+        if self.mode == "product":
             return int(np.prod(axis_sizes))
-        elif self.mode == 'zip':
+        elif self.mode == "zip":
             min_size = min(axis_sizes)
             max_size = max(axis_sizes)
-            
+
             # Warn if axes have different sizes in zip mode
             if min_size != max_size:
                 lost_combinations = sum(size - min_size for size in axis_sizes)
-                print(f"WARNING: In zip mode, axes have different sizes {axis_sizes}. "
-                      f"Using minimum size {min_size}, losing {lost_combinations} combinations.")
-            
+                print(
+                    f"WARNING: In zip mode, axes have different sizes {axis_sizes}. "
+                    f"Using minimum size {min_size}, losing {lost_combinations} combinations."
+                )
+
             return min_size
-    
+
     def _generate_axis_values(self) -> Dict[str, Any]:
         """Generate values for all axes using jax.tree.map."""
         # Pre-generate sub-keys for all axes to avoid correlations
-        axes = jax.tree.leaves(self.axis_state, is_leaf=lambda x: isinstance(x, AbstractAxis))
+        axes = jax.tree.leaves(
+            self.axis_state, is_leaf=lambda x: isinstance(x, AbstractAxis)
+        )
         keys = jax.random.split(self.key, len(axes) + 1)[1:]  # Skip first key
-        
+
         # Create iterator for keys
         key_iter = iter(keys)
-        
+
         def generate_values(axis):
             if isinstance(axis, AbstractAxis):
                 # Always pass a key, even if not needed (to avoid correlations)
                 axis_key = next(key_iter)
                 return axis.generate_values(axis_key)
             return axis  # Not an axis, return as-is
-        
-        return jax.tree.map(generate_values, self.axis_state, 
-                           is_leaf=lambda x: isinstance(x, AbstractAxis))
-    
+
+        return jax.tree.map(
+            generate_values,
+            self.axis_state,
+            is_leaf=lambda x: isinstance(x, AbstractAxis),
+        )
+
     @property
     def N(self) -> int:
         """Total number of parameter combinations."""
         return self._N
-    
+
     def _generate_all_combinations(self) -> Tuple[List[jnp.ndarray], Any]:
         """
         Generate all parameter combinations as flattened arrays.
-        
+
         Returns
         -------
         tuple
@@ -668,52 +701,53 @@ class Space:
         """
         # Generate values for all axes
         axis_values_tree = self._generate_axis_values()
-        
+
         # Flatten to get list of arrays
         axis_values_list, axis_tree_def = jax.tree.flatten(
             axis_values_tree, is_leaf=lambda x: isinstance(x, jnp.ndarray)
         )
-        
+
         if not axis_values_list:
             return [], axis_tree_def
-        
-        if self.mode == 'product':
+
+        if self.mode == "product":
             # Create meshgrid for Cartesian product and flatten each
-            meshgrid_arrays = jnp.meshgrid(*axis_values_list, indexing='ij')
+            meshgrid_arrays = jnp.meshgrid(*axis_values_list, indexing="ij")
             flattened_arrays = [arr.flatten() for arr in meshgrid_arrays]
-        elif self.mode == 'zip':
+        elif self.mode == "zip":
             # In zip mode, arrays are already aligned
             flattened_arrays = axis_values_list
-        
+
         return flattened_arrays, axis_tree_def
-    
+
     def _get_combination_at_index(self, index: int) -> Dict[str, Any]:
         """Get a single combination by indexing into flattened arrays."""
         flattened_arrays, axis_tree_def = self._generate_all_combinations()
-        
+
         if not flattened_arrays:
             return self.static_state
-        
+
         # Index into each flattened array to get values for this combination
         indexed_values = [arr[index] for arr in flattened_arrays]
-        
+
         # Reconstruct axis tree with indexed values
         axis_values_tree = jax.tree.unflatten(axis_tree_def, indexed_values)
-        
+
         # Replace axes with their values using tree_map
         def replace_axis_with_value(axis, value):
             if isinstance(axis, AbstractAxis):
                 return value
             return axis
-        
+
         processed_axis_tree = jax.tree.map(
-            replace_axis_with_value, self.axis_state, axis_values_tree,
-            is_leaf=lambda x: isinstance(x, AbstractAxis)
+            replace_axis_with_value,
+            self.axis_state,
+            axis_values_tree,
+            is_leaf=lambda x: isinstance(x, AbstractAxis),
         )
-        
+
         return eqx.combine(processed_axis_tree, self.static_state)
-    
-    
+
     # Iterator protocol for sequential execution
     def __iter__(self):
         """Initialize iterator with pre-generated combinations."""
@@ -721,7 +755,7 @@ class Space:
         self.flattened_arrays, self.axis_tree_def = self._generate_all_combinations()
         self.i = 0
         return self
-    
+
     def __next__(self):
         """Get next parameter state using pre-generated arrays."""
         if self.i < self.N:
@@ -731,34 +765,38 @@ class Space:
             else:
                 # Index directly into pre-generated arrays
                 indexed_values = [arr[self.i] for arr in self.flattened_arrays]
-                axis_values_tree = jax.tree.unflatten(self.axis_tree_def, indexed_values)
-                
+                axis_values_tree = jax.tree.unflatten(
+                    self.axis_tree_def, indexed_values
+                )
+
                 # Replace axes with values
                 def replace_axis_with_value(axis, value):
                     if isinstance(axis, AbstractAxis):
                         return value
                     return axis
-                
+
                 processed_axis_tree = jax.tree.map(
-                    replace_axis_with_value, self.axis_state, axis_values_tree,
-                    is_leaf=lambda x: isinstance(x, AbstractAxis)
+                    replace_axis_with_value,
+                    self.axis_state,
+                    axis_values_tree,
+                    is_leaf=lambda x: isinstance(x, AbstractAxis),
                 )
-                
+
                 state = eqx.combine(processed_axis_tree, self.static_state)
-            
+
             self.i += 1
             return state
         raise StopIteration
-    
-    def __getitem__(self, index: Union[int, slice]) -> Union[Dict[str, Any], 'Space']:
+
+    def __getitem__(self, index: Union[int, slice]) -> Union[Dict[str, Any], "Space"]:
         """
         Get specific parameter combination(s).
-        
+
         Parameters
         ----------
         index : int or slice
             Index or slice for combinations.
-            
+
         Returns
         -------
         dict or Space
@@ -769,44 +807,51 @@ class Space:
             if index < 0:
                 index += self.N
             if index < 0 or index >= self.N:
-                raise IndexError(f"Index {index} out of range for {self.N} combinations")
+                raise IndexError(
+                    f"Index {index} out of range for {self.N} combinations"
+                )
             return self._get_combination_at_index(index)
-        
+
         elif isinstance(index, slice):
             # Slice: return new Space with DataAxis instances
             flattened_arrays, axis_tree_def = self._generate_all_combinations()
-            
+
             if not flattened_arrays:
                 # No axes, return space with only static state
-                return Space(self.static_state, mode='zip', key=self.key)
-            
+                return Space(self.static_state, mode="zip", key=self.key)
+
             # Slice each array according to the index
             sliced_arrays = [arr[index] for arr in flattened_arrays]
-            
+
             # Check if slice results in empty arrays
             if any(arr.size == 0 for arr in sliced_arrays):
-                raise ValueError(f"Slice {index} results in empty parameter space with no combinations")
-            
+                raise ValueError(
+                    f"Slice {index} results in empty parameter space with no combinations"
+                )
+
             # Create new axis state with DataAxis instances
             data_axes = [DataAxis(values) for values in sliced_arrays]
             new_axis_state = jax.tree.unflatten(axis_tree_def, data_axes)
-            
+
             # Create new Space in zip mode
             return Space(
-                eqx.combine(new_axis_state, self.static_state),
-                mode='zip',
-                key=self.key
+                eqx.combine(new_axis_state, self.static_state), mode="zip", key=self.key
             )
-        
+
         else:
             raise TypeError(f"Index must be int or slice, got {type(index)}")
-    
+
     def __len__(self) -> int:
         """Number of parameter combinations."""
         return self.N
-    
-    def collect(self, n_vmap: int = None, n_pmap: int = None,
-               fill_value: float = jnp.nan, combine: bool = True) -> Dict[str, Any]:
+
+    def collect(
+        self,
+        n_vmap: int = None,
+        n_pmap: int = None,
+        fill_value: float = jnp.nan,
+        combine: bool = True,
+    ) -> Dict[str, Any]:
         """Generate batched states for parallel execution.
 
         Creates parameter combinations organized for efficient JAX parallel execution
@@ -866,29 +911,33 @@ class Space:
 
         # If n_pmap * n_vmap * n_map > N, warn that fill value is used
         if n_pmap * n_vmap * n_map > self.N:
-            print(f"WARNING: Total requested size {n_pmap * n_vmap * n_map} exceeds N = {self.N}. Using fill value: {fill_value}")
-        
+            print(
+                f"WARNING: Total requested size {n_pmap * n_vmap * n_map} exceeds N = {self.N}. Using fill value: {fill_value}"
+            )
+
         # Generate all combinations as flattened arrays
         array_list, axis_tree_def = self._generate_all_combinations()
-        
+
         if not array_list:
             # No axes, just return static state with proper batching
             return self.static_state
 
         # Reshape first dimension of each flattened array to batch dimensions
-        batched_arrays = [safe_reshape(arr, shape + arr.shape[1:], fill_value) for arr in array_list]
-        
+        batched_arrays = [
+            safe_reshape(arr, shape + arr.shape[1:], fill_value) for arr in array_list
+        ]
+
         # Reconstruct the axis tree with batched arrays
         batched_axis_tree = jax.tree.unflatten(axis_tree_def, batched_arrays)
-        
+
         if combine:
             # Combine with static state
             return eqx.combine(batched_axis_tree, self.static_state)
         else:
             return batched_axis_tree, self.static_state
-        
-    
-    def __repr__(self):
-        axes = jax.tree.leaves(self.axis_state, is_leaf=lambda x: isinstance(x, AbstractAxis))
-        return f"Space(N={self.N}, mode='{self.mode}', axes={len(axes)})"
 
+    def __repr__(self):
+        axes = jax.tree.leaves(
+            self.axis_state, is_leaf=lambda x: isinstance(x, AbstractAxis)
+        )
+        return f"Space(N={self.N}, mode='{self.mode}', axes={len(axes)})"

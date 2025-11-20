@@ -3,7 +3,7 @@
 import jax.numpy as jnp
 
 from ..core.bunch import Bunch
-from .base import InstantaneousCoupling, DelayedCoupling
+from .base import DelayedCoupling, InstantaneousCoupling
 
 
 class SigmoidalJansenRit(InstantaneousCoupling):
@@ -102,6 +102,7 @@ class SigmoidalJansenRit(InstantaneousCoupling):
             Scaled coupling output [1, n_nodes]
         """
         return params.G * summed_inputs
+
 
 class DelayedSigmoidalJansenRit(DelayedCoupling):
     """Sigmoidal Jansen-Rit coupling with transmission delays.

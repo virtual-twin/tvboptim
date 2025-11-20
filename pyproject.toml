@@ -56,8 +56,7 @@ pythonpath = ["src"]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
-    "black>=23.0.0",
-    "isort>=5.10.0",
+    "ruff>=0.8.0",
     "quartodoc>=0.6.0",
     "jupyter>=1.0.0",
     "ipykernel",
@@ -72,8 +71,7 @@ docs = [
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
-    "black>=23.0.0",
-    "isort>=5.10.0",
+    "ruff>=0.8.0",
     "quartodoc>=0.6.0",
     "jupyter>=1.0.0",
     "ipykernel",
@@ -82,3 +80,24 @@ docs = [
     # "tvbo",  # Uncomment when published to PyPI
     "jupyter-cache>=1.0.1",
 ]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.format]
+# Use Black-compatible formatting
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint]
+# Enable pycodestyle (E), Pyflakes (F), and isort (I) rules
+select = ["E", "F", "I"]
+# Ignore line too long (E501) since formatter handles it
+# F811: Ignore redefinition warnings (used by plum-dispatch for multiple dispatch)
+# E741: Allow ambiguous variable names like 'I' (standard in neuroscience)
+ignore = ["E501", "F811", "E741"]
+
+[tool.ruff.lint.per-file-ignores]
+# Allow imports after jax.config.update in tests
+"tests/**/*.py" = ["E402"]

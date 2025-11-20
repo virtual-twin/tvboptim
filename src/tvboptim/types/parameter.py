@@ -8,25 +8,26 @@ This module implements a simplified Parameter class that:
 - Supports specialized subclasses (BoundedParameter)
 """
 
-from typing import Union, Tuple, Any
+from typing import Any, Tuple, Union
+
 import jax
 import jax.numpy as jnp
-from jax.tree_util import register_pytree_node_class
 import numpy as np
+from jax.tree_util import register_pytree_node_class
 
 
 @register_pytree_node_class
 class Parameter:
     """
     A minimal JAX-native parameter with full arithmetic support.
-    
+
     If placed at a position in the state tree, that position will take part in optimizations and will be differentiated. A state can be split into parameters and static parts by partition_state and combined by combine_state.
-    
+
     Parameters
     ----------
     value : Union[float, int, jnp.ndarray]
         The parameter value. Will be converted to JAX array.
-    
+
     Examples
     --------
     >>> p1 = Parameter(1.0)
@@ -35,14 +36,14 @@ class Parameter:
     >>> grad_fn = jax.grad(lambda p: jnp.sum(p**2))
     >>> gradients = grad_fn(p1)  # Seamless gradients
     """
-    
+
     def __init__(self, value: Union[float, int, jnp.ndarray]) -> None:
         self.value = jnp.asarray(value)
-    
+
     def __repr__(self) -> str:
         # return f"Parameter({self.__jax_array__()})"
         return f"Parameter({self.value})"
-    
+
     def __str__(self) -> str:
         return self.__repr__()
 
@@ -54,28 +55,30 @@ class Parameter:
     def __jax_array__(self) -> jnp.ndarray:
         """JAX array protocol - makes Parameter behave like native JAX array."""
         return self.value
-    
+
     def __array__(self) -> jnp.ndarray:
         """NumPy array protocol compatibility."""
         # return self.value  # Return JAX array directly instead of converting to numpy
-        return np.array(self.__jax_array__())  # Return JAX array directly instead of converting to numpy
-    
+        return np.array(
+            self.__jax_array__()
+        )  # Return JAX array directly instead of converting to numpy
+
     # Properties
     @property
     def shape(self) -> Tuple[int, ...]:
         """Shape of the parameter value."""
         return self.value.shape
-    
+
     @shape.setter
     def shape(self, shape: Tuple[int, ...]) -> None:
         """
         Broadcasts the value to the desired shape if possible.
-        
+
         Useful to turn a global parameter local.
-        
+
         Args:
             shape: Desired shape for the parameter
-            
+
         Raises:
             ValueError: If the parameter shape cannot be broadcasted
         """
@@ -85,152 +88,156 @@ class Parameter:
             try:
                 self.value = jnp.broadcast_to(self.value, shape)
             except ValueError:
-                raise ValueError(f"Parameter shape {shape} does not match value shape {self.shape} and can not be broadcasted automatically.")
-    
+                raise ValueError(
+                    f"Parameter shape {shape} does not match value shape {self.shape} and can not be broadcasted automatically."
+                )
+
     @property
     def dtype(self) -> jnp.dtype:
         """Data type of the parameter value."""
         return self.value.dtype
-    
+
     @property
     def ndim(self) -> int:
         """Number of dimensions."""
         return self.value.ndim
-    
+
     @property
     def size(self) -> int:
         """Total number of elements."""
         return self.value.size
-    
+
     # Arithmetic Operations - Return JAX arrays for seamless integration
     def __add__(self, other) -> jnp.ndarray:
         """Addition: param + other"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return self.__jax_array__() + other_val
-    
+
     def __radd__(self, other) -> jnp.ndarray:
         """Reverse addition: other + param"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return other_val + self.__jax_array__()
-    
+
     def __sub__(self, other) -> jnp.ndarray:
         """Subtraction: param - other"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return self.__jax_array__() - other_val
-    
+
     def __rsub__(self, other) -> jnp.ndarray:
         """Reverse subtraction: other - param"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return other_val - self.__jax_array__()
-    
+
     def __mul__(self, other) -> jnp.ndarray:
         """Multiplication: param * other"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return self.__jax_array__() * other_val
-    
+
     def __rmul__(self, other) -> jnp.ndarray:
         """Reverse multiplication: other * param"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return other_val * self.__jax_array__()
-    
+
     def __truediv__(self, other) -> jnp.ndarray:
         """Division: param / other"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return self.__jax_array__() / other_val
-    
+
     def __rtruediv__(self, other) -> jnp.ndarray:
         """Reverse division: other / param"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return other_val / self.__jax_array__()
-    
+
     def __floordiv__(self, other) -> jnp.ndarray:
         """Floor division: param // other"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return self.__jax_array__() // other_val
-    
+
     def __rfloordiv__(self, other) -> jnp.ndarray:
         """Reverse floor division: other // param"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return other_val // self.__jax_array__()
-    
+
     def __mod__(self, other) -> jnp.ndarray:
         """Modulo: param % other"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return self.__jax_array__() % other_val
-    
+
     def __rmod__(self, other) -> jnp.ndarray:
         """Reverse modulo: other % param"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return other_val % self.__jax_array__()
-    
+
     def __pow__(self, other) -> jnp.ndarray:
         """Power: param ** other"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return self.__jax_array__() ** other_val
-    
+
     def __rpow__(self, other) -> jnp.ndarray:
         """Reverse power: other ** param"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return other_val ** self.__jax_array__()
-    
+
     # Unary Operations
     def __neg__(self) -> jnp.ndarray:
         """Negation: -param"""
         return -self.__jax_array__()
-    
+
     def __pos__(self) -> jnp.ndarray:
         """Positive: +param"""
         return +self.__jax_array__()
-    
+
     def __abs__(self) -> jnp.ndarray:
         """Absolute value: abs(param)"""
         return jnp.abs(self.__jax_array__())
-    
-    # Comparison Operations  
+
+    # Comparison Operations
     def __eq__(self, other) -> jnp.ndarray:
         """Equality: param == other"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return self.__jax_array__() == other_val
-    
+
     def __ne__(self, other) -> jnp.ndarray:
         """Inequality: param != other"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return self.__jax_array__() != other_val
-    
+
     def __lt__(self, other) -> jnp.ndarray:
         """Less than: param < other"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return self.__jax_array__() < other_val
-    
+
     def __le__(self, other) -> jnp.ndarray:
         """Less than or equal: param <= other"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return self.__jax_array__() <= other_val
-    
+
     def __gt__(self, other) -> jnp.ndarray:
         """Greater than: param > other"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return self.__jax_array__() > other_val
-    
+
     def __ge__(self, other) -> jnp.ndarray:
         """Greater than or equal: param >= other"""
-        other_val = other.__jax_array__() if hasattr(other, '__jax_array__') else other
+        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
         return self.__jax_array__() >= other_val
-    
+
     # Indexing
     def __getitem__(self, key) -> jnp.ndarray:
         """Indexing: param[key]"""
         return self.__jax_array__()[key]
-    
+
     # PyTree Implementation
     def tree_flatten(self) -> Tuple[Tuple[jnp.ndarray], None]:
         """Flatten for JAX pytree registration."""
         children = (self.value,)
         aux_data = None
         return children, aux_data
-    
+
     @classmethod
-    def tree_unflatten(cls, aux_data: None, children: Tuple[jnp.ndarray]) -> 'Parameter':
+    def tree_unflatten(
+        cls, aux_data: None, children: Tuple[jnp.ndarray]
+    ) -> "Parameter":
         """Unflatten for JAX pytree registration."""
         instance = cls.__new__(cls)
         instance.value = children[0]  # Normalized values (ones)
@@ -242,16 +249,16 @@ class NormalizedParameter(Parameter):
     """
     Parameter that stores normalized values (ones) internally but presents
     scaled values (scale * ones) to the outside world.
-    
+
     This enables optimization with normalized coordinates where gradients
     have consistent magnitudes across different parameter scales, while
     still returning properly scaled values for computation.
-    
+
     Parameters
     ----------
     value : Union[float, int, jnp.ndarray]
         The original parameter value used to compute the static scale.
-        
+
     Examples
     --------
     >>> param = NormalizedParameter(jnp.array([2.0, 4.0, 6.0]))
@@ -262,39 +269,40 @@ class NormalizedParameter(Parameter):
     >>> param.scale  # Static scale factor
     Array([2., 4., 6.], dtype=float32)
     """
-    
+
     def __init__(self, value: Union[float, int, jnp.ndarray]) -> None:
-        # Store original value as static scale  
+        # Store original value as static scale
         original_value = jnp.asarray(value)
         self.scale = original_value
-        
+
         # Store normalized values (ones) internally
         normalized_value = jnp.ones_like(original_value)
-        
+
         # Initialize parent with normalized value
         super().__init__(normalized_value)
-    
+
     def __repr__(self) -> str:
         return f"NormalizedParameter(scale={self.scale}, normalized={self.value}, value ={self.__jax_array__()})"
-    
+
     def __jax_array__(self) -> jnp.ndarray:
         """Return scaled values: scale * normalized_ones."""
         return self.scale * self.value  # scale * ones = original values
-    
+
     def tree_flatten(self) -> Tuple[Tuple[jnp.ndarray], jnp.ndarray]:
         """Flatten for JAX pytree registration."""
         children = (self.value,)  # Only normalized ones are differentiable
-        aux_data = self.scale     # Scale is static (not differentiable)
+        aux_data = self.scale  # Scale is static (not differentiable)
         return children, aux_data
-    
+
     @classmethod
-    def tree_unflatten(cls, aux_data: jnp.ndarray, 
-                      children: Tuple[jnp.ndarray]) -> 'NormalizedParameter':
+    def tree_unflatten(
+        cls, aux_data: jnp.ndarray, children: Tuple[jnp.ndarray]
+    ) -> "NormalizedParameter":
         """Unflatten for JAX pytree registration."""
         # Reconstruct from normalized values and static scale
         instance = cls.__new__(cls)
         instance.value = children[0]  # Normalized values (ones)
-        instance.scale = aux_data     # Static scale factor
+        instance.scale = aux_data  # Static scale factor
         return instance
 
 
@@ -335,8 +343,12 @@ class TransformedParameter(Parameter):
     >>> param = TransformedParameter(0.7, forward, inverse)
     """
 
-    def __init__(self, value: Union[float, int, jnp.ndarray],
-                 forward_transform: callable, inverse_transform: callable) -> None:
+    def __init__(
+        self,
+        value: Union[float, int, jnp.ndarray],
+        forward_transform: callable,
+        inverse_transform: callable,
+    ) -> None:
         # Apply inverse transform to store in unconstrained space
         unconstrained_value = inverse_transform(jnp.asarray(value))
         super().__init__(unconstrained_value)
@@ -345,7 +357,6 @@ class TransformedParameter(Parameter):
 
     def __repr__(self) -> str:
         return f"TransformedParameter(original={self.__jax_array__()}, transformed={self.value})"
-
 
     def __jax_array__(self) -> jnp.ndarray:
         """Return transformed value in constrained space."""
@@ -358,8 +369,9 @@ class TransformedParameter(Parameter):
         return children, aux_data
 
     @classmethod
-    def tree_unflatten(cls, aux_data: Tuple[callable, callable],
-                      children: Tuple[jnp.ndarray]) -> 'TransformedParameter':
+    def tree_unflatten(
+        cls, aux_data: Tuple[callable, callable], children: Tuple[jnp.ndarray]
+    ) -> "TransformedParameter":
         """Unflatten for JAX pytree registration."""
         forward_transform, inverse_transform = aux_data
         instance = cls.__new__(cls)
@@ -394,8 +406,9 @@ class SigmoidBoundedParameter(TransformedParameter):
     >>> # Gradients flow smoothly through sigmoid transformation
     """
 
-    def __init__(self, value: Union[float, int, jnp.ndarray],
-                 low: float, high: float) -> None:
+    def __init__(
+        self, value: Union[float, int, jnp.ndarray], low: float, high: float
+    ) -> None:
         if low >= high:
             raise ValueError(f"Invalid bounds: low ({low}) must be < high ({high})")
 
@@ -423,15 +436,20 @@ class SigmoidBoundedParameter(TransformedParameter):
     def __repr__(self) -> str:
         return f"SigmoidBoundedParameter({self.__jax_array__()}, low={self.low}, high={self.high})"
 
-    def tree_flatten(self) -> Tuple[Tuple[jnp.ndarray], Tuple[float, float, callable, callable]]:
+    def tree_flatten(
+        self,
+    ) -> Tuple[Tuple[jnp.ndarray], Tuple[float, float, callable, callable]]:
         """Flatten for JAX pytree registration."""
         children = (self.value,)
         aux_data = (self.low, self.high, self.forward_transform, self.inverse_transform)
         return children, aux_data
 
     @classmethod
-    def tree_unflatten(cls, aux_data: Tuple[float, float, callable, callable],
-                      children: Tuple[jnp.ndarray]) -> 'SigmoidBoundedParameter':
+    def tree_unflatten(
+        cls,
+        aux_data: Tuple[float, float, callable, callable],
+        children: Tuple[jnp.ndarray],
+    ) -> "SigmoidBoundedParameter":
         """Unflatten for JAX pytree registration."""
         low, high, forward_transform, inverse_transform = aux_data
         instance = cls.__new__(cls)
@@ -465,7 +483,9 @@ class LogPositiveParameter(TransformedParameter):
     >>> param = LogPositiveParameter(5.0, lower=1.0)  # Always > 1.0
     """
 
-    def __init__(self, value: Union[float, int, jnp.ndarray], lower: float = 0.0) -> None:
+    def __init__(
+        self, value: Union[float, int, jnp.ndarray], lower: float = 0.0
+    ) -> None:
         value_array = jnp.asarray(value)
         if jnp.any(value_array <= lower):
             raise ValueError(f"Initial value must be > {lower}, got {value}")
@@ -485,15 +505,18 @@ class LogPositiveParameter(TransformedParameter):
     def __repr__(self) -> str:
         return f"LogPositiveParameter({self.__jax_array__()}, lower={self.lower})"
 
-    def tree_flatten(self) -> Tuple[Tuple[jnp.ndarray], Tuple[float, callable, callable]]:
+    def tree_flatten(
+        self,
+    ) -> Tuple[Tuple[jnp.ndarray], Tuple[float, callable, callable]]:
         """Flatten for JAX pytree registration."""
         children = (self.value,)
         aux_data = (self.lower, self.forward_transform, self.inverse_transform)
         return children, aux_data
 
     @classmethod
-    def tree_unflatten(cls, aux_data: Tuple[float, callable, callable],
-                      children: Tuple[jnp.ndarray]) -> 'LogPositiveParameter':
+    def tree_unflatten(
+        cls, aux_data: Tuple[float, callable, callable], children: Tuple[jnp.ndarray]
+    ) -> "LogPositiveParameter":
         """Unflatten for JAX pytree registration."""
         lower, forward_transform, inverse_transform = aux_data
         instance = cls.__new__(cls)
@@ -525,7 +548,9 @@ class LogNegativeParameter(TransformedParameter):
     >>> param = LogNegativeParameter(-1.0, upper=5.0)  # Always < 5.0
     """
 
-    def __init__(self, value: Union[float, int, jnp.ndarray], upper: float = 0.0) -> None:
+    def __init__(
+        self, value: Union[float, int, jnp.ndarray], upper: float = 0.0
+    ) -> None:
         value_array = jnp.asarray(value)
         if jnp.any(value_array >= upper):
             raise ValueError(f"Initial value must be < {upper}, got {value}")
@@ -545,15 +570,18 @@ class LogNegativeParameter(TransformedParameter):
     def __repr__(self) -> str:
         return f"LogNegativeParameter({self.__jax_array__()}, upper={self.upper})"
 
-    def tree_flatten(self) -> Tuple[Tuple[jnp.ndarray], Tuple[float, callable, callable]]:
+    def tree_flatten(
+        self,
+    ) -> Tuple[Tuple[jnp.ndarray], Tuple[float, callable, callable]]:
         """Flatten for JAX pytree registration."""
         children = (self.value,)
         aux_data = (self.upper, self.forward_transform, self.inverse_transform)
         return children, aux_data
 
     @classmethod
-    def tree_unflatten(cls, aux_data: Tuple[float, callable, callable],
-                      children: Tuple[jnp.ndarray]) -> 'LogNegativeParameter':
+    def tree_unflatten(
+        cls, aux_data: Tuple[float, callable, callable], children: Tuple[jnp.ndarray]
+    ) -> "LogNegativeParameter":
         """Unflatten for JAX pytree registration."""
         upper, forward_transform, inverse_transform = aux_data
         instance = cls.__new__(cls)
@@ -595,14 +623,17 @@ class MaskedParameter(TransformedParameter):
     >>> param = MaskedParameter(matrix, mask)
     """
 
-    def __init__(self, value: Union[float, int, jnp.ndarray],
-                 mask: jnp.ndarray) -> None:
+    def __init__(
+        self, value: Union[float, int, jnp.ndarray], mask: jnp.ndarray
+    ) -> None:
         value_array = jnp.asarray(value)
         self.mask = jnp.asarray(mask, dtype=bool)
 
         # Ensure mask and value have compatible shapes
         if self.mask.shape != value_array.shape:
-            raise ValueError(f"Mask shape {self.mask.shape} must match value shape {value_array.shape}")
+            raise ValueError(
+                f"Mask shape {self.mask.shape} must match value shape {value_array.shape}"
+            )
 
         # Store frozen values (entries where mask is False)
         self.frozen_values = jnp.where(self.mask, 0.0, value_array)
@@ -622,15 +653,25 @@ class MaskedParameter(TransformedParameter):
         n_frozen = jnp.sum(~self.mask)
         return f"MaskedParameter(shape={self.mask.shape}, optimizable={n_optimizable}, frozen={n_frozen})"
 
-    def tree_flatten(self) -> Tuple[Tuple[jnp.ndarray], Tuple[jnp.ndarray, jnp.ndarray, callable, callable]]:
+    def tree_flatten(
+        self,
+    ) -> Tuple[Tuple[jnp.ndarray], Tuple[jnp.ndarray, jnp.ndarray, callable, callable]]:
         """Flatten for JAX pytree registration."""
         children = (self.value,)
-        aux_data = (self.mask, self.frozen_values, self.forward_transform, self.inverse_transform)
+        aux_data = (
+            self.mask,
+            self.frozen_values,
+            self.forward_transform,
+            self.inverse_transform,
+        )
         return children, aux_data
 
     @classmethod
-    def tree_unflatten(cls, aux_data: Tuple[jnp.ndarray, jnp.ndarray, callable, callable],
-                      children: Tuple[jnp.ndarray]) -> 'MaskedParameter':
+    def tree_unflatten(
+        cls,
+        aux_data: Tuple[jnp.ndarray, jnp.ndarray, callable, callable],
+        children: Tuple[jnp.ndarray],
+    ) -> "MaskedParameter":
         """Unflatten for JAX pytree registration."""
         mask, frozen_values, forward_transform, inverse_transform = aux_data
         instance = cls.__new__(cls)
@@ -646,52 +687,54 @@ class MaskedParameter(TransformedParameter):
 class BoundedParameter(Parameter):
     """
     Parameter with automatic bounds enforcement.
-    
+
     The bounds are applied transparently whenever the parameter is used
     as a JAX array, ensuring constraints are always satisfied.
-    
+
     Parameters
     ----------
     value : Union[float, int, jnp.ndarray]
         The parameter value. Will be converted to JAX array.
     low : float
         Lower bound for the parameter value.
-    high : float  
+    high : float
         Upper bound for the parameter value.
-    
+
     Examples
     --------
     >>> param = BoundedParameter(1.5, low=0.0, high=1.0)
-    >>> result = param + 0.1  # Automatically clips to [0, 1] 
+    >>> result = param + 0.1  # Automatically clips to [0, 1]
     >>> print(result)  # 1.1
     """
-    
-    def __init__(self, value: Union[float, int, jnp.ndarray], 
-                 low: float, high: float) -> None:
+
+    def __init__(
+        self, value: Union[float, int, jnp.ndarray], low: float, high: float
+    ) -> None:
         super().__init__(value)
         self.low = low
         self.high = high
-        
+
         if low >= high:
             raise ValueError(f"Invalid bounds: low ({low}) must be < high ({high})")
-    
+
     def __repr__(self) -> str:
         return f"BoundedParameter({self.value}, low={self.low}, high={self.high})"
         # return f"BoundedParameter({self.__jax_array__()}, low={self.low}, high={self.high})"
-    
+
     def __jax_array__(self) -> jnp.ndarray:
         """Return clipped value respecting bounds."""
         return jnp.clip(self.value, self.low, self.high)
-    
+
     def tree_flatten(self) -> Tuple[Tuple[jnp.ndarray], Tuple[float, float]]:
         """Flatten for JAX pytree registration."""
         children = (self.value,)
         aux_data = (self.low, self.high)
         return children, aux_data
-    
+
     @classmethod
-    def tree_unflatten(cls, aux_data: Tuple[float, float], 
-                      children: Tuple[jnp.ndarray]) -> 'BoundedParameter':
+    def tree_unflatten(
+        cls, aux_data: Tuple[float, float], children: Tuple[jnp.ndarray]
+    ) -> "BoundedParameter":
         """Unflatten for JAX pytree registration."""
         low, high = aux_data
         return cls(children[0], low, high)
@@ -706,14 +749,14 @@ def is_parameter(obj: Any) -> bool:
 def extract_values(tree: Any) -> Any:
     """
     Extract parameter values from a pytree, leaving other types unchanged.
-    
+
     This replaces the old collect_parameters() function.
-    
+
     Parameters
     ----------
     tree : Any
         PyTree potentially containing Parameter objects
-        
+
     Returns
     -------
     Any
@@ -722,5 +765,5 @@ def extract_values(tree: Any) -> Any:
     return jax.tree.map(
         lambda x: x.__jax_array__() if is_parameter(x) else x,
         tree,
-        is_leaf=is_parameter
+        is_leaf=is_parameter,
     )

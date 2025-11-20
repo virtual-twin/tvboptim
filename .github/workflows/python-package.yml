@@ -28,10 +28,10 @@ jobs:
     - name: Install dependencies
       run: |
         uv sync --all-extras
-    - name: Lint with black and isort
+    - name: Lint and format with ruff
       run: |
-        uv run black --check src tests
-        uv run isort --check-only src tests
+        uv run ruff check src tests
+        uv run ruff format --check src tests
     - name: Test with pytest
       run: |
         uv run pytest --cov=tvboptim --cov-report=xml --cov-report=term

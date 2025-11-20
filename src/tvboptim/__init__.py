@@ -2,8 +2,8 @@
 
 __version__ = "0.1.0"
 
-from .types import spaces, parameter
-from .model import jaxify
 from . import data
+from .model import jaxify
+from .types import parameter, spaces
 
 __all__ = ["spaces", "jaxify", "parameter", "data"]

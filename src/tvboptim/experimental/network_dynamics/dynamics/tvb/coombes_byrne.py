@@ -70,21 +70,21 @@ class CoombesByrne2D(AbstractDynamics):
     Dynamics in Computational Neuroscience (pp. 1-16). Springer.
     """
 
-    STATE_NAMES = ('r', 'V')
+    STATE_NAMES = ("r", "V")
     INITIAL_STATE = (0.1, 0.0)
 
-    AUXILIARY_NAMES = ('g',)
+    AUXILIARY_NAMES = ("g",)
 
     DEFAULT_PARAMS = Bunch(
-        Delta=1.0,         # Width of heterogeneous noise distribution
-        eta=2.0,           # Constant external input
-        k=1.0,             # Synaptic conductance scaling (kappa)
-        v_syn=0.0,         # Synaptic reversal potential
+        Delta=1.0,  # Width of heterogeneous noise distribution
+        eta=2.0,  # Constant external input
+        k=1.0,  # Synaptic conductance scaling (kappa)
+        v_syn=0.0,  # Synaptic reversal potential
     )
 
     COUPLING_INPUTS = {
-        'instant': 1,   # Local coupling through r
-        'delayed': 1,   # Long-range coupling through r
+        "instant": 1,  # Local coupling through r
+        "delayed": 1,  # Long-range coupling through r
     }
 
     def dynamics(
@@ -93,7 +93,7 @@ class CoombesByrne2D(AbstractDynamics):
         state: jnp.ndarray,
         params: Bunch,
         coupling: Bunch,
-        external: Bunch
+        external: Bunch,
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """Compute Coombes-Byrne 2D dynamics.
 
@@ -125,8 +125,8 @@ class CoombesByrne2D(AbstractDynamics):
         V = state[1]  # Average membrane potential
 
         # Unpack coupling
-        c_instant = coupling.instant[0]    # Local coupling
-        c_delayed = coupling.delayed[0]    # Long-range coupling
+        c_instant = coupling.instant[0]  # Local coupling
+        c_delayed = coupling.delayed[0]  # Long-range coupling
 
         # Total coupling (enters V equation)
         coupling_total = c_instant + c_delayed
@@ -140,11 +140,11 @@ class CoombesByrne2D(AbstractDynamics):
 
         # Membrane potential dynamics (with conductance-based interaction)
         dV_dt = (
-            V**2 -
-            (jnp.pi * r)**2 +
-            params.eta +
-            (params.v_syn - V) * g +
-            coupling_total
+            V**2
+            - (jnp.pi * r) ** 2
+            + params.eta
+            + (params.v_syn - V) * g
+            + coupling_total
         )
 
         # Package results

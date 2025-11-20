@@ -5,18 +5,18 @@ support. The prepare() function sets up the integration with all coupling state
 management, and returns a pure function for execution.
 """
 
-from typing import Tuple, Callable
+from typing import Callable, Tuple
 
+import diffrax
 import jax
 import jax.numpy as jnp
 from plum import dispatch
-import diffrax
 
 from .core.bunch import Bunch
 from .core.network import Network
-from .solvers.native import NativeSolver
-from .solvers.diffrax import DiffraxSolver
 from .result import wrap_native_result
+from .solvers.diffrax import DiffraxSolver
+from .solvers.native import NativeSolver
 
 
 def solve(
@@ -106,14 +106,14 @@ def prepare(
         initial_state=Bunch(
             dynamics=network.initial_state,
             coupling=coupling_state_dict_init,
-            external=external_state_dict_init
+            external=external_state_dict_init,
         ),
         # Internal (static precomputed data)
         _internal=Bunch(
             coupling=coupling_data_dict,
             external=external_data_dict,
-            time=Bunch(t0=t0, t1=t1, dt=dt)
-        )
+            time=Bunch(t0=t0, t1=t1, dt=dt),
+        ),
     )
 
     # Add coupling params
@@ -131,7 +131,9 @@ def prepare(
         n_nodes = network.graph.n_nodes
         n_noise_states = len(network.noise._state_indices)
         noise_shape = (n_steps, n_noise_states, n_nodes)
-        config._internal.noise_samples = network.noise.generate_noise_samples(noise_shape)
+        config._internal.noise_samples = network.noise.generate_noise_samples(
+            noise_shape
+        )
 
     # =========================================================================
     # PRE-COMPILE COUPLING COMPUTATION CLOSURE
@@ -179,8 +181,10 @@ def prepare(
     # PRE-COMPILE COUPLING STATE UPDATE CLOSURE
     # =========================================================================
     # Build list of couplings that need state updates (avoid dict iteration)
-    update_list = [(name, network.couplings[name], coupling_data_dict[name])
-                   for name in network.couplings.keys()]
+    update_list = [
+        (name, network.couplings[name], coupling_data_dict[name])
+        for name in network.couplings.keys()
+    ]
 
     def update_all_coupling_states(coupling_state_dict, new_network_state):
         """Pre-compiled closure for coupling state updates.
@@ -239,8 +243,10 @@ def prepare(
     # PRE-COMPILE EXTERNAL STATE UPDATE CLOSURE
     # =========================================================================
     # Build list of external inputs that need state updates (avoid dict iteration)
-    external_update_list = [(name, network.externals[name], external_data_dict[name])
-                            for name in network.externals.keys()]
+    external_update_list = [
+        (name, network.externals[name], external_data_dict[name])
+        for name in network.externals.keys()
+    ]
 
     def update_all_external_states(external_state_dict, new_network_state):
         """Pre-compiled closure for external state updates.
@@ -272,11 +278,12 @@ def prepare(
     # =========================================================================
     voi_indices = network.dynamics.get_variables_of_interest_indices()
     n_states = network.dynamics.N_STATES
-    n_auxiliaries = network.dynamics.N_AUXILIARIES
 
     # Split VOI indices into state and auxiliary indices
     state_voi_indices = jnp.array([i for i in voi_indices if i < n_states], dtype=int)
-    aux_voi_indices = jnp.array([i - n_states for i in voi_indices if i >= n_states], dtype=int)
+    aux_voi_indices = jnp.array(
+        [i - n_states for i in voi_indices if i >= n_states], dtype=int
+    )
 
     # Flag: do we need to record any auxiliaries?
     record_auxiliaries = len(aux_voi_indices) > 0
@@ -316,7 +323,13 @@ def prepare(
                 )
                 # Call dynamics with coupling and external inputs
                 # Returns (derivatives, auxiliaries) or just derivatives
-                return dynamics_fn(t_inner, network_state, params_dynamics, coupling_inputs, external_inputs)
+                return dynamics_fn(
+                    t_inner,
+                    network_state,
+                    params_dynamics,
+                    coupling_inputs,
+                    external_inputs,
+                )
 
             # Prepare noise sample if stochastic
             noise_sample = jnp.zeros_like(state.dynamics)
@@ -356,7 +369,7 @@ def prepare(
             next_state = Bunch(
                 dynamics=next_dynamics_state,
                 coupling=next_coupling_state_dict,
-                external=next_external_state_dict
+                external=next_external_state_dict,
             )
 
             # Apply VARIABLES_OF_INTEREST filtering to build output
@@ -467,8 +480,8 @@ def prepare(
         _internal=Bunch(
             coupling=coupling_data_dict,
             external=external_data_dict,
-            time=Bunch(t0=t0, t1=t1, dt=dt)
-        )
+            time=Bunch(t0=t0, t1=t1, dt=dt),
+        ),
     )
 
     # Add coupling params
@@ -648,9 +661,9 @@ def prepare(
                     # This Brownian dimension corresponds to state_idx, node j
                     brownian_idx = i * n_nodes + j
                     # Set the diffusion coefficient
-                    diffusion_matrix = diffusion_matrix.at[state_idx, j, brownian_idx].set(
-                        g[i, j]
-                    )
+                    diffusion_matrix = diffusion_matrix.at[
+                        state_idx, j, brownian_idx
+                    ].set(g[i, j])
 
             return diffusion_matrix
 
@@ -661,7 +674,7 @@ def prepare(
             t1=t1,
             tol=dt * 0.01,  # Brownian tree tolerance (finer than dt)
             shape=(n_brownian,),
-            key=network.noise.key
+            key=network.noise.key,
         )
 
         # Create diffusion term
@@ -695,7 +708,7 @@ def prepare(
             saveat=solver.saveat,
             stepsize_controller=solver.stepsize_controller,
             max_steps=solver.max_steps,
-            **solver.diffrax_kwargs
+            **solver.diffrax_kwargs,
         )
 
         # NOTE: Diffrax may pad solution arrays with inf when max_steps is specified.

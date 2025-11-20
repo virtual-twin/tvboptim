@@ -1,2 +1,4 @@
+from .callbacks import *  # noqa: F403
 from .optax import OptaxOptimizer
-from .callbacks import *
+
+__all__ = ["OptaxOptimizer"]

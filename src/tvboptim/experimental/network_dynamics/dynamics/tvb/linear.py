@@ -8,8 +8,6 @@ References:
       and network dynamics.
 """
 
-from typing import Tuple
-
 import jax.numpy as jnp
 
 from ...core.bunch import Bunch
@@ -54,16 +52,16 @@ class Linear(AbstractDynamics):
         Damping coefficient ``gamma=-10.0`` (must be negative for stability)
     """
 
-    STATE_NAMES = ('x',)
+    STATE_NAMES = ("x",)
     INITIAL_STATE = (0.01,)
 
     DEFAULT_PARAMS = Bunch(
-        gamma=-10.0,       # Damping coefficient (must be negative for stability)
+        gamma=-10.0,  # Damping coefficient (must be negative for stability)
     )
 
     COUPLING_INPUTS = {
-        'instant': 1,   # Local coupling (proportional to x)
-        'delayed': 1,   # Long-range coupling
+        "instant": 1,  # Local coupling (proportional to x)
+        "delayed": 1,  # Long-range coupling
     }
 
     def dynamics(
@@ -72,7 +70,7 @@ class Linear(AbstractDynamics):
         state: jnp.ndarray,
         params: Bunch,
         coupling: Bunch,
-        external: Bunch
+        external: Bunch,
     ) -> jnp.ndarray:
         """Compute linear dynamics.
 
@@ -101,8 +99,8 @@ class Linear(AbstractDynamics):
         x = state[0]
 
         # Unpack coupling
-        c_instant = coupling.instant[0]    # Local coupling
-        c_delayed = coupling.delayed[0]    # Long-range coupling
+        c_instant = coupling.instant[0]  # Local coupling
+        c_delayed = coupling.delayed[0]  # Long-range coupling
 
         # Linear dynamics with damping and coupling
         dx_dt = params.gamma * x + c_delayed + c_instant

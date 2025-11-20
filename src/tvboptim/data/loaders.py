@@ -1,15 +1,18 @@
 """Data loading functions for built-in datasets."""
 
+from pathlib import Path
+from typing import List, Tuple
+
 import jax.numpy as jnp
 import numpy as np
-from pathlib import Path
-from typing import Tuple, List
 
 # Get the data directory
 _DATA_DIR = Path(__file__).parent
 
 
-def load_structural_connectivity(name: str = "dk_average") -> Tuple[jnp.ndarray, jnp.ndarray, List[str]]:
+def load_structural_connectivity(
+    name: str = "dk_average",
+) -> Tuple[jnp.ndarray, jnp.ndarray, List[str]]:
     """
     Load structural connectivity data.
 
@@ -52,8 +55,7 @@ def load_structural_connectivity(name: str = "dk_average") -> Tuple[jnp.ndarray,
 
     if not data_path.exists():
         raise ValueError(
-            f"Dataset '{name}' not found. "
-            f"Available datasets: dk_average, dTOR"
+            f"Dataset '{name}' not found. Available datasets: dk_average, dTOR"
         )
 
     data = np.load(data_path, allow_pickle=True)
@@ -89,10 +91,7 @@ def load_functional_connectivity(name: str = "dk_average") -> jnp.ndarray:
     data_path = _DATA_DIR / "functional" / name / "data.npz"
 
     if not data_path.exists():
-        raise ValueError(
-            f"Dataset '{name}' not found. "
-            f"Available datasets: dk_average"
-        )
+        raise ValueError(f"Dataset '{name}' not found. Available datasets: dk_average")
 
     data = np.load(data_path)
     fc = jnp.array(data["fc"])

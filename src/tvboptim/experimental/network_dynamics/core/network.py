@@ -4,17 +4,20 @@ This module implements a single Network class that handles all equation types
 (ODE/DDE/SDE/SDDE) through composition rather than inheritance.
 """
 
-from typing import Dict, List, Optional, Union
 import warnings
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import jax.numpy as jnp
 
-from .bunch import Bunch
-from ..dynamics.base import AbstractDynamics
 from ..coupling.base import AbstractCoupling
+from ..dynamics.base import AbstractDynamics
 from ..graph.base import AbstractGraph
 from ..noise.base import AbstractNoise
 from ..result import NativeSolution
+from .bunch import Bunch
+
+if TYPE_CHECKING:
+    from ..external_input.base import AbstractExternalInput
 
 
 class Network:
@@ -71,11 +74,19 @@ class Network:
     def __init__(
         self,
         dynamics: AbstractDynamics,
-        coupling: Union[AbstractCoupling, Dict[str, AbstractCoupling], List[AbstractCoupling]],
+        coupling: Union[
+            AbstractCoupling, Dict[str, AbstractCoupling], List[AbstractCoupling]
+        ],
         graph: AbstractGraph,
         noise: Optional[AbstractNoise] = None,
         history: Optional[NativeSolution] = None,
-        external_input: Optional[Union['AbstractExternalInput', Dict[str, 'AbstractExternalInput'], List['AbstractExternalInput']]] = None,
+        external_input: Optional[
+            Union[
+                "AbstractExternalInput",
+                Dict[str, "AbstractExternalInput"],
+                List["AbstractExternalInput"],
+            ]
+        ] = None,
     ):
         """Initialize unified network with validation."""
         self.dynamics = dynamics
@@ -86,11 +97,11 @@ class Network:
         self.couplings = self._normalize_couplings(coupling, dynamics)
 
         # Normalize external input to dict format with validation
-        from ..external_input.base import AbstractExternalInput
+
         self.externals = self._normalize_external_inputs(external_input or {}, dynamics)
 
         # Extract max_delay from graph (0.0 for non-DelayGraph)
-        self.max_delay = getattr(graph, 'max_delay', 0.0)
+        self.max_delay = getattr(graph, "max_delay", 0.0)
 
         # Resolve noise state indices if noise provided
         if self.noise is not None:
@@ -103,8 +114,10 @@ class Network:
 
     def _normalize_couplings(
         self,
-        coupling_input: Union[AbstractCoupling, Dict[str, AbstractCoupling], List[AbstractCoupling]],
-        dynamics: AbstractDynamics
+        coupling_input: Union[
+            AbstractCoupling, Dict[str, AbstractCoupling], List[AbstractCoupling]
+        ],
+        dynamics: AbstractDynamics,
     ) -> Dict[str, AbstractCoupling]:
         """Convert coupling input to dict format with validation.
 
@@ -164,9 +177,13 @@ class Network:
 
     def _normalize_external_inputs(
         self,
-        external_input: Union['AbstractExternalInput', Dict[str, 'AbstractExternalInput'], List['AbstractExternalInput']],
-        dynamics: AbstractDynamics
-    ) -> Dict[str, 'AbstractExternalInput']:
+        external_input: Union[
+            "AbstractExternalInput",
+            Dict[str, "AbstractExternalInput"],
+            List["AbstractExternalInput"],
+        ],
+        dynamics: AbstractDynamics,
+    ) -> Dict[str, "AbstractExternalInput"]:
         """Convert external input to dict format with validation.
 
         Args:
@@ -179,7 +196,6 @@ class Network:
         Raises:
             ValueError: If input specification doesn't match dynamics EXTERNAL_INPUTS
         """
-        from ..external_input.base import AbstractExternalInput
 
         # Case 1: Dict - validate names match EXTERNAL_INPUTS
         if isinstance(external_input, dict):
@@ -273,7 +289,7 @@ class Network:
                 warnings.warn(
                     f"History covers {time_coverage:.3f}s but network needs "
                     f"{self.max_delay:.3f}s for delays. History will be padded.",
-                    UserWarning
+                    UserWarning,
                 )
 
         self._history = solution
@@ -564,7 +580,9 @@ class Network:
 
                 if needs_interpolation:
                     # Interpolate available data, then pad
-                    interpolated = self._interpolate_history(hist_ts, hist_ys, n_steps_needed - n_steps_to_pad)
+                    interpolated = self._interpolate_history(
+                        hist_ts, hist_ys, n_steps_needed - n_steps_to_pad
+                    )
                     return jnp.concatenate([padding, interpolated], axis=0)
                 else:
                     # Just pad and concatenate
@@ -593,10 +611,7 @@ class Network:
                 return hist_ys[-n_steps_needed:]
 
     def _interpolate_history(
-        self,
-        old_ts: jnp.ndarray,
-        old_ys: jnp.ndarray,
-        n_steps: int
+        self, old_ts: jnp.ndarray, old_ys: jnp.ndarray, n_steps: int
     ) -> jnp.ndarray:
         """Interpolate history to match target dt.
 
@@ -622,6 +637,7 @@ class Network:
 
         # Vectorize over all state-node combinations
         from jax import vmap
+
         new_ys_flat = vmap(interp_1d, in_axes=1, out_axes=1)(old_ys_flat)
 
         # Reshape back to [n_steps, n_states, n_nodes]
@@ -652,7 +668,7 @@ class Network:
     def __repr__(self) -> str:
         """Human-readable representation of network configuration."""
         parts = [
-            f"Network(",
+            "Network(",
             f"  dynamics={self.dynamics.__class__.__name__}",
             f"  nodes={self.graph.n_nodes}",
             f"  couplings={list(self.couplings.keys())}",

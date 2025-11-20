@@ -76,55 +76,48 @@ class WilsonCowan(AbstractDynamics):
     populations of model neurons. Biophysical Journal, 12, 1-24.
     """
 
-    STATE_NAMES = ('E', 'I')
+    STATE_NAMES = ("E", "I")
     INITIAL_STATE = (0.1, 0.05)
 
-    AUXILIARY_NAMES = ('S_e', 'S_i')
+    AUXILIARY_NAMES = ("S_e", "S_i")
 
     DEFAULT_PARAMS = Bunch(
         # Local connectivity weights
-        c_ee=12.0,         # Excitatory to excitatory
-        c_ei=4.0,          # Inhibitory to excitatory
-        c_ie=13.0,         # Excitatory to inhibitory
-        c_ii=11.0,         # Inhibitory to inhibitory
-
+        c_ee=12.0,  # Excitatory to excitatory
+        c_ei=4.0,  # Inhibitory to excitatory
+        c_ie=13.0,  # Excitatory to inhibitory
+        c_ii=11.0,  # Inhibitory to inhibitory
         # Time constants (ms)
-        tau_e=10.0,        # Excitatory population
-        tau_i=10.0,        # Inhibitory population
-
+        tau_e=10.0,  # Excitatory population
+        tau_i=10.0,  # Inhibitory population
         # Sigmoid function parameters (excitatory)
-        a_e=1.2,           # Gain/steepness
-        b_e=2.8,           # Threshold
-        c_e=1.0,           # Maximum response
-        theta_e=0.0,       # Baseline threshold
-
+        a_e=1.2,  # Gain/steepness
+        b_e=2.8,  # Threshold
+        c_e=1.0,  # Maximum response
+        theta_e=0.0,  # Baseline threshold
         # Sigmoid function parameters (inhibitory)
-        a_i=1.0,           # Gain/steepness
-        b_i=4.0,           # Threshold
-        c_i=1.0,           # Maximum response
-        theta_i=0.0,       # Baseline threshold
-
+        a_i=1.0,  # Gain/steepness
+        b_i=4.0,  # Threshold
+        c_i=1.0,  # Maximum response
+        theta_i=0.0,  # Baseline threshold
         # Response modulation parameters
-        r_e=1.0,           # Excitatory refractory parameter
-        r_i=1.0,           # Inhibitory refractory parameter
-        k_e=1.0,           # Excitatory gain parameter
-        k_i=1.0,           # Inhibitory gain parameter
-
+        r_e=1.0,  # Excitatory refractory parameter
+        r_i=1.0,  # Inhibitory refractory parameter
+        k_e=1.0,  # Excitatory gain parameter
+        k_i=1.0,  # Inhibitory gain parameter
         # External inputs
-        P=0.0,             # External input to excitatory population
-        Q=0.0,             # External input to inhibitory population
-
+        P=0.0,  # External input to excitatory population
+        Q=0.0,  # External input to inhibitory population
         # Input gain parameters
-        alpha_e=1.0,       # Excitatory input scaling
-        alpha_i=1.0,       # Inhibitory input scaling
-
+        alpha_e=1.0,  # Excitatory input scaling
+        alpha_i=1.0,  # Inhibitory input scaling
         # Sigmoid shift option
         shift_sigmoid=False,  # Whether to use baseline-corrected sigmoid
     )
 
     COUPLING_INPUTS = {
-        'instant': 2,   # Local coupling [from E, from I]
-        'delayed': 1,   # Long-range delayed coupling
+        "instant": 2,  # Local coupling [from E, from I]
+        "delayed": 1,  # Long-range delayed coupling
     }
 
     def dynamics(
@@ -133,7 +126,7 @@ class WilsonCowan(AbstractDynamics):
         state: jnp.ndarray,
         params: Bunch,
         coupling: Bunch,
-        external: Bunch
+        external: Bunch,
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """Compute Wilson-Cowan dynamics.
 
@@ -173,22 +166,34 @@ class WilsonCowan(AbstractDynamics):
         # Compute inputs to populations
         # Both local couplings (E and I) feed into both populations
         # Long-range coupling only feeds into excitatory
-        x_e = params.alpha_e * (params.c_ee * E - params.c_ei * I + params.P -
-                                params.theta_e + c_delayed + lc_e + lc_i)
+        x_e = params.alpha_e * (
+            params.c_ee * E
+            - params.c_ei * I
+            + params.P
+            - params.theta_e
+            + c_delayed
+            + lc_e
+            + lc_i
+        )
 
-        x_i = params.alpha_i * (params.c_ie * E - params.c_ii * I + params.Q -
-                                params.theta_i + lc_e + lc_i)
+        x_i = params.alpha_i * (
+            params.c_ie * E - params.c_ii * I + params.Q - params.theta_i + lc_e + lc_i
+        )
 
         # Compute sigmoid activation functions
         if params.shift_sigmoid:
             # Baseline-corrected sigmoid (passes through zero)
             sigmoid_offset_e = 1.0 / (1.0 + jnp.exp(params.a_e * params.b_e))
-            S_e = params.c_e * (1.0 / (1.0 + jnp.exp(-params.a_e * (x_e - params.b_e))) -
-                                sigmoid_offset_e)
+            S_e = params.c_e * (
+                1.0 / (1.0 + jnp.exp(-params.a_e * (x_e - params.b_e)))
+                - sigmoid_offset_e
+            )
 
             sigmoid_offset_i = 1.0 / (1.0 + jnp.exp(params.a_i * params.b_i))
-            S_i = params.c_i * (1.0 / (1.0 + jnp.exp(-params.a_i * (x_i - params.b_i))) -
-                                sigmoid_offset_i)
+            S_i = params.c_i * (
+                1.0 / (1.0 + jnp.exp(-params.a_i * (x_i - params.b_i)))
+                - sigmoid_offset_i
+            )
         else:
             # Standard sigmoid
             S_e = params.c_e / (1.0 + jnp.exp(-params.a_e * (x_e - params.b_e)))

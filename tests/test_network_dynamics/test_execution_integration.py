@@ -9,15 +9,14 @@ import numpy as np
 # Enable float64 for better numerical precision
 jax.config.update("jax_enable_x64", True)
 
+from tvboptim.execution import ParallelExecution, SequentialExecution
 from tvboptim.experimental.network_dynamics import Network
-from tvboptim.experimental.network_dynamics.solve import prepare
-from tvboptim.experimental.network_dynamics.dynamics.tvb import ReducedWongWang
 from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
+from tvboptim.experimental.network_dynamics.dynamics.tvb import ReducedWongWang
 from tvboptim.experimental.network_dynamics.graph import DenseGraph
+from tvboptim.experimental.network_dynamics.solve import prepare
 from tvboptim.experimental.network_dynamics.solvers import Heun
-
-from tvboptim.types import Space, GridAxis, UniformAxis, DataAxis
-from tvboptim.execution import SequentialExecution, ParallelExecution
+from tvboptim.types import DataAxis, GridAxis, Space, UniformAxis
 
 
 class TestExecutionWithNetworkDynamics(unittest.TestCase):
@@ -37,14 +36,11 @@ class TestExecutionWithNetworkDynamics(unittest.TestCase):
         # Create base network (RWW with linear coupling, no delay)
         key = self.base_key
         graph = DenseGraph.random(n_nodes=self.n_nodes, key=key)
-        coupling = LinearCoupling(incoming_states='S', G=0.1)
+        coupling = LinearCoupling(incoming_states="S", G=0.1)
         dynamics = ReducedWongWang()
 
         network = Network(
-            dynamics=dynamics,
-            coupling={'instant': coupling},
-            graph=graph,
-            noise=None
+            dynamics=dynamics, coupling={"instant": coupling}, graph=graph, noise=None
         )
 
         # Prepare model
@@ -60,7 +56,7 @@ class TestExecutionWithNetworkDynamics(unittest.TestCase):
         # Total: 3 × 2 × 2 = 12 parameter combinations
 
         # Create Space with the state containing axes (product mode for Cartesian product)
-        space = Space(state, mode='product')
+        space = Space(state, mode="product")
 
         # Define model function that takes state and returns mean activity
         def model_fn(state, key=None):
@@ -77,21 +73,28 @@ class TestExecutionWithNetworkDynamics(unittest.TestCase):
 
         # Verify sequential result
         self.assertEqual(len(sequential_result), 12, "Should have 12 results")
-        self.assertFalse(any(jnp.isnan(r) for r in sequential_result), "No NaNs in sequential results")
+        self.assertFalse(
+            any(jnp.isnan(r) for r in sequential_result),
+            "No NaNs in sequential results",
+        )
 
         # Test Parallel execution
         parallel_result = ParallelExecution(model_fn, space).run()
 
         # Verify parallel result
         self.assertEqual(len(parallel_result), 12, "Should have 12 results")
-        self.assertFalse(any(jnp.isnan(r) for r in parallel_result), "No NaNs in parallel results")
+        self.assertFalse(
+            any(jnp.isnan(r) for r in parallel_result), "No NaNs in parallel results"
+        )
 
         # Compare Sequential and Parallel results
         for i, (seq_val, par_val) in enumerate(zip(sequential_result, parallel_result)):
             np.testing.assert_allclose(
-                seq_val, par_val,
-                rtol=1e-10, atol=1e-10,
-                err_msg=f"Sequential and Parallel results differ at index {i}"
+                seq_val,
+                par_val,
+                rtol=1e-10,
+                atol=1e-10,
+                err_msg=f"Sequential and Parallel results differ at index {i}",
             )
 
         # Test iteration over results
@@ -113,14 +116,11 @@ class TestExecutionWithNetworkDynamics(unittest.TestCase):
         # Create base network
         key = self.base_key
         graph = DenseGraph.random(n_nodes=self.n_nodes, key=key)
-        coupling = LinearCoupling(incoming_states='S', G=0.1)
+        coupling = LinearCoupling(incoming_states="S", G=0.1)
         dynamics = ReducedWongWang()
 
         network = Network(
-            dynamics=dynamics,
-            coupling={'instant': coupling},
-            graph=graph,
-            noise=None
+            dynamics=dynamics, coupling={"instant": coupling}, graph=graph, noise=None
         )
 
         # Prepare and embed axis
@@ -140,13 +140,13 @@ class TestExecutionWithNetworkDynamics(unittest.TestCase):
 
         # Test result container properties
         self.assertEqual(len(seq_result), 2)
-        self.assertTrue(hasattr(seq_result, '__iter__'))
-        self.assertTrue(hasattr(seq_result, '__getitem__'))
+        self.assertTrue(hasattr(seq_result, "__iter__"))
+        self.assertTrue(hasattr(seq_result, "__getitem__"))
 
         # Test that results are arrays
         for r in seq_result:
             self.assertIsInstance(r, (jnp.ndarray, float))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

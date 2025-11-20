@@ -1,5 +1,5 @@
+from .bold import Bold, HRFKernel, LotkaVolterraHRFKernel
 from .downsampling import AbstractMonitor, SubSampling, TemporalAverage
-from .bold import Bold, LotkaVolterraHRFKernel, HRFKernel
 
 __all__ = [
     "AbstractMonitor",
@@ -7,5 +7,5 @@ __all__ = [
     "TemporalAverage",
     "Bold",
     "LotkaVolterraHRFKernel",
-    "HRFKernel"
+    "HRFKernel",
 ]

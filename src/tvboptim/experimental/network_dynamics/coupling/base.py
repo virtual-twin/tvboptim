@@ -7,17 +7,17 @@ This module implements the coupling architecture with:
 """
 
 from abc import ABC, abstractmethod
-from typing import Tuple, Optional
+from typing import Optional, Tuple
 
 import jax.numpy as jnp
 
 from ..core.bunch import Bunch
 from ..graph.base import AbstractGraph
 
-
 # ============================================================================
 # Helper Functions
 # ============================================================================
+
 
 def _get_n_states(state_idx) -> int:
     """Get number of states from index array or scalar."""
@@ -31,10 +31,12 @@ def _get_n_states(state_idx) -> int:
 
 def _ensure_dense(arr):
     """Convert sparse array to dense if needed."""
-    return arr.todense() if hasattr(arr, 'todense') else arr
+    return arr.todense() if hasattr(arr, "todense") else arr
 
 
-def _prepare_bcoo_indices(graph, incoming_idx) -> Tuple[Optional[jnp.ndarray], Optional[tuple], bool]:
+def _prepare_bcoo_indices(
+    graph, incoming_idx
+) -> Tuple[Optional[jnp.ndarray], Optional[tuple], bool]:
     """Prepare BCOO sparse indices for 3D tensor [n_incoming, n_nodes, n_nodes].
 
     Args:
@@ -47,7 +49,7 @@ def _prepare_bcoo_indices(graph, incoming_idx) -> Tuple[Optional[jnp.ndarray], O
         - bcoo_shape: (n_incoming, n_nodes, n_nodes) shape tuple
         - use_sparse_incoming: bool flag whether to use sparse optimization
     """
-    from ..graph.sparse import SparseGraph, SparseDelayGraph
+    from ..graph.sparse import SparseDelayGraph, SparseGraph
 
     if not isinstance(graph, (SparseGraph, SparseDelayGraph)):
         return None, None, False
@@ -90,7 +92,7 @@ def _sparse_weighted_sum(pre_states, graph, is_bcoo: bool = False):
     n_output = pre_states.shape[0]
     nnz = graph.nnz
 
-    if is_bcoo or hasattr(pre_states, 'todense'):
+    if is_bcoo or hasattr(pre_states, "todense"):
         # BCOO path: pre_states.data is flat [n_output * nnz]
         # Reshape pre data: [n_output * nnz] -> [n_output, nnz]
         pre_data_batched = pre_states.data.reshape(n_output, nnz)
@@ -102,8 +104,7 @@ def _sparse_weighted_sum(pre_states, graph, is_bcoo: bool = False):
         summed_list = []
         for i in range(n_output):
             weighted_bcoo_i = jsparse.BCOO(
-                (weighted_data[i], indices),
-                shape=(graph.n_nodes, graph.n_nodes)
+                (weighted_data[i], indices), shape=(graph.n_nodes, graph.n_nodes)
             )
             summed_i = jsparse.bcoo_reduce_sum(weighted_bcoo_i, axes=(1,))
             summed_list.append(_ensure_dense(summed_i))
@@ -120,7 +121,9 @@ def _sparse_weighted_sum(pre_states, graph, is_bcoo: bool = False):
             weighted_values = pre_values * graph.weights.data  # [nnz]
 
             # Reconstruct BCOO and sum over source nodes (axis=1)
-            pre_bcoo = jsparse.BCOO((weighted_values, indices), shape=graph.weights.shape)
+            pre_bcoo = jsparse.BCOO(
+                (weighted_values, indices), shape=graph.weights.shape
+            )
             summed_i_sparse = jsparse.bcoo_reduce_sum(pre_bcoo, axes=(1,))
             summed_list.append(_ensure_dense(summed_i_sparse))
 
@@ -130,6 +133,7 @@ def _sparse_weighted_sum(pre_states, graph, is_bcoo: bool = False):
 # ============================================================================
 # Coupling Classes
 # ============================================================================
+
 
 class AbstractCoupling(ABC):
     """Ultra-minimal interface for completely custom coupling implementations.
@@ -167,7 +171,9 @@ class AbstractCoupling(ABC):
             )
 
         # Store state names as instance attributes
-        self.INCOMING_STATE_NAMES = incoming_states if incoming_states is not None else []
+        self.INCOMING_STATE_NAMES = (
+            incoming_states if incoming_states is not None else []
+        )
         self.LOCAL_STATE_NAMES = local_states if local_states is not None else []
 
         # Create instance parameters by copying defaults and updating with kwargs
@@ -285,8 +291,8 @@ class InstantaneousCoupling(AbstractCoupling):
             'per_edge' if pre() preserves per-edge structure (3D output)
         """
         # Create dummy data with correct shapes based on actual state selection
-        n_incoming = len(incoming_idx) if hasattr(incoming_idx, '__len__') else 1
-        n_local = len(local_idx) if hasattr(local_idx, '__len__') else 1
+        n_incoming = len(incoming_idx) if hasattr(incoming_idx, "__len__") else 1
+        n_local = len(local_idx) if hasattr(local_idx, "__len__") else 1
 
         # Dummy per-edge tensor: [n_incoming, n_nodes, n_nodes] with n_nodes=2
         dummy_incoming = jnp.zeros((n_incoming, n_nodes, n_nodes))
@@ -295,7 +301,7 @@ class InstantaneousCoupling(AbstractCoupling):
         # Call pre() to check output shape
         result = self.pre(dummy_incoming, dummy_local, self.params)
 
-        return 'vectorized' if result.ndim == 2 else 'per_edge'
+        return "vectorized" if result.ndim == 2 else "per_edge"
 
     def prepare(self, network, dt: float) -> Tuple[Bunch, Bunch]:
         """Standard preparation for instantaneous coupling.
@@ -324,10 +330,12 @@ class InstantaneousCoupling(AbstractCoupling):
         state_indices = jnp.arange(n_nodes) * jnp.ones((n_nodes, n_nodes)).astype(int)
 
         # Store mode as boolean flags (JAX-traceable) instead of string
-        is_per_edge = (mode == 'per_edge')
+        is_per_edge = mode == "per_edge"
 
         # Precompute BCOO indices for sparse incoming states optimization
-        bcoo_indices, bcoo_shape, use_sparse_incoming = _prepare_bcoo_indices(graph, incoming_idx)
+        bcoo_indices, bcoo_shape, use_sparse_incoming = _prepare_bcoo_indices(
+            graph, incoming_idx
+        )
 
         coupling_data = Bunch(
             incoming_indices=incoming_idx,
@@ -430,7 +438,7 @@ class InstantaneousCoupling(AbstractCoupling):
         # Create 3D BCOO [n_incoming, n_nodes, n_nodes]
         incoming_states_edge = jsparse.BCOO(
             (incoming_data_flat, coupling_data.bcoo_indices),
-            shape=coupling_data.bcoo_shape
+            shape=coupling_data.bcoo_shape,
         )
 
         # Apply sparse pre-transform
@@ -473,12 +481,11 @@ class InstantaneousCoupling(AbstractCoupling):
 
         # Determine which states are used in the network form
         # FastLinearCoupling uses local states (vectorized mode)
-        state_for_display = incoming if incoming else local
 
         # Get subscripted version for network form
         state_with_subscript = self._format_state_list(
             self.INCOMING_STATE_NAMES if incoming else self.LOCAL_STATE_NAMES,
-            with_subscript=True
+            with_subscript=True,
         )
 
         # Build network form with pre/post embedded
@@ -487,19 +494,21 @@ class InstantaneousCoupling(AbstractCoupling):
 
         if pre_form and post_form:
             # Substitute base into post_form
-            network_form = post_form.replace('(...)', f"Σⱼ wᵢⱼ * pre({state_with_subscript})")
+            network_form = post_form.replace(
+                "(...)", f"Σⱼ wᵢⱼ * pre({state_with_subscript})"
+            )
         elif pre_form:
             network_form = f"Σⱼ wᵢⱼ * pre({state_with_subscript})"
         elif post_form:
             # Substitute the sum into post form
-            network_form = post_form.replace('(...)', base_sum)
+            network_form = post_form.replace("(...)", base_sum)
         else:
             network_form = base_sum
 
         return {
-            'network_form': network_form,
-            'pre_form': pre_form if pre_form else None,
-            'post_form': post_form if post_form else None,
+            "network_form": network_form,
+            "pre_form": pre_form if pre_form else None,
+            "post_form": post_form if post_form else None,
         }
 
     def _format_state_list(self, states, with_subscript: bool = False) -> str:
@@ -539,9 +548,9 @@ class InstantaneousCoupling(AbstractCoupling):
         try:
             pre_source = inspect.getsource(self.pre)
             # Check if it's the default identity (returns incoming_states unchanged)
-            if 'return incoming_states' in pre_source and pre_source.count('\n') <= 5:
+            if "return incoming_states" in pre_source and pre_source.count("\n") <= 5:
                 return ""  # Default identity, don't show
-        except:
+        except (AttributeError, OSError, TypeError):
             pass
 
         # Check if there are meaningful parameters used in pre
@@ -559,28 +568,28 @@ class InstantaneousCoupling(AbstractCoupling):
             post_source = inspect.getsource(self.post)
 
             # Try to extract the return expression
-            lines = post_source.strip().split('\n')
+            lines = post_source.strip().split("\n")
             for line in lines:
-                if 'return' in line:
+                if "return" in line:
                     # Extract expression after return
-                    expr = line.split('return', 1)[1].strip()
+                    expr = line.split("return", 1)[1].strip()
 
                     # Substitute parameter values
                     for key, value in self.params.items():
                         # Replace params.key with actual value
-                        expr = expr.replace(f'params.{key}', str(value))
+                        expr = expr.replace(f"params.{key}", str(value))
 
                     # Clean up common patterns
-                    expr = expr.replace('summed_inputs', '(...)')
-                    expr = expr.replace('local_states', 'local')
+                    expr = expr.replace("summed_inputs", "(...)")
+                    expr = expr.replace("local_states", "local")
 
                     return expr
-        except:
+        except (AttributeError, OSError, TypeError, KeyError):
             pass
 
         # Fallback: check for common parameter patterns
-        if 'G' in self.params:
-            return f"G * (...)"
+        if "G" in self.params:
+            return "G * (...)"
 
         return ""
 
@@ -608,9 +617,7 @@ class InstantaneousCoupling(AbstractCoupling):
         # This gives [n_incoming, n_nodes, n_nodes] shape → per-edge mode (like v1)
         return incoming_states
 
-    def _sparse_pre(
-        self, incoming_states, local_states: jnp.ndarray, params: Bunch
-    ):
+    def _sparse_pre(self, incoming_states, local_states: jnp.ndarray, params: Bunch):
         """Sparse version of pre() using sparsify decorator.
 
         Default implementation wraps self.pre() with sparsify.
@@ -625,6 +632,7 @@ class InstantaneousCoupling(AbstractCoupling):
             BCOO tensor [n_output, n_nodes, n_nodes]
         """
         import jax.experimental.sparse as jsparse
+
         return jsparse.sparsify(self.pre)(incoming_states, local_states, params)
 
     @abstractmethod
@@ -681,7 +689,9 @@ class DelayedCoupling(AbstractCoupling):
         state_indices = jnp.arange(graph.n_nodes)
 
         # Precompute BCOO indices for sparse incoming states optimization
-        bcoo_indices, bcoo_shape, use_sparse_incoming = _prepare_bcoo_indices(graph, incoming_idx)
+        bcoo_indices, bcoo_shape, use_sparse_incoming = _prepare_bcoo_indices(
+            graph, incoming_idx
+        )
 
         coupling_data = Bunch(
             incoming_indices=incoming_idx,
@@ -698,7 +708,9 @@ class DelayedCoupling(AbstractCoupling):
         history_full = network.get_history(dt)  # [max_delay_steps+1, n_states, n_nodes]
 
         # Extract only incoming states for history buffer
-        history = history_full[:, incoming_idx, :]  # [max_delay_steps+1, n_incoming, n_nodes]
+        history = history_full[
+            :, incoming_idx, :
+        ]  # [max_delay_steps+1, n_incoming, n_nodes]
 
         coupling_state = Bunch(history=history)
 
@@ -738,7 +750,11 @@ class DelayedCoupling(AbstractCoupling):
             coupling_state.history[
                 coupling_data.delay_indices, :, coupling_data.state_indices
             ],
-            (2, 0, 1),  # Reorder to [n_incoming, n_nodes_target, n_nodes_source] - matches v1
+            (
+                2,
+                0,
+                1,
+            ),  # Reorder to [n_incoming, n_nodes_target, n_nodes_source] - matches v1
         )
 
         # Extract local states
@@ -785,7 +801,7 @@ class DelayedCoupling(AbstractCoupling):
         # Create 3D BCOO [n_incoming, n_nodes, n_nodes]
         delayed_states_sparse = jsparse.BCOO(
             (delayed_data_flat, coupling_data.bcoo_indices),
-            shape=coupling_data.bcoo_shape
+            shape=coupling_data.bcoo_shape,
         )
 
         # Apply sparse pre-transform
@@ -833,8 +849,7 @@ class DelayedCoupling(AbstractCoupling):
 
         # Get subscripted version for network form
         incoming_with_subscript = self._format_state_list(
-            self.INCOMING_STATE_NAMES,
-            with_subscript=True
+            self.INCOMING_STATE_NAMES, with_subscript=True
         )
 
         # Build network form with pre/post embedded and delays
@@ -848,9 +863,9 @@ class DelayedCoupling(AbstractCoupling):
             network_form = f"Σⱼ wᵢⱼ * {incoming_with_subscript}(t - τᵢⱼ)"
 
         return {
-            'network_form': network_form,
-            'pre_form': pre_form,
-            'post_form': post_form,
+            "network_form": network_form,
+            "pre_form": pre_form,
+            "post_form": post_form,
         }
 
     def _format_state_list(self, states, with_subscript: bool = False) -> str:
@@ -890,9 +905,9 @@ class DelayedCoupling(AbstractCoupling):
         try:
             pre_source = inspect.getsource(self.pre)
             # Check if it's the default identity (returns delayed_states unchanged)
-            if 'return delayed_states' in pre_source and pre_source.count('\n') <= 5:
+            if "return delayed_states" in pre_source and pre_source.count("\n") <= 5:
                 return ""  # Default identity, don't show
-        except:
+        except (AttributeError, OSError, TypeError):
             pass
 
         # Check if there are meaningful parameters used in pre
@@ -910,28 +925,28 @@ class DelayedCoupling(AbstractCoupling):
             post_source = inspect.getsource(self.post)
 
             # Try to extract the return expression
-            lines = post_source.strip().split('\n')
+            lines = post_source.strip().split("\n")
             for line in lines:
-                if 'return' in line:
+                if "return" in line:
                     # Extract expression after return
-                    expr = line.split('return', 1)[1].strip()
+                    expr = line.split("return", 1)[1].strip()
 
                     # Substitute parameter values
                     for key, value in self.params.items():
                         # Replace params.key with actual value
-                        expr = expr.replace(f'params.{key}', str(value))
+                        expr = expr.replace(f"params.{key}", str(value))
 
                     # Clean up common patterns
-                    expr = expr.replace('summed_inputs', '(...)')
-                    expr = expr.replace('local_states', 'local')
+                    expr = expr.replace("summed_inputs", "(...)")
+                    expr = expr.replace("local_states", "local")
 
                     return expr
-        except:
+        except (AttributeError, OSError, TypeError, KeyError):
             pass
 
         # Fallback: check for common parameter patterns
-        if 'G' in self.params:
-            return f"G * (...)"
+        if "G" in self.params:
+            return "G * (...)"
 
         return ""
 
@@ -955,9 +970,7 @@ class DelayedCoupling(AbstractCoupling):
         """
         return delayed_states
 
-    def _sparse_pre(
-        self, delayed_states, local_states: jnp.ndarray, params: Bunch
-    ):
+    def _sparse_pre(self, delayed_states, local_states: jnp.ndarray, params: Bunch):
         """Sparse version of pre() using sparsify decorator.
 
         Default implementation wraps self.pre() with sparsify.
@@ -972,6 +985,7 @@ class DelayedCoupling(AbstractCoupling):
             BCOO tensor [n_output, n_nodes, n_nodes]
         """
         import jax.experimental.sparse as jsparse
+
         return jsparse.sparsify(self.pre)(delayed_states, local_states, params)
 
     @abstractmethod

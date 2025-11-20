@@ -3,10 +3,7 @@
 import ast
 import inspect
 import textwrap
-from typing import Dict, Any, List
-import jax.numpy as jnp
-
-from tvboptim.experimental.network_dynamics.core.bunch import Bunch
+from typing import Any, Dict, List
 
 
 def format_network(network) -> str:
@@ -53,7 +50,7 @@ class NetworkPrinter:
             self._format_noise(),
             self._format_couplings(),
             self._format_dynamics(),
-            self._format_parameters()
+            self._format_parameters(),
         ]
         return "\n\n".join(s for s in sections if s)
 
@@ -68,14 +65,19 @@ class NetworkPrinter:
         ]
 
         # Show initial state if available
-        if hasattr(self.network, 'initial_state') and self.network.initial_state is not None:
-            initial_str = ", ".join([
-                f"{name}={val:.3g}"
-                for name, val in zip(
-                    self.network.dynamics.STATE_NAMES,
-                    self.network.initial_state[:, 0]  # First node
-                )
-            ])
+        if (
+            hasattr(self.network, "initial_state")
+            and self.network.initial_state is not None
+        ):
+            initial_str = ", ".join(
+                [
+                    f"{name}={val:.3g}"
+                    for name, val in zip(
+                        self.network.dynamics.STATE_NAMES,
+                        self.network.initial_state[:, 0],  # First node
+                    )
+                ]
+            )
             lines.append(f"  Initial: {initial_str}")
 
         return "\n".join(lines)
@@ -89,19 +91,19 @@ class NetworkPrinter:
         ]
 
         # Add density for sparse graphs
-        if hasattr(graph, 'nnz'):
-            density = graph.nnz / (graph.n_nodes ** 2) * 100
+        if hasattr(graph, "nnz"):
+            density = graph.nnz / (graph.n_nodes**2) * 100
             lines.append(f"  Density: {density:.3f}%")
 
         # Add max delay for delay graphs
-        if hasattr(graph, 'max_delay'):
+        if hasattr(graph, "max_delay"):
             lines.append(f"  Max delay: {graph.max_delay} ms")
 
         return "\n".join(lines)
 
     def _format_noise(self) -> str:
         """Format noise information."""
-        if not hasattr(self.network, 'noise') or self.network.noise is None:
+        if not hasattr(self.network, "noise") or self.network.noise is None:
             return ""
 
         noise = self.network.noise
@@ -127,7 +129,7 @@ class NetworkPrinter:
         lines.append(f"  Apply to: {apply_str}")
 
         # Show parameters
-        if hasattr(noise, 'params') and len(noise.params) > 0:
+        if hasattr(noise, "params") and len(noise.params) > 0:
             param_items = []
             for key, value in noise.params.items():
                 if isinstance(value, (int, float)):
@@ -150,37 +152,41 @@ class NetworkPrinter:
             lines.append(f"   Type: {desc['type']}")
 
             # Subspace-specific information (if present)
-            if 'n_regions' in desc:
+            if "n_regions" in desc:
                 lines.append(f"   Regions: {desc['n_regions']}")
                 lines.append(f"   Aggregation: {desc['aggregation']}")
                 lines.append(f"   Distribution: {desc['distribution']}")
 
             # State information
             state_info = []
-            if desc['incoming_states']:
-                state_info.append(f"incoming={self._format_state_list(desc['incoming_states'])}")
-            if desc['local_states']:
-                state_info.append(f"local={self._format_state_list(desc['local_states'])}")
+            if desc["incoming_states"]:
+                state_info.append(
+                    f"incoming={self._format_state_list(desc['incoming_states'])}"
+                )
+            if desc["local_states"]:
+                state_info.append(
+                    f"local={self._format_state_list(desc['local_states'])}"
+                )
             if state_info:
                 lines.append(f"   States: {', '.join(state_info)}")
 
             # Network form (always show)
-            if desc['network_form']:
+            if desc["network_form"]:
                 lines.append(f"   Form: {desc['network_form']}")
 
             # Show pre/post if they exist
-            if desc.get('pre_form'):
+            if desc.get("pre_form"):
                 lines.append(f"   pre: {desc['pre_form']}")
-            if desc.get('post_form'):
+            if desc.get("post_form"):
                 lines.append(f"   post: {desc['post_form']}")
 
             # Parameters (only if present)
-            if desc['params']:
-                param_str = ", ".join([f"{k}={v}" for k, v in desc['params'].items()])
+            if desc["params"]:
+                param_str = ", ".join([f"{k}={v}" for k, v in desc["params"].items()])
                 lines.append(f"   params: {param_str}")
 
             # Delay information
-            if desc['type'] == 'delayed' and 'max_delay' in desc:
+            if desc["type"] == "delayed" and "max_delay" in desc:
                 lines.append(f"   Max delay: {desc['max_delay']} ms")
 
             lines.append("")  # Blank line between couplings
@@ -194,7 +200,7 @@ class NetworkPrinter:
 
     def _format_parameters(self) -> str:
         """Format parameter values."""
-        if not hasattr(self.network.dynamics, 'params'):
+        if not hasattr(self.network.dynamics, "params"):
             return ""
 
         params = self.network.dynamics.params
@@ -205,11 +211,7 @@ class NetworkPrinter:
             else:
                 param_items.append(f"{key}={value}")
 
-        lines = [
-            "Parameters",
-            "-" * 50,
-            "  " + ", ".join(param_items)
-        ]
+        lines = ["Parameters", "-" * 50, "  " + ", ".join(param_items)]
 
         return "\n".join(lines)
 
@@ -244,37 +246,51 @@ class CouplingDescriptor:
         from tvboptim.experimental.network_dynamics.coupling.base import DelayedCoupling
 
         # Try to get description from coupling's describe() method first
-        if hasattr(self.coupling, 'describe'):
+        if hasattr(self.coupling, "describe"):
             # Use coupling's describe() as the base - it has all the info we need
             result = self.coupling.describe()
 
             # Only add fallback fields if not already provided
-            if 'class_name' not in result:
-                result['class_name'] = self.coupling.__class__.__name__
-            if 'type' not in result:
-                result['type'] = 'delayed' if isinstance(self.coupling, DelayedCoupling) else 'instantaneous'
-            if 'incoming_states' not in result:
-                result['incoming_states'] = self._normalize_states(self.coupling.INCOMING_STATE_NAMES)
-            if 'local_states' not in result:
-                result['local_states'] = self._normalize_states(self.coupling.LOCAL_STATE_NAMES)
-            if 'params' not in result:
-                result['params'] = self._extract_params()
+            if "class_name" not in result:
+                result["class_name"] = self.coupling.__class__.__name__
+            if "type" not in result:
+                result["type"] = (
+                    "delayed"
+                    if isinstance(self.coupling, DelayedCoupling)
+                    else "instantaneous"
+                )
+            if "incoming_states" not in result:
+                result["incoming_states"] = self._normalize_states(
+                    self.coupling.INCOMING_STATE_NAMES
+                )
+            if "local_states" not in result:
+                result["local_states"] = self._normalize_states(
+                    self.coupling.LOCAL_STATE_NAMES
+                )
+            if "params" not in result:
+                result["params"] = self._extract_params()
         else:
             # Fallback: build description from inspection
             result = {
-                'class_name': self.coupling.__class__.__name__,
-                'type': 'delayed' if isinstance(self.coupling, DelayedCoupling) else 'instantaneous',
-                'incoming_states': self._normalize_states(self.coupling.INCOMING_STATE_NAMES),
-                'local_states': self._normalize_states(self.coupling.LOCAL_STATE_NAMES),
-                'params': self._extract_params(),
-                'math_form': self._infer_from_source(),
-                'network_form': self._default_network_form()
+                "class_name": self.coupling.__class__.__name__,
+                "type": (
+                    "delayed"
+                    if isinstance(self.coupling, DelayedCoupling)
+                    else "instantaneous"
+                ),
+                "incoming_states": self._normalize_states(
+                    self.coupling.INCOMING_STATE_NAMES
+                ),
+                "local_states": self._normalize_states(self.coupling.LOCAL_STATE_NAMES),
+                "params": self._extract_params(),
+                "math_form": self._infer_from_source(),
+                "network_form": self._default_network_form(),
             }
 
         # Add delay info if applicable (only if not already provided by coupling)
-        if result['type'] == 'delayed' and 'max_delay' not in result:
-            if hasattr(self.network, 'max_delay'):
-                result['max_delay'] = self.network.max_delay
+        if result["type"] == "delayed" and "max_delay" not in result:
+            if hasattr(self.network, "max_delay"):
+                result["max_delay"] = self.network.max_delay
 
         return result
 
@@ -290,7 +306,7 @@ class CouplingDescriptor:
 
     def _extract_params(self) -> Dict[str, Any]:
         """Extract coupling parameters."""
-        if not hasattr(self.coupling, 'params'):
+        if not hasattr(self.coupling, "params"):
             return {}
 
         params = {}
@@ -339,16 +355,12 @@ class DynamicsFormatter:
             # Annotate source with coupling descriptions
             annotated = self._annotate_source(source, coupling_usage)
 
-            lines = [
-                "Dynamics Equations",
-                "-" * 50,
-                annotated
-            ]
+            lines = ["Dynamics Equations", "-" * 50, annotated]
 
             return "\n".join(lines)
 
         except Exception as e:
-            return f"Dynamics Equations\n{'-'*50}\n# Could not parse source: {e}"
+            return f"Dynamics Equations\n{'-' * 50}\n# Could not parse source: {e}"
 
     def _remove_docstring(self, source: str) -> str:
         """Remove docstring from function source code."""
@@ -368,35 +380,40 @@ class DynamicsFormatter:
                 return source
 
             # Check if first statement is a docstring
-            if (func_def.body and
-                isinstance(func_def.body[0], ast.Expr) and
-                isinstance(func_def.body[0].value, (ast.Str, ast.Constant))):
-
+            if (
+                func_def.body
+                and isinstance(func_def.body[0], ast.Expr)
+                and isinstance(func_def.body[0].value, (ast.Str, ast.Constant))
+            ):
                 # Get the docstring node
                 docstring_node = func_def.body[0]
 
                 # Remove lines containing the docstring
-                lines = source.split('\n')
+                lines = source.split("\n")
 
                 # Find docstring start and end lines
                 # The first body statement starts after the function def line
                 start_line = docstring_node.lineno - 1  # 0-indexed
-                end_line = docstring_node.end_lineno - 1 if hasattr(docstring_node, 'end_lineno') else start_line
+                end_line = (
+                    docstring_node.end_lineno - 1
+                    if hasattr(docstring_node, "end_lineno")
+                    else start_line
+                )
 
                 # Remove docstring lines
-                new_lines = lines[:start_line] + lines[end_line + 1:]
+                new_lines = lines[:start_line] + lines[end_line + 1 :]
 
-                return '\n'.join(new_lines)
+                return "\n".join(new_lines)
 
             return source
 
-        except:
+        except (AttributeError, ValueError, IndexError):
             # If anything fails, return original source
             return source
 
     def _collapse_function_signature(self, source: str) -> str:
         """Collapse multi-line function signature into single line."""
-        lines = source.split('\n')
+        lines = source.split("\n")
 
         # Find the function definition (starts with 'def ')
         func_start = None
@@ -404,11 +421,11 @@ class DynamicsFormatter:
 
         for i, line in enumerate(lines):
             stripped = line.strip()
-            if stripped.startswith('def '):
+            if stripped.startswith("def "):
                 func_start = i
                 # Find where the signature ends (line ending with ':')
                 for j in range(i, len(lines)):
-                    if lines[j].rstrip().endswith(':'):
+                    if lines[j].rstrip().endswith(":"):
                         func_end = j
                         break
                 break
@@ -417,7 +434,9 @@ class DynamicsFormatter:
             return source
 
         # Extract indent from first line
-        indent = lines[func_start][:len(lines[func_start]) - len(lines[func_start].lstrip())]
+        indent = lines[func_start][
+            : len(lines[func_start]) - len(lines[func_start].lstrip())
+        ]
 
         # Collect signature parts, stripping each line
         sig_parts = []
@@ -427,20 +446,21 @@ class DynamicsFormatter:
                 sig_parts.append(part)
 
         # Join into single line with single spaces
-        collapsed = ' '.join(sig_parts)
+        collapsed = " ".join(sig_parts)
 
         # Clean up spacing around parentheses and commas
         import re
-        collapsed = re.sub(r'\s+', ' ', collapsed)  # Multiple spaces to single
-        collapsed = re.sub(r'\s*\(\s*', '(', collapsed)  # Remove spaces around (
-        collapsed = re.sub(r'\s*\)\s*', ')', collapsed)  # Remove spaces around )
-        collapsed = re.sub(r'\s*,\s*', ', ', collapsed)  # Normalize comma spacing
-        collapsed = re.sub(r'\s*->\s*', ' -> ', collapsed)  # Normalize arrow spacing
+
+        collapsed = re.sub(r"\s+", " ", collapsed)  # Multiple spaces to single
+        collapsed = re.sub(r"\s*\(\s*", "(", collapsed)  # Remove spaces around (
+        collapsed = re.sub(r"\s*\)\s*", ")", collapsed)  # Remove spaces around )
+        collapsed = re.sub(r"\s*,\s*", ", ", collapsed)  # Normalize comma spacing
+        collapsed = re.sub(r"\s*->\s*", " -> ", collapsed)  # Normalize arrow spacing
 
         # Reconstruct with collapsed signature
-        new_lines = lines[:func_start] + [indent + collapsed] + lines[func_end + 1:]
+        new_lines = lines[:func_start] + [indent + collapsed] + lines[func_end + 1 :]
 
-        return '\n'.join(new_lines)
+        return "\n".join(new_lines)
 
     def _find_coupling_usage(self, source: str) -> List[Dict[str, Any]]:
         """Find all coupling.X[Y] access patterns.
@@ -452,7 +472,7 @@ class DynamicsFormatter:
             # Dedent source to avoid indentation errors
             dedented = textwrap.dedent(source)
             tree = ast.parse(dedented)
-        except:
+        except (SyntaxError, ValueError):
             return []
 
         class CouplingVisitor(ast.NodeVisitor):
@@ -461,23 +481,30 @@ class DynamicsFormatter:
 
             def visit_Subscript(self, node):
                 # Check if it's coupling.X[Y]
-                if (isinstance(node.value, ast.Attribute) and
-                    isinstance(node.value.value, ast.Name) and
-                    node.value.value.id == 'coupling'):
-
+                if (
+                    isinstance(node.value, ast.Attribute)
+                    and isinstance(node.value.value, ast.Name)
+                    and node.value.value.id == "coupling"
+                ):
                     coupling_name = node.value.attr
                     if isinstance(node.slice, (ast.Constant, ast.Index)):
                         if isinstance(node.slice, ast.Index):
-                            index = node.slice.value.value if isinstance(node.slice.value, ast.Constant) else 0
+                            index = (
+                                node.slice.value.value
+                                if isinstance(node.slice.value, ast.Constant)
+                                else 0
+                            )
                         else:
                             index = node.slice.value
 
-                        self.usages.append({
-                            'name': coupling_name,
-                            'index': index,
-                            'lineno': node.lineno,
-                            'col_offset': node.col_offset
-                        })
+                        self.usages.append(
+                            {
+                                "name": coupling_name,
+                                "index": index,
+                                "lineno": node.lineno,
+                                "col_offset": node.col_offset,
+                            }
+                        )
 
                 self.generic_visit(node)
 
@@ -485,14 +512,16 @@ class DynamicsFormatter:
         visitor.visit(tree)
         return visitor.usages
 
-    def _annotate_source(self, source: str, coupling_usage: List[Dict[str, Any]]) -> str:
+    def _annotate_source(
+        self, source: str, coupling_usage: List[Dict[str, Any]]
+    ) -> str:
         """Add inline annotations for coupling usage."""
-        lines = source.split('\n')
+        lines = source.split("\n")
 
         # Group usages by line number
         usages_by_line = {}
         for usage in coupling_usage:
-            lineno = usage['lineno']
+            lineno = usage["lineno"]
             if lineno not in usages_by_line:
                 usages_by_line[lineno] = []
             usages_by_line[lineno].append(usage)
@@ -504,10 +533,10 @@ class DynamicsFormatter:
             # Build annotation
             annotations = []
             for usage in usages:
-                coupling_name = usage['name']
+                coupling_name = usage["name"]
                 desc = self.coupling_descriptions.get(coupling_name, {})
 
-                if 'network_form' in desc and desc['network_form']:
+                if "network_form" in desc and desc["network_form"]:
                     annotations.append(f"{coupling_name}: {desc['network_form']}")
                 else:
                     # Coupling referenced but not provided - defaults to 0
@@ -519,8 +548,8 @@ class DynamicsFormatter:
                 annotation_line = f"{indent}# ↳ {', '.join(annotations)}"
                 lines.insert(lineno, annotation_line)
 
-        return '\n'.join(lines)
+        return "\n".join(lines)
 
     def _get_indent(self, line: str) -> str:
         """Extract indentation from a line."""
-        return line[:len(line) - len(line.lstrip())]
+        return line[: len(line) - len(line.lstrip())]

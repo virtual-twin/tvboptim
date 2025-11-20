@@ -4,10 +4,7 @@ This module provides convenient access to built-in connectivity and
 functional connectivity datasets.
 """
 
-from .loaders import (
-    load_structural_connectivity,
-    load_functional_connectivity,
-)
+from .loaders import load_functional_connectivity, load_structural_connectivity
 
 __all__ = [
     "load_structural_connectivity",

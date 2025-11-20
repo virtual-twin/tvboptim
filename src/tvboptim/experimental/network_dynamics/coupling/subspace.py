@@ -37,7 +37,7 @@ class _RegionalNetworkContext:
         node_network,
         region_one_hot_normalized: jnp.ndarray,
         n_regions: int,
-        aggregator: Callable
+        aggregator: Callable,
     ):
         """Initialize regional network context.
 
@@ -66,7 +66,7 @@ class _RegionalNetworkContext:
             Regional history [n_steps, n_states, n_regions] or None if no delays
         """
         # Check if regional graph has delays
-        if not hasattr(self.graph, 'max_delay') or self.graph.max_delay == 0.0:
+        if not hasattr(self.graph, "max_delay") or self.graph.max_delay == 0.0:
             return None
 
         # Regional graph has delays, so we need to create history
@@ -88,7 +88,7 @@ class _RegionalNetworkContext:
         # Broadcast to create history buffer
         regional_history = jnp.broadcast_to(
             regional_initial_state[None, :, :],
-            (n_steps, regional_initial_state.shape[0], self._n_regions)
+            (n_steps, regional_initial_state.shape[0], self._n_regions),
         )
 
         return regional_history
@@ -176,7 +176,7 @@ class SubspaceCoupling(AbstractCoupling):
         region_mapping: jnp.ndarray,
         regional_graph: AbstractGraph,
         use_sparse: bool = True,
-        **kwargs
+        **kwargs,
     ):
         """Initialize subspace coupling.
 
@@ -198,7 +198,7 @@ class SubspaceCoupling(AbstractCoupling):
         super().__init__(
             incoming_states=inner_coupling.INCOMING_STATE_NAMES,
             local_states=inner_coupling.LOCAL_STATE_NAMES,
-            **kwargs
+            **kwargs,
         )
 
         self.inner_coupling = inner_coupling
@@ -245,23 +245,21 @@ class SubspaceCoupling(AbstractCoupling):
 
             # Create indices: one entry per node mapping to its region
             # indices[i] = [i, region_mapping[i]]
-            indices = jnp.column_stack([
-                jnp.arange(n_nodes),
-                self.region_mapping
-            ])  # [n_nodes, 2]
+            indices = jnp.column_stack(
+                [jnp.arange(n_nodes), self.region_mapping]
+            )  # [n_nodes, 2]
 
             # Count nodes per region for normalization
-            region_counts = jnp.array([
-                jnp.sum(self.region_mapping == r) for r in range(self.n_regions)
-            ])
+            region_counts = jnp.array(
+                [jnp.sum(self.region_mapping == r) for r in range(self.n_regions)]
+            )
 
             # Create normalized values: 1/count[r] for each node in region r
             values = 1.0 / region_counts[self.region_mapping]  # [n_nodes]
 
             # Create BCOO sparse matrix [n_nodes, n_regions]
             region_one_hot_normalized = jsparse.BCOO(
-                (values, indices),
-                shape=(n_nodes, self.n_regions)
+                (values, indices), shape=(n_nodes, self.n_regions)
             )
         else:
             # Dense version (original)
@@ -270,7 +268,9 @@ class SubspaceCoupling(AbstractCoupling):
             region_one_hot_normalized = region_one_hot / region_counts[None, :]
 
         # Create regional context for inner coupling preparation
-        regional_context = self._create_regional_context(network, region_one_hot_normalized)
+        regional_context = self._create_regional_context(
+            network, region_one_hot_normalized
+        )
 
         # Prepare inner coupling with regional context
         inner_data, inner_state = self.inner_coupling.prepare(regional_context, dt)
@@ -278,13 +278,11 @@ class SubspaceCoupling(AbstractCoupling):
         coupling_data = Bunch(
             n_regions=self.n_regions,
             region_one_hot_normalized=region_one_hot_normalized,  # Normalized for mean aggregation
-            region_mapping=self.region_mapping,                   # For distribute()
+            region_mapping=self.region_mapping,  # For distribute()
             inner_data=inner_data,
         )
 
-        coupling_state = Bunch(
-            inner_state=inner_state
-        )
+        coupling_state = Bunch(inner_state=inner_state)
 
         return coupling_data, coupling_state
 
@@ -307,7 +305,7 @@ class SubspaceCoupling(AbstractCoupling):
             node_network=node_network,
             region_one_hot_normalized=region_one_hot_normalized,
             n_regions=self.n_regions,
-            aggregator=self.aggregate
+            aggregator=self.aggregate,
         )
 
     def compute(
@@ -342,7 +340,7 @@ class SubspaceCoupling(AbstractCoupling):
             coupling_data.inner_data,
             coupling_state.inner_state,
             self.inner_coupling.params,  # Use inner coupling's params
-            self.regional_graph
+            self.regional_graph,
         )
 
         # 3. Distribute: regional coupling → node coupling
@@ -351,10 +349,7 @@ class SubspaceCoupling(AbstractCoupling):
         return node_coupling
 
     def update_state(
-        self,
-        coupling_data: Bunch,
-        coupling_state: Bunch,
-        new_state: jnp.ndarray
+        self, coupling_data: Bunch, coupling_state: Bunch, new_state: jnp.ndarray
     ) -> Bunch:
         """Update inner coupling state (e.g., regional history buffer).
 
@@ -371,9 +366,7 @@ class SubspaceCoupling(AbstractCoupling):
 
         # Update inner coupling state with regional state
         new_inner_state = self.inner_coupling.update_state(
-            coupling_data.inner_data,
-            coupling_state.inner_state,
-            regional_state
+            coupling_data.inner_data, coupling_state.inner_state, regional_state
         )
 
         return Bunch(inner_state=new_inner_state)
@@ -382,11 +375,7 @@ class SubspaceCoupling(AbstractCoupling):
     # Customizable Methods (like pre/post pattern)
     # ========================================================================
 
-    def aggregate(
-        self,
-        node_state: jnp.ndarray,
-        coupling_data: Bunch
-    ) -> jnp.ndarray:
+    def aggregate(self, node_state: jnp.ndarray, coupling_data: Bunch) -> jnp.ndarray:
         """Aggregate node states to regional states. Default: mean.
 
         Override this method to customize aggregation strategy.
@@ -418,9 +407,7 @@ class SubspaceCoupling(AbstractCoupling):
         return regional_state
 
     def distribute(
-        self,
-        regional_coupling: jnp.ndarray,
-        coupling_data: Bunch
+        self, regional_coupling: jnp.ndarray, coupling_data: Bunch
     ) -> jnp.ndarray:
         """Distribute regional coupling to node-level coupling. Default: broadcast.
 
@@ -458,7 +445,7 @@ class SubspaceCoupling(AbstractCoupling):
             Dictionary with coupling description including regional structure
         """
         # Check if inner coupling has describe() method
-        if hasattr(self.inner_coupling, 'describe'):
+        if hasattr(self.inner_coupling, "describe"):
             inner_desc = self.inner_coupling.describe()
         else:
             # Fallback for couplings without describe()
@@ -466,34 +453,44 @@ class SubspaceCoupling(AbstractCoupling):
 
         # Determine type from inner coupling class
         from .base import DelayedCoupling
-        coupling_type = 'delayed' if isinstance(self.inner_coupling, DelayedCoupling) else 'instantaneous'
+
+        coupling_type = (
+            "delayed"
+            if isinstance(self.inner_coupling, DelayedCoupling)
+            else "instantaneous"
+        )
 
         # Build description with subspace-specific information
         desc = {
-            'class_name': f'Subspace({self.inner_coupling.__class__.__name__})',
-            'type': inner_desc.get('type', coupling_type),  # Use inner type or infer
-            'incoming_states': inner_desc.get('incoming_states', []),
-            'local_states': inner_desc.get('local_states', []),
-            'params': inner_desc.get('params', {}),
-            'network_form': inner_desc.get('network_form', ''),
-            'pre_form': inner_desc.get('pre_form'),
-            'post_form': inner_desc.get('post_form'),
+            "class_name": f"Subspace({self.inner_coupling.__class__.__name__})",
+            "type": inner_desc.get("type", coupling_type),  # Use inner type or infer
+            "incoming_states": inner_desc.get("incoming_states", []),
+            "local_states": inner_desc.get("local_states", []),
+            "params": inner_desc.get("params", {}),
+            "network_form": inner_desc.get("network_form", ""),
+            "pre_form": inner_desc.get("pre_form"),
+            "post_form": inner_desc.get("post_form"),
             # Subspace-specific fields
-            'n_regions': self.n_regions,
-            'aggregation': self._get_aggregation_method_name(),
-            'distribution': self._get_distribution_method_name(),
-            'inner_coupling_name': self.inner_coupling.__class__.__name__,
+            "n_regions": self.n_regions,
+            "aggregation": self._get_aggregation_method_name(),
+            "distribution": self._get_distribution_method_name(),
+            "inner_coupling_name": self.inner_coupling.__class__.__name__,
         }
 
         # Modify network_form to indicate regional operation
-        if desc['network_form']:
+        if desc["network_form"]:
             # Replace node index j with region index r (Unicode subscripts)
-            regional_form = desc['network_form'].replace('ⱼ', 'ᵣ').replace('wᵢⱼ', 'wᵢᵣ').replace('τᵢⱼ', 'τᵢᵣ')
-            desc['network_form'] = f"[{self.n_regions} regions] {regional_form}"
+            regional_form = (
+                desc["network_form"]
+                .replace("ⱼ", "ᵣ")
+                .replace("wᵢⱼ", "wᵢᵣ")
+                .replace("τᵢⱼ", "τᵢᵣ")
+            )
+            desc["network_form"] = f"[{self.n_regions} regions] {regional_form}"
 
         # Add regional max_delay if applicable
-        if desc['type'] == 'delayed' and hasattr(self.regional_graph, 'max_delay'):
-            desc['max_delay'] = self.regional_graph.max_delay
+        if desc["type"] == "delayed" and hasattr(self.regional_graph, "max_delay"):
+            desc["max_delay"] = self.regional_graph.max_delay
 
         return desc
 

@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, Tuple, Union
 
 import jax.numpy as jnp
-from diffrax import ODETerm, SaveAt, Dopri5, diffeqsolve
+from diffrax import Dopri5, ODETerm, SaveAt, diffeqsolve
 
 from ..core.bunch import Bunch
 
@@ -123,7 +123,9 @@ class AbstractDynamics(ABC):
                     cls.AUXILIARY_NAMES = parent.AUXILIARY_NAMES
                 if not cls.COUPLING_INPUTS and hasattr(parent, "COUPLING_INPUTS"):
                     cls.COUPLING_INPUTS = parent.COUPLING_INPUTS
-                if not cls.VARIABLES_OF_INTEREST and hasattr(parent, "VARIABLES_OF_INTEREST"):
+                if not cls.VARIABLES_OF_INTEREST and hasattr(
+                    parent, "VARIABLES_OF_INTEREST"
+                ):
                     cls.VARIABLES_OF_INTEREST = parent.VARIABLES_OF_INTEREST
 
                 # Merge DEFAULT_PARAMS
@@ -135,7 +137,6 @@ class AbstractDynamics(ABC):
         # Validate consistency of attributes
         if len(cls.STATE_NAMES) != len(cls.INITIAL_STATE):
             raise ValueError(f"{cls.__name__}: len(STATE_NAMES) != len(INITIAL_STATE)")
-
 
     @property
     def all_variable_names(self) -> Tuple[str, ...]:
@@ -151,7 +152,7 @@ class AbstractDynamics(ABC):
     def N_AUXILIARIES(self) -> int:
         """Total number of variables (integrated + auxiliary)."""
         return len(self.AUXILIARY_NAMES)
-    
+
     @property
     def n_variables(self) -> int:
         """Total number of variables (integrated + auxiliary)."""
@@ -194,14 +195,20 @@ class AbstractDynamics(ABC):
                 if 0 <= var < self.n_variables:
                     indices.append(var)
                 else:
-                    raise ValueError(f"Variable index {var} out of range [0, {self.n_variables})")
+                    raise ValueError(
+                        f"Variable index {var} out of range [0, {self.n_variables})"
+                    )
             elif isinstance(var, str):
                 if var in self.all_variable_names:
                     indices.append(self.all_variable_names.index(var))
                 else:
-                    raise ValueError(f"Variable name '{var}' not found in {self.all_variable_names}")
+                    raise ValueError(
+                        f"Variable name '{var}' not found in {self.all_variable_names}"
+                    )
             else:
-                raise ValueError(f"Variable of interest must be int or str, got {type(var)}")
+                raise ValueError(
+                    f"Variable of interest must be int or str, got {type(var)}"
+                )
 
         return tuple(indices)
 
@@ -224,7 +231,9 @@ class AbstractDynamics(ABC):
         if isinstance(names, str):
             # Single name
             if names not in self.STATE_NAMES:
-                raise ValueError(f"State name '{names}' not found in {self.STATE_NAMES}")
+                raise ValueError(
+                    f"State name '{names}' not found in {self.STATE_NAMES}"
+                )
             return jnp.array([self.STATE_NAMES.index(names)], dtype=int)
 
         elif isinstance(names, (list, tuple)):
@@ -235,9 +244,13 @@ class AbstractDynamics(ABC):
             indices = []
             for name in names:
                 if not isinstance(name, str):
-                    raise ValueError(f"All names must be strings, got {type(name)} for '{name}'")
+                    raise ValueError(
+                        f"All names must be strings, got {type(name)} for '{name}'"
+                    )
                 if name not in self.STATE_NAMES:
-                    raise ValueError(f"State name '{name}' not found in {self.STATE_NAMES}")
+                    raise ValueError(
+                        f"State name '{name}' not found in {self.STATE_NAMES}"
+                    )
                 indices.append(self.STATE_NAMES.index(name))
             return jnp.array(indices, dtype=int)
 
@@ -246,7 +259,12 @@ class AbstractDynamics(ABC):
 
     @abstractmethod
     def dynamics(
-        self, t: float, state: jnp.ndarray, params: Bunch, coupling: Bunch, external: Bunch
+        self,
+        t: float,
+        state: jnp.ndarray,
+        params: Bunch,
+        coupling: Bunch,
+        external: Bunch,
     ) -> Union[jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
         """Compute state derivatives and auxiliary variables.
 
@@ -341,7 +359,9 @@ class AbstractDynamics(ABC):
                 # Should return (derivatives, auxiliaries)
                 if not isinstance(result, tuple) or len(result) != 2:
                     if verbose:
-                        print("  ❌ ERROR: Expected tuple of (derivatives, auxiliaries)")
+                        print(
+                            "  ❌ ERROR: Expected tuple of (derivatives, auxiliaries)"
+                        )
                     return False
                 derivatives, auxiliaries = result
                 if derivatives.shape != (self.N_STATES, n_nodes):
@@ -375,7 +395,7 @@ class AbstractDynamics(ABC):
         params: Optional[Bunch] = None,
         initial_state: Optional[jnp.ndarray] = None,
         solver=None,
-        **solver_kwargs
+        **solver_kwargs,
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """Simulate dynamics using Diffrax.
 
@@ -421,7 +441,9 @@ class AbstractDynamics(ABC):
             return result
 
         # Set up time points - ensure we don't exceed t1
-        times = jnp.arange(t0, t1 + dt/2, dt)  # Add dt/2 to handle floating point precision
+        times = jnp.arange(
+            t0, t1 + dt / 2, dt
+        )  # Add dt/2 to handle floating point precision
         save_at = SaveAt(ts=times)
 
         # Solve ODE
@@ -434,7 +456,7 @@ class AbstractDynamics(ABC):
             dt0=dt,
             y0=initial_state,
             saveat=save_at,
-            **solver_kwargs
+            **solver_kwargs,
         )
 
         return times, solution.ys  # shape: [n_timesteps, n_states, n_nodes]
@@ -446,7 +468,7 @@ class AbstractDynamics(ABC):
         dt: float = 0.01,
         n_nodes: int = 1,
         figsize: Tuple[int, int] = (10, 6),
-        **simulate_kwargs
+        **simulate_kwargs,
     ) -> None:
         """Plot dynamics timeseries for state variables.
 
@@ -464,7 +486,9 @@ class AbstractDynamics(ABC):
         try:
             import matplotlib.pyplot as plt
         except ImportError:
-            raise ImportError("matplotlib is required for plotting. Install with: pip install matplotlib")
+            raise ImportError(
+                "matplotlib is required for plotting. Install with: pip install matplotlib"
+            )
 
         # Simulate dynamics
         times, trajectory = self.simulate(
@@ -498,8 +522,16 @@ class AbstractDynamics(ABC):
 
     def __repr__(self) -> str:
         """String representation of dynamics."""
-        coupling_str = f", coupling_inputs={list(self.COUPLING_INPUTS.keys())}" if self.COUPLING_INPUTS else ""
-        external_str = f", external_inputs={list(self.EXTERNAL_INPUTS.keys())}" if self.EXTERNAL_INPUTS else ""
+        coupling_str = (
+            f", coupling_inputs={list(self.COUPLING_INPUTS.keys())}"
+            if self.COUPLING_INPUTS
+            else ""
+        )
+        external_str = (
+            f", external_inputs={list(self.EXTERNAL_INPUTS.keys())}"
+            if self.EXTERNAL_INPUTS
+            else ""
+        )
         return (
             f"{self.__class__.__name__}("
             f"states={self.N_STATES}, "

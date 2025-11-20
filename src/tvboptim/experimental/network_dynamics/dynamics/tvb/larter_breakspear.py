@@ -76,66 +76,58 @@ class LarterBreakspear(AbstractDynamics):
     Network: Computation in Neural Systems, 14, 703-732.
     """
 
-    STATE_NAMES = ('V', 'W', 'Z')
+    STATE_NAMES = ("V", "W", "Z")
     INITIAL_STATE = (0.0, 0.0, 0.0)
 
-    AUXILIARY_NAMES = ('QV', 'QZ', 'm_Ca', 'm_Na', 'm_K')
+    AUXILIARY_NAMES = ("QV", "QZ", "m_Ca", "m_Na", "m_K")
 
     DEFAULT_PARAMS = Bunch(
         # Ion channel conductances
-        gCa=1.1,      # Ca++ channel conductance
-        gK=2.0,       # K+ channel conductance
-        gL=0.5,       # Leak channel conductance
-        gNa=6.7,      # Na+ channel conductance
-
+        gCa=1.1,  # Ca++ channel conductance
+        gK=2.0,  # K+ channel conductance
+        gL=0.5,  # Leak channel conductance
+        gNa=6.7,  # Na+ channel conductance
         # Channel activation thresholds
-        TCa=-0.01,    # Ca channel threshold
-        TK=0.0,       # K channel threshold
-        TNa=0.3,      # Na channel threshold
-
+        TCa=-0.01,  # Ca channel threshold
+        TK=0.0,  # K channel threshold
+        TNa=0.3,  # Na channel threshold
         # Channel activation slope parameters
-        d_Ca=0.15,    # Ca channel threshold variance
-        d_K=0.3,      # K channel threshold variance
-        d_Na=0.15,    # Na channel threshold variance
-
+        d_Ca=0.15,  # Ca channel threshold variance
+        d_K=0.3,  # K channel threshold variance
+        d_Na=0.15,  # Na channel threshold variance
         # Nernst potentials
-        VCa=1.0,      # Ca Nernst potential
-        VK=-0.7,      # K Nernst potential
-        VL=-0.5,      # Leak Nernst potential
-        VNa=0.53,     # Na Nernst potential
-
+        VCa=1.0,  # Ca Nernst potential
+        VK=-0.7,  # K Nernst potential
+        VL=-0.5,  # Leak Nernst potential
+        VNa=0.53,  # Na Nernst potential
         # Kinetic parameters
-        phi=0.7,      # Temperature scaling factor
-        tau_K=1.0,    # K relaxation time constant (ms)
-
+        phi=0.7,  # Temperature scaling factor
+        tau_K=1.0,  # K relaxation time constant (ms)
         # Synaptic coupling strengths
-        aee=0.4,      # Excitatory-to-excitatory
-        aei=2.0,      # Excitatory-to-inhibitory
-        aie=2.0,      # Inhibitory-to-excitatory
-        ane=1.0,      # External-to-excitatory
-        ani=0.4,      # External-to-inhibitory
-
+        aee=0.4,  # Excitatory-to-excitatory
+        aei=2.0,  # Excitatory-to-inhibitory
+        aie=2.0,  # Inhibitory-to-excitatory
+        ane=1.0,  # External-to-excitatory
+        ani=0.4,  # External-to-inhibitory
         # Other parameters
-        b=0.1,        # Inhibitory feedback strength
-        C=0.1,        # Long-range coupling weight (vs local)
-        Iext=0.3,     # External input current
-        rNMDA=0.25,   # NMDA receptor strength
-
+        b=0.1,  # Inhibitory feedback strength
+        C=0.1,  # Long-range coupling weight (vs local)
+        Iext=0.3,  # External input current
+        rNMDA=0.25,  # NMDA receptor strength
         # Firing rate function parameters
-        VT=0.0,       # Pyramidal cell firing threshold
-        d_V=0.65,     # Pyramidal cell threshold variance
-        ZT=0.0,       # Inhibitory cell firing threshold
-        d_Z=0.7,      # Inhibitory cell threshold variance
-        QV_max=1.0,   # Maximum pyramidal firing rate
-        QZ_max=1.0,   # Maximum inhibitory firing rate
-
+        VT=0.0,  # Pyramidal cell firing threshold
+        d_V=0.65,  # Pyramidal cell threshold variance
+        ZT=0.0,  # Inhibitory cell firing threshold
+        d_Z=0.7,  # Inhibitory cell threshold variance
+        QV_max=1.0,  # Maximum pyramidal firing rate
+        QZ_max=1.0,  # Maximum inhibitory firing rate
         # Time scaling
         t_scale=1.0,  # Global time scale factor
     )
 
     COUPLING_INPUTS = {
-        'instant': 1,   # Local/instantaneous coupling
-        'delayed': 1,   # Long-range delayed coupling
+        "instant": 1,  # Local/instantaneous coupling
+        "delayed": 1,  # Long-range delayed coupling
     }
 
     def dynamics(
@@ -144,7 +136,7 @@ class LarterBreakspear(AbstractDynamics):
         state: jnp.ndarray,
         params: Bunch,
         coupling: Bunch,
-        external: Bunch
+        external: Bunch,
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """Compute Larter-Breakspear dynamics.
 
@@ -188,17 +180,25 @@ class LarterBreakspear(AbstractDynamics):
 
         # Voltage dynamics
         # Ion channel currents
-        I_Ca = (params.gCa +
-                (1.0 - params.C) * params.rNMDA * params.aee * (QV + c_instant) +
-                params.C * params.rNMDA * params.aee * c_delayed) * m_Ca * (V - params.VCa)
+        I_Ca = (
+            (
+                params.gCa
+                + (1.0 - params.C) * params.rNMDA * params.aee * (QV + c_instant)
+                + params.C * params.rNMDA * params.aee * c_delayed
+            )
+            * m_Ca
+            * (V - params.VCa)
+        )
 
         I_K = params.gK * W * (V - params.VK)
 
         I_L = params.gL * (V - params.VL)
 
-        I_Na = (params.gNa * m_Na +
-                (1.0 - params.C) * params.aee * (QV + c_instant) +
-                params.C * params.aee * c_delayed) * (V - params.VNa)
+        I_Na = (
+            params.gNa * m_Na
+            + (1.0 - params.C) * params.aee * (QV + c_instant)
+            + params.C * params.aee * c_delayed
+        ) * (V - params.VNa)
 
         I_inh = params.aie * Z * QZ
 
@@ -210,7 +210,9 @@ class LarterBreakspear(AbstractDynamics):
         dW_dt = params.t_scale * params.phi * (m_K - W) / params.tau_K
 
         # Inhibitory population dynamics
-        dZ_dt = params.t_scale * params.b * (params.ani * params.Iext + params.aei * V * QV)
+        dZ_dt = (
+            params.t_scale * params.b * (params.ani * params.Iext + params.aei * V * QV)
+        )
 
         # Package results
         derivatives = jnp.array([dV_dt, dW_dt, dZ_dt])

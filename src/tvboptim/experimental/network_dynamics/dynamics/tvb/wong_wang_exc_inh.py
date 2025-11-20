@@ -65,45 +65,41 @@ class WongWangExcInh(AbstractDynamics):
     Perceptual Decisions. Journal of Neuroscience, 26(4), 1314-1328.
     """
 
-    STATE_NAMES = ('S_e', 'S_i')
+    STATE_NAMES = ("S_e", "S_i")
     INITIAL_STATE = (0.001, 0.001)
 
-    AUXILIARY_NAMES = ('H_e', 'H_i')
+    AUXILIARY_NAMES = ("H_e", "H_i")
 
     DEFAULT_PARAMS = Bunch(
         # Excitatory population parameters
-        a_e=310.0,         # [n/C] Input gain parameter
-        b_e=125.0,         # [Hz] Input shift parameter
-        d_e=0.160,         # [s] Input scaling parameter
-        gamma_e=0.641/1000,  # Kinetic parameter
-        tau_e=100.0,       # [ms] NMDA decay time constant
-        w_p=1.4,           # Recurrence weight
-        W_e=1.0,           # External input scaling weight
-
+        a_e=310.0,  # [n/C] Input gain parameter
+        b_e=125.0,  # [Hz] Input shift parameter
+        d_e=0.160,  # [s] Input scaling parameter
+        gamma_e=0.641 / 1000,  # Kinetic parameter
+        tau_e=100.0,  # [ms] NMDA decay time constant
+        w_p=1.4,  # Recurrence weight
+        W_e=1.0,  # External input scaling weight
         # Inhibitory population parameters
-        a_i=615.0,         # [n/C] Input gain parameter
-        b_i=177.0,         # [Hz] Input shift parameter
-        d_i=0.087,         # [s] Input scaling parameter
-        gamma_i=1.0/1000,  # Kinetic parameter
-        tau_i=10.0,        # [ms] NMDA decay time constant
-        W_i=0.7,           # External input scaling weight
-
+        a_i=615.0,  # [n/C] Input gain parameter
+        b_i=177.0,  # [Hz] Input shift parameter
+        d_i=0.087,  # [s] Input scaling parameter
+        gamma_i=1.0 / 1000,  # Kinetic parameter
+        tau_i=10.0,  # [ms] NMDA decay time constant
+        W_i=0.7,  # External input scaling weight
         # Synaptic weights
-        J_N=0.15,          # [nA] NMDA current
-        J_i=1.0,           # Inhibitory synaptic weight
-
+        J_N=0.15,  # [nA] NMDA current
+        J_i=1.0,  # Inhibitory synaptic weight
         # External inputs
-        I_o=0.382,         # Background input current
-        I_ext=0.0,         # External stimulation current
-
+        I_o=0.382,  # Background input current
+        I_ext=0.0,  # External stimulation current
         # Coupling parameters
-        G=2.0,             # Global coupling strength
-        lamda=0.0,         # Lambda: inhibitory coupling weight
+        G=2.0,  # Global coupling strength
+        lamda=0.0,  # Lambda: inhibitory coupling weight
     )
 
     COUPLING_INPUTS = {
-        'instant': 1,   # Local/instantaneous coupling
-        'delayed': 1,   # Long-range delayed coupling
+        "instant": 1,  # Local/instantaneous coupling
+        "delayed": 1,  # Long-range delayed coupling
     }
 
     def dynamics(
@@ -112,7 +108,7 @@ class WongWangExcInh(AbstractDynamics):
         state: jnp.ndarray,
         params: Bunch,
         coupling: Bunch,
-        external: Bunch
+        external: Bunch,
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """Compute Wong-Wang excitatory-inhibitory dynamics.
 
@@ -149,8 +145,13 @@ class WongWangExcInh(AbstractDynamics):
 
         # Excitatory population input
         J_N_S_e = params.J_N * S_e
-        x_e = (params.w_p * J_N_S_e - params.J_i * S_i +
-               params.W_e * params.I_o + coupling_total + params.I_ext)
+        x_e = (
+            params.w_p * J_N_S_e
+            - params.J_i * S_i
+            + params.W_e * params.I_o
+            + coupling_total
+            + params.I_ext
+        )
 
         # Excitatory transfer function
         x_e_scaled = params.a_e * x_e - params.b_e

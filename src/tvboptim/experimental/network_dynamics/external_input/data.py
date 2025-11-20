@@ -6,8 +6,8 @@ interpolation for smooth, resolution-independent stimulus delivery.
 
 from typing import Literal
 
-import jax.numpy as jnp
 import diffrax
+import jax.numpy as jnp
 
 from ..core.bunch import Bunch
 from .base import AbstractExternalInput
@@ -53,8 +53,8 @@ class DataInput(AbstractExternalInput):
         self,
         times: jnp.ndarray,
         data: jnp.ndarray,
-        interpolation: Literal['linear', 'cubic'] = 'linear',
-        **kwargs
+        interpolation: Literal["linear", "cubic"] = "linear",
+        **kwargs,
     ):
         """Initialize DataInput with time-series data.
 
@@ -77,8 +77,10 @@ class DataInput(AbstractExternalInput):
                 f"times length {times.shape[0]}"
             )
 
-        if interpolation not in ('linear', 'cubic'):
-            raise ValueError(f"interpolation must be 'linear' or 'cubic', got {interpolation}")
+        if interpolation not in ("linear", "cubic"):
+            raise ValueError(
+                f"interpolation must be 'linear' or 'cubic', got {interpolation}"
+            )
 
         # Determine output dimensionality from data shape
         if data.ndim == 1:
@@ -126,7 +128,7 @@ class DataInput(AbstractExternalInput):
         interp_type = self.params.interpolation_type
 
         # Create interpolation object
-        if interp_type == 'linear':
+        if interp_type == "linear":
             interpolator = diffrax.LinearInterpolation(ts=times, ys=data)
         else:  # cubic
             # Compute cubic spline coefficients
@@ -137,7 +139,9 @@ class DataInput(AbstractExternalInput):
         input_data = Bunch(
             interpolator=interpolator,
             n_nodes=network.graph.n_nodes,
-            data_shape=tuple(data.shape),  # Original data shape for broadcasting logic (as tuple)
+            data_shape=tuple(
+                data.shape
+            ),  # Original data shape for broadcasting logic (as tuple)
         )
 
         # Stateless - no state to track
@@ -151,7 +155,7 @@ class DataInput(AbstractExternalInput):
         state: jnp.ndarray,
         input_data: Bunch,
         input_state: Bunch,
-        params: Bunch
+        params: Bunch,
     ) -> jnp.ndarray:
         """Compute interpolated input at time t.
 
@@ -184,10 +188,7 @@ class DataInput(AbstractExternalInput):
             return interpolated
 
     def update_state(
-        self,
-        input_data: Bunch,
-        input_state: Bunch,
-        new_state: jnp.ndarray
+        self, input_data: Bunch, input_state: Bunch, new_state: jnp.ndarray
     ) -> Bunch:
         """Update input state (no-op for stateless input).
 

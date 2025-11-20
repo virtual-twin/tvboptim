@@ -11,8 +11,6 @@ References:
       Springer-Verlag, New York.
 """
 
-from typing import Tuple
-
 import jax.numpy as jnp
 
 from ...core.bunch import Bunch
@@ -65,17 +63,17 @@ class SupHopf(AbstractDynamics):
     metastability and its dynamical cortical core. Scientific Reports, 7, 3095.
     """
 
-    STATE_NAMES = ('x', 'y')
+    STATE_NAMES = ("x", "y")
     INITIAL_STATE = (0.1, 0.0)
 
     DEFAULT_PARAMS = Bunch(
-        a=-0.5,            # Bifurcation parameter (a > 0: oscillations)
-        omega=1.0,         # Angular frequency (rad/s or Hz)
+        a=-0.5,  # Bifurcation parameter (a > 0: oscillations)
+        omega=1.0,  # Angular frequency (rad/s or Hz)
     )
 
     COUPLING_INPUTS = {
-        'instant': 1,   # Local coupling (x-component only)
-        'delayed': 2,   # Long-range coupling [x-component, y-component]
+        "instant": 1,  # Local coupling (x-component only)
+        "delayed": 2,  # Long-range coupling [x-component, y-component]
     }
 
     def dynamics(
@@ -84,7 +82,7 @@ class SupHopf(AbstractDynamics):
         state: jnp.ndarray,
         params: Bunch,
         coupling: Bunch,
-        external: Bunch
+        external: Bunch,
     ) -> jnp.ndarray:
         """Compute supercritical Hopf dynamics.
 
@@ -115,9 +113,9 @@ class SupHopf(AbstractDynamics):
         y = state[1]  # y-component
 
         # Unpack coupling
-        c_instant = coupling.instant[0]      # Local coupling (x only)
-        c_delayed_x = coupling.delayed[0]    # Long-range x-coupling
-        c_delayed_y = coupling.delayed[1]    # Long-range y-coupling
+        c_instant = coupling.instant[0]  # Local coupling (x only)
+        c_delayed_x = coupling.delayed[0]  # Long-range x-coupling
+        c_delayed_y = coupling.delayed[1]  # Long-range y-coupling
 
         # Amplitude term (Hopf bifurcation nonlinearity)
         r_squared = x**2 + y**2

@@ -1,7 +1,7 @@
 """Abstract base class for network topology representations."""
 
 from abc import ABC, abstractmethod
-from typing import Optional, List, Sequence
+from typing import Optional, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -37,18 +37,18 @@ class AbstractGraph(ABC):
         If not provided during initialization, defaults to ['Region_0', 'Region_1', ...].
         """
         pass
-    
-    @property  
+
+    @property
     @abstractmethod
     def weights(self) -> jnp.ndarray:
         """Weight matrix [n_nodes, n_nodes].
-        
+
         Returns the connectivity matrix that can be used directly with
         JAX operations like jnp.matmul() or @. Works for both dense
         and sparse representations.
         """
         pass
-    
+
     @abstractmethod
     def verify(self, verbose: bool = True) -> bool:
         """Verify graph structure and properties.
@@ -78,13 +78,15 @@ class AbstractGraph(ABC):
         This should return a stored value (_sparsity), not computed from weights.
         """
         pass
-    
+
     def __repr__(self) -> str:
         """String representation of the graph."""
-        return (f"{self.__class__.__name__}("
-                f"n_nodes={self.n_nodes}, "
-                f"sparsity={self.sparsity:.3f}, "
-                f"symmetric={self.symmetric})")
+        return (
+            f"{self.__class__.__name__}("
+            f"n_nodes={self.n_nodes}, "
+            f"sparsity={self.sparsity:.3f}, "
+            f"symmetric={self.symmetric})"
+        )
 
 
 @register_pytree_node_class
@@ -100,7 +102,12 @@ class DenseGraph(AbstractGraph):
         symmetric: Whether to treat as symmetric (None = auto-detect)
     """
 
-    def __init__(self, weights: jnp.ndarray, region_labels: Optional[Sequence[str]] = None, symmetric: Optional[bool] = None):
+    def __init__(
+        self,
+        weights: jnp.ndarray,
+        region_labels: Optional[Sequence[str]] = None,
+        symmetric: Optional[bool] = None,
+    ):
         # Convert to JAX array if needed
         self._weights = jnp.asarray(weights)
 
@@ -109,7 +116,9 @@ class DenseGraph(AbstractGraph):
             raise ValueError(f"Weight matrix must be 2D, got {self._weights.ndim}D")
 
         if self._weights.shape[0] != self._weights.shape[1]:
-            raise ValueError(f"Weight matrix must be square, got shape {self._weights.shape}")
+            raise ValueError(
+                f"Weight matrix must be square, got shape {self._weights.shape}"
+            )
 
         # Store n_nodes to avoid accessing weights.shape during pytree transformations
         self._n_nodes = self._weights.shape[0]
@@ -137,13 +146,15 @@ class DenseGraph(AbstractGraph):
             self._sparsity = 0.0
         else:
             total_possible = self._n_nodes * (self._n_nodes - 1)  # Exclude diagonal
-            non_zero = jnp.count_nonzero(self._weights - jnp.diag(jnp.diag(self._weights)))
+            non_zero = jnp.count_nonzero(
+                self._weights - jnp.diag(jnp.diag(self._weights))
+            )
             self._sparsity = float(non_zero) / total_possible
 
         # Run verification
         if not self.verify(verbose=False):
             raise ValueError("Graph verification failed")
-    
+
     @property
     def weights(self) -> jnp.ndarray:
         """Weight matrix [n_nodes, n_nodes]."""
@@ -168,18 +179,18 @@ class DenseGraph(AbstractGraph):
     def sparsity(self) -> float:
         """Calculate the sparsity of the graph (fraction of non-zero connections)."""
         return self._sparsity
-    
+
     def verify(self, verbose: bool = True) -> bool:
         """Verify graph structure and properties.
-        
+
         Checks:
         - Finite values in weight matrix
         - Consistent shape
         - Symmetric flag consistency (if provided)
-        
+
         Args:
             verbose: Whether to print verification details
-            
+
         Returns:
             True if verification passes, False otherwise
         """
@@ -189,39 +200,43 @@ class DenseGraph(AbstractGraph):
                 print(f"  Shape: {self.weights.shape}")
                 print(f"  Nodes: {self.n_nodes}")
                 print(f"  Sparsity: {self.sparsity:.3f}")
-            
+
             # Check for finite values
             if not jnp.all(jnp.isfinite(self.weights)):
                 if verbose:
                     print("  L ERROR: Weight matrix contains non-finite values")
                 return False
-            
+
             # Verify symmetric flag consistency with actual weights
             actual_symmetric = bool(jnp.allclose(self.weights, self.weights.T))
             if self._symmetric != actual_symmetric:
                 if verbose:
-                    print(f"  L ERROR: Stored symmetric flag ({self._symmetric}) doesn't match actual symmetry ({actual_symmetric})")
+                    print(
+                        f"  L ERROR: Stored symmetric flag ({self._symmetric}) doesn't match actual symmetry ({actual_symmetric})"
+                    )
                 return False
-            
+
             if verbose:
                 print(f"  Symmetric: {self.symmetric}")
                 print("   Verification passed!")
-            
+
             return True
-            
+
         except Exception as e:
             if verbose:
                 print(f"  L ERROR: {e}")
             return False
-    
+
     @classmethod
-    def random(cls,
-               n_nodes: int,
-               sparsity: float = 0.7,
-               symmetric: bool = True,
-               weight_dist: str = 'lognormal',
-               allow_self_loops: bool = False,
-               key: Optional[jax.random.PRNGKey] = None) -> 'DenseGraph':
+    def random(
+        cls,
+        n_nodes: int,
+        sparsity: float = 0.7,
+        symmetric: bool = True,
+        weight_dist: str = "lognormal",
+        allow_self_loops: bool = False,
+        key: Optional[jax.random.PRNGKey] = None,
+    ) -> "DenseGraph":
         """Create a random graph with brain-like connectivity.
 
         Args:
@@ -261,15 +276,17 @@ class DenseGraph(AbstractGraph):
             mask = mask | mask.T
 
         # Generate weights based on distribution
-        if weight_dist == 'lognormal':
+        if weight_dist == "lognormal":
             # Log-normal: mean=0, std=1 in log-space
             weights = jax.random.lognormal(key_weights, shape=(n_nodes, n_nodes))
-        elif weight_dist == 'uniform':
+        elif weight_dist == "uniform":
             weights = jax.random.uniform(key_weights, shape=(n_nodes, n_nodes))
-        elif weight_dist == 'binary':
+        elif weight_dist == "binary":
             weights = jnp.ones((n_nodes, n_nodes))
         else:
-            raise ValueError(f"Unknown weight_dist: {weight_dist}. Use 'lognormal', 'uniform', or 'binary'")
+            raise ValueError(
+                f"Unknown weight_dist: {weight_dist}. Use 'lognormal', 'uniform', or 'binary'"
+            )
 
         # Make weights symmetric if needed
         if symmetric:
@@ -284,7 +301,12 @@ class DenseGraph(AbstractGraph):
     def tree_flatten(self):
         """Flatten Graph for JAX PyTree."""
         children = (self._weights,)  # Array data
-        aux_data = (self._n_nodes, self._symmetric, self._sparsity, self._region_labels)  # Static metadata
+        aux_data = (
+            self._n_nodes,
+            self._symmetric,
+            self._sparsity,
+            self._region_labels,
+        )  # Static metadata
         return children, aux_data
 
     @classmethod
@@ -311,13 +333,17 @@ class DenseGraph(AbstractGraph):
         try:
             import matplotlib.pyplot as plt
         except ImportError:
-            raise ImportError("matplotlib is required for plotting. Install with: pip install matplotlib")
+            raise ImportError(
+                "matplotlib is required for plotting. Install with: pip install matplotlib"
+            )
 
         # Prepare weights for plotting
         weights_plot = jnp.array(self.weights)
         if log_scale_weights:
             # Log transform, handling zeros
-            weights_plot = jnp.where(weights_plot > 0, jnp.log10(weights_plot + 1e-10), 0.0)
+            weights_plot = jnp.where(
+                weights_plot > 0, jnp.log10(weights_plot + 1e-10), 0.0
+            )
             weight_label = "log10(Weight)"
         else:
             weight_label = "Weight"
@@ -326,10 +352,10 @@ class DenseGraph(AbstractGraph):
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
 
         # Plot connectivity matrix
-        im1 = ax1.imshow(weights_plot, cmap='cividis', aspect='auto')
-        ax1.set_title('Connectivity Matrix')
-        ax1.set_xlabel('Target Node')
-        ax1.set_ylabel('Source Node')
+        im1 = ax1.imshow(weights_plot, cmap="cividis", aspect="auto")
+        ax1.set_title("Connectivity Matrix")
+        ax1.set_xlabel("Target Node")
+        ax1.set_ylabel("Source Node")
         plt.colorbar(im1, ax=ax1, label=weight_label)
 
         # Plot weight distribution
@@ -337,18 +363,28 @@ class DenseGraph(AbstractGraph):
         if len(weights_nonzero) > 0:
             if log_scale_weights:
                 weights_nonzero = jnp.log10(weights_nonzero + 1e-10)
-            ax2.hist(weights_nonzero, bins=50, edgecolor='black', alpha=0.7)
+            ax2.hist(weights_nonzero, bins=50, edgecolor="black", alpha=0.7)
             ax2.set_xlabel(weight_label)
-            ax2.set_ylabel('Count')
-            ax2.set_title('Weight Distribution')
-            ax2.set_yscale('log')
+            ax2.set_ylabel("Count")
+            ax2.set_title("Weight Distribution")
+            ax2.set_yscale("log")
         else:
-            ax2.text(0.5, 0.5, 'No connections', ha='center', va='center', transform=ax2.transAxes)
-            ax2.set_title('Weight Distribution')
+            ax2.text(
+                0.5,
+                0.5,
+                "No connections",
+                ha="center",
+                va="center",
+                transform=ax2.transAxes,
+            )
+            ax2.set_title("Weight Distribution")
 
         # Main title with graph properties
-        fig.suptitle(f'{self.__class__.__name__}: {self.n_nodes} nodes, sparsity={self.sparsity:.3f}, symmetric={self.symmetric}',
-                     fontsize=12, y=1.02)
+        fig.suptitle(
+            f"{self.__class__.__name__}: {self.n_nodes} nodes, sparsity={self.sparsity:.3f}, symmetric={self.symmetric}",
+            fontsize=12,
+            y=1.02,
+        )
 
         plt.tight_layout()
         return fig, (ax1, ax2)
@@ -368,14 +404,22 @@ class DenseDelayGraph(DenseGraph):
         symmetric: Whether to treat as symmetric (None = auto-detect)
     """
 
-    def __init__(self, weights: jnp.ndarray, delays: jnp.ndarray, region_labels: Optional[Sequence[str]] = None, symmetric: Optional[bool] = None):
+    def __init__(
+        self,
+        weights: jnp.ndarray,
+        delays: jnp.ndarray,
+        region_labels: Optional[Sequence[str]] = None,
+        symmetric: Optional[bool] = None,
+    ):
         # Process delays first (needed for verify method)
         self._delays = jnp.asarray(delays)
 
         # Validate delay matrix shape before calling parent
         weights_array = jnp.asarray(weights)
         if self._delays.shape != weights_array.shape:
-            raise ValueError(f"Delay matrix shape {self._delays.shape} must match weight matrix shape {weights_array.shape}")
+            raise ValueError(
+                f"Delay matrix shape {self._delays.shape} must match weight matrix shape {weights_array.shape}"
+            )
 
         # Compute and store max_delay to avoid accessing delays during pytree transformations
         self._max_delay = float(jnp.max(self._delays))
@@ -386,20 +430,20 @@ class DenseDelayGraph(DenseGraph):
         # Run additional verification
         if not self.verify(verbose=False):
             raise ValueError("DelayGraph verification failed")
-    
+
     @property
     def delays(self) -> jnp.ndarray:
         """Delay matrix [n_nodes, n_nodes]."""
         return self._delays
-    
+
     @property
     def max_delay(self) -> float:
         """Maximum delay in the network."""
         return self._max_delay
-    
+
     def verify(self, verbose: bool = True) -> bool:
         """Verify delay graph structure.
-        
+
         Additional checks beyond Graph.verify():
         - Non-negative delays
         - Finite delay values
@@ -408,52 +452,56 @@ class DenseDelayGraph(DenseGraph):
         # First run parent verification
         if not super().verify(verbose):
             return False
-        
+
         try:
             if verbose:
                 print(f"  Delays shape: {self.delays.shape}")
                 print(f"  Max delay: {self.max_delay}")
-            
+
             # Check for non-negative delays
             if jnp.any(self.delays < 0):
                 if verbose:
                     print("  L ERROR: Delay matrix contains negative values")
                 return False
-            
+
             # Check for finite delays
             if not jnp.all(jnp.isfinite(self.delays)):
                 if verbose:
                     print("  L ERROR: Delay matrix contains non-finite values")
                 return False
-            
+
             if verbose:
                 print("   DelayGraph verification passed!")
-            
+
             return True
-            
+
         except Exception as e:
             if verbose:
                 print(f"  L ERROR: {e}")
             return False
-    
+
     def __repr__(self) -> str:
         """String representation of the delay graph."""
-        return (f"{self.__class__.__name__}("
-                f"n_nodes={self.n_nodes}, "
-                f"sparsity={self.sparsity:.3f}, "
-                f"symmetric={self.symmetric}, "
-                f"max_delay={self.max_delay:.3f})")
-    
+        return (
+            f"{self.__class__.__name__}("
+            f"n_nodes={self.n_nodes}, "
+            f"sparsity={self.sparsity:.3f}, "
+            f"symmetric={self.symmetric}, "
+            f"max_delay={self.max_delay:.3f})"
+        )
+
     @classmethod
-    def random(cls,
-               n_nodes: int,
-               sparsity: float = 0.7,
-               symmetric: bool = True,
-               weight_dist: str = 'lognormal',
-               max_delay: float = 50.0,
-               delay_dist: str = 'uniform',
-               allow_self_loops: bool = False,
-               key: Optional[jax.random.PRNGKey] = None) -> 'DenseDelayGraph':
+    def random(
+        cls,
+        n_nodes: int,
+        sparsity: float = 0.7,
+        symmetric: bool = True,
+        weight_dist: str = "lognormal",
+        max_delay: float = 50.0,
+        delay_dist: str = "uniform",
+        allow_self_loops: bool = False,
+        key: Optional[jax.random.PRNGKey] = None,
+    ) -> "DenseDelayGraph":
         """Create a random delay graph with brain-like connectivity.
 
         Args:
@@ -495,11 +543,11 @@ class DenseDelayGraph(DenseGraph):
             mask = mask | mask.T
 
         # Generate weights
-        if weight_dist == 'lognormal':
+        if weight_dist == "lognormal":
             weights = jax.random.lognormal(key_w, shape=(n_nodes, n_nodes))
-        elif weight_dist == 'uniform':
+        elif weight_dist == "uniform":
             weights = jax.random.uniform(key_w, shape=(n_nodes, n_nodes))
-        elif weight_dist == 'binary':
+        elif weight_dist == "binary":
             weights = jnp.ones((n_nodes, n_nodes))
         else:
             raise ValueError(f"Unknown weight_dist: {weight_dist}")
@@ -512,13 +560,16 @@ class DenseDelayGraph(DenseGraph):
         weights = jnp.where(mask, weights, 0.0)
 
         # Generate delays with same sparsity pattern
-        if delay_dist == 'uniform':
-            delays = jax.random.uniform(key_delays, shape=(n_nodes, n_nodes),
-                                       minval=0.0, maxval=max_delay)
-        elif delay_dist == 'constant':
+        if delay_dist == "uniform":
+            delays = jax.random.uniform(
+                key_delays, shape=(n_nodes, n_nodes), minval=0.0, maxval=max_delay
+            )
+        elif delay_dist == "constant":
             delays = jnp.full((n_nodes, n_nodes), max_delay)
         else:
-            raise ValueError(f"Unknown delay_dist: {delay_dist}. Use 'uniform' or 'constant'")
+            raise ValueError(
+                f"Unknown delay_dist: {delay_dist}. Use 'uniform' or 'constant'"
+            )
 
         # Make delays symmetric if needed
         if symmetric:
@@ -543,12 +594,16 @@ class DenseDelayGraph(DenseGraph):
         try:
             import matplotlib.pyplot as plt
         except ImportError:
-            raise ImportError("matplotlib is required for plotting. Install with: pip install matplotlib")
+            raise ImportError(
+                "matplotlib is required for plotting. Install with: pip install matplotlib"
+            )
 
         # Prepare weights for plotting
         weights_plot = jnp.array(self.weights)
         if log_scale_weights:
-            weights_plot = jnp.where(weights_plot > 0, jnp.log10(weights_plot + 1e-10), 0.0)
+            weights_plot = jnp.where(
+                weights_plot > 0, jnp.log10(weights_plot + 1e-10), 0.0
+            )
             weight_label = "log10(Weight)"
         else:
             weight_label = "Weight"
@@ -557,10 +612,10 @@ class DenseDelayGraph(DenseGraph):
         fig, axes = plt.subplots(2, 2, figsize=figsize)
 
         # Plot connectivity matrix
-        im1 = axes[0, 0].imshow(weights_plot, cmap='cividis', aspect='auto')
-        axes[0, 0].set_title('Connectivity Matrix')
-        axes[0, 0].set_xlabel('Target Node')
-        axes[0, 0].set_ylabel('Source Node')
+        im1 = axes[0, 0].imshow(weights_plot, cmap="cividis", aspect="auto")
+        axes[0, 0].set_title("Connectivity Matrix")
+        axes[0, 0].set_xlabel("Target Node")
+        axes[0, 0].set_ylabel("Source Node")
         plt.colorbar(im1, ax=axes[0, 0], label=weight_label)
 
         # Plot weight distribution
@@ -568,37 +623,54 @@ class DenseDelayGraph(DenseGraph):
         if len(weights_nonzero) > 0:
             if log_scale_weights:
                 weights_nonzero = jnp.log10(weights_nonzero + 1e-10)
-            axes[0, 1].hist(weights_nonzero, bins=50, edgecolor='black', alpha=0.7)
+            axes[0, 1].hist(weights_nonzero, bins=50, edgecolor="black", alpha=0.7)
             axes[0, 1].set_xlabel(weight_label)
-            axes[0, 1].set_ylabel('Count')
-            axes[0, 1].set_title('Weight Distribution')
-            axes[0, 1].set_yscale('log')
+            axes[0, 1].set_ylabel("Count")
+            axes[0, 1].set_title("Weight Distribution")
+            axes[0, 1].set_yscale("log")
         else:
-            axes[0, 1].text(0.5, 0.5, 'No connections', ha='center', va='center', transform=axes[0, 1].transAxes)
-            axes[0, 1].set_title('Weight Distribution')
+            axes[0, 1].text(
+                0.5,
+                0.5,
+                "No connections",
+                ha="center",
+                va="center",
+                transform=axes[0, 1].transAxes,
+            )
+            axes[0, 1].set_title("Weight Distribution")
 
         # Plot delay matrix
-        im2 = axes[1, 0].imshow(self.delays, cmap='cividis_r', aspect='auto')
-        axes[1, 0].set_title('Transmission Delays')
-        axes[1, 0].set_xlabel('Target Node')
-        axes[1, 0].set_ylabel('Source Node')
-        plt.colorbar(im2, ax=axes[1, 0], label='Delay')
+        im2 = axes[1, 0].imshow(self.delays, cmap="cividis_r", aspect="auto")
+        axes[1, 0].set_title("Transmission Delays")
+        axes[1, 0].set_xlabel("Target Node")
+        axes[1, 0].set_ylabel("Source Node")
+        plt.colorbar(im2, ax=axes[1, 0], label="Delay")
 
         # Plot delay distribution
         delays_nonzero = self.delays[self.delays > 0]
         if len(delays_nonzero) > 0:
-            axes[1, 1].hist(delays_nonzero, bins=50, edgecolor='black', alpha=0.7)
-            axes[1, 1].set_xlabel('Delay')
-            axes[1, 1].set_ylabel('Count')
-            axes[1, 1].set_title('Delay Distribution')
-            axes[1, 1].set_yscale('log')
+            axes[1, 1].hist(delays_nonzero, bins=50, edgecolor="black", alpha=0.7)
+            axes[1, 1].set_xlabel("Delay")
+            axes[1, 1].set_ylabel("Count")
+            axes[1, 1].set_title("Delay Distribution")
+            axes[1, 1].set_yscale("log")
         else:
-            axes[1, 1].text(0.5, 0.5, 'No delays', ha='center', va='center', transform=axes[1, 1].transAxes)
-            axes[1, 1].set_title('Delay Distribution')
+            axes[1, 1].text(
+                0.5,
+                0.5,
+                "No delays",
+                ha="center",
+                va="center",
+                transform=axes[1, 1].transAxes,
+            )
+            axes[1, 1].set_title("Delay Distribution")
 
         # Main title with graph properties
-        fig.suptitle(f'{self.__class__.__name__}: {self.n_nodes} nodes, sparsity={self.sparsity:.3f}, symmetric={self.symmetric}, max_delay={self.max_delay:.2f}',
-                     fontsize=12, y=0.995)
+        fig.suptitle(
+            f"{self.__class__.__name__}: {self.n_nodes} nodes, sparsity={self.sparsity:.3f}, symmetric={self.symmetric}, max_delay={self.max_delay:.2f}",
+            fontsize=12,
+            y=0.995,
+        )
 
         plt.tight_layout()
         return fig, axes
@@ -606,7 +678,13 @@ class DenseDelayGraph(DenseGraph):
     def tree_flatten(self):
         """Flatten DenseDelayGraph for JAX PyTree."""
         children = (self._weights, self._delays)  # Array data
-        aux_data = (self._n_nodes, self._symmetric, self._sparsity, self._max_delay, self._region_labels)  # Static metadata
+        aux_data = (
+            self._n_nodes,
+            self._symmetric,
+            self._sparsity,
+            self._max_delay,
+            self._region_labels,
+        )  # Static metadata
         return children, aux_data
 
     @classmethod

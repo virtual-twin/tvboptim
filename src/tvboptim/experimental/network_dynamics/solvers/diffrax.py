@@ -28,29 +28,36 @@ class DiffraxSolver(AbstractSolver):
           ...     saveat=diffrax.SaveAt(ts=jnp.linspace(0, 100, 1000))
           ... )
     """
-    
-    def __init__(self, solver, 
-                 # Common parameters made explicit
-                 saveat=None, 
-                 stepsize_controller=None, 
-                 max_steps=4096,
-                 # Forward everything else
-                 **kwargs):
+
+    def __init__(
+        self,
+        solver,
+        # Common parameters made explicit
+        saveat=None,
+        stepsize_controller=None,
+        max_steps=4096,
+        # Forward everything else
+        **kwargs,
+    ):
         """Initialize with Diffrax solver instance and options.
-        
+
         Args:
             solver: Diffrax solver instance (e.g., diffrax.Heun())
             saveat: SaveAt instance for output control
             stepsize_controller: Step size controller for adaptive stepping
             max_steps: Maximum integration steps
-            **kwargs: Additional arguments passed to diffeqsolve (e.g., adjoint, event, 
+            **kwargs: Additional arguments passed to diffeqsolve (e.g., adjoint, event,
                      throw, progress_meter, solver_state, controller_state, made_jump, etc.)
                      See https://docs.kidger.site/diffrax/api/diffeqsolve/ for full list.
         """
         self.solver = solver
         self.saveat = saveat if saveat is not None else SaveAt(steps=True)
-        self.stepsize_controller = stepsize_controller if stepsize_controller is not None else diffrax.ConstantStepSize()
+        self.stepsize_controller = (
+            stepsize_controller
+            if stepsize_controller is not None
+            else diffrax.ConstantStepSize()
+        )
         self.max_steps = max_steps
-        
+
         # Store additional kwargs for diffeqsolve
         self.diffrax_kwargs = kwargs

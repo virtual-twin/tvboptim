@@ -9,7 +9,7 @@ This module provides common coupling functions:
 import jax.numpy as jnp
 
 from ..core.bunch import Bunch
-from .base import InstantaneousCoupling, DelayedCoupling
+from .base import DelayedCoupling, InstantaneousCoupling
 
 
 class LinearCoupling(InstantaneousCoupling):
@@ -73,6 +73,7 @@ class LinearCoupling(InstantaneousCoupling):
         """
         return params.G * summed_inputs + params.b
 
+
 class FastLinearCoupling(InstantaneousCoupling):
     """Fast linear coupling using vectorized mode.
 
@@ -125,6 +126,7 @@ class FastLinearCoupling(InstantaneousCoupling):
     def post(self, summed_inputs, local_states, params):
         """Apply linear transformation to summed inputs."""
         return params.G * summed_inputs + params.b
+
 
 class DifferenceCoupling(InstantaneousCoupling):
     """Diffusive coupling based on state differences.

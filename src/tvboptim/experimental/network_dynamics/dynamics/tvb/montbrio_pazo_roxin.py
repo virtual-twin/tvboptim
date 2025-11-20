@@ -8,8 +8,6 @@ References:
       spiking neurons. Physical Review X, 5(2), 021028.
 """
 
-from typing import Tuple
-
 import jax.numpy as jnp
 
 from ...core.bunch import Bunch
@@ -61,22 +59,22 @@ class MontbrioPazoRoxin(AbstractDynamics):
     spiking neurons. Physical Review X, 5(2), 021028.
     """
 
-    STATE_NAMES = ('r', 'V')
+    STATE_NAMES = ("r", "V")
     INITIAL_STATE = (0.1, 0.0)
 
     DEFAULT_PARAMS = Bunch(
-        tau=1.0,           # Characteristic time scale
-        I=0.0,             # External current
-        Delta=1.0,         # Width of heterogeneous noise distribution
-        J=15.0,            # Mean synaptic weight
-        eta=-5.0,          # Constant external input scaling
-        cr=1.0,            # Coupling weight through r (firing rate)
-        cv=0.0,            # Coupling weight through V (membrane potential)
+        tau=1.0,  # Characteristic time scale
+        I=0.0,  # External current
+        Delta=1.0,  # Width of heterogeneous noise distribution
+        J=15.0,  # Mean synaptic weight
+        eta=-5.0,  # Constant external input scaling
+        cr=1.0,  # Coupling weight through r (firing rate)
+        cv=0.0,  # Coupling weight through V (membrane potential)
     )
 
     COUPLING_INPUTS = {
-        'instant': 2,   # Local coupling [r-component, V-component]
-        'delayed': 2,   # Long-range coupling [r-component, V-component]
+        "instant": 2,  # Local coupling [r-component, V-component]
+        "delayed": 2,  # Long-range coupling [r-component, V-component]
     }
 
     def dynamics(
@@ -85,7 +83,7 @@ class MontbrioPazoRoxin(AbstractDynamics):
         state: jnp.ndarray,
         params: Bunch,
         coupling: Bunch,
-        external: Bunch
+        external: Bunch,
     ) -> jnp.ndarray:
         """Compute Montbrio-Pazo-Roxin dynamics.
 
@@ -107,10 +105,10 @@ class MontbrioPazoRoxin(AbstractDynamics):
         V = state[1]  # Average membrane potential
 
         # Unpack coupling (both have r and V components)
-        c_instant_r = coupling.instant[0]    # Local r-coupling
-        c_instant_V = coupling.instant[1]    # Local V-coupling
-        c_delayed_r = coupling.delayed[0]    # Long-range r-coupling
-        c_delayed_V = coupling.delayed[1]    # Long-range V-coupling
+        c_instant_r = coupling.instant[0]  # Local r-coupling
+        c_instant_V = coupling.instant[1]  # Local V-coupling
+        c_delayed_r = coupling.delayed[0]  # Long-range r-coupling
+        c_delayed_V = coupling.delayed[1]  # Long-range V-coupling
 
         # Total coupling for each variable
         coupling_r = params.cr * (c_instant_r + c_delayed_r)
@@ -124,13 +122,13 @@ class MontbrioPazoRoxin(AbstractDynamics):
 
         # Membrane potential dynamics
         dV_dt = (1.0 / params.tau) * (
-            V**2 -
-            (jnp.pi * params.tau * r)**2 +
-            params.eta +
-            params.J * params.tau * r +
-            params.I +
-            coupling_r +
-            coupling_V
+            V**2
+            - (jnp.pi * params.tau * r) ** 2
+            + params.eta
+            + params.J * params.tau * r
+            + params.I
+            + coupling_r
+            + coupling_V
         )
 
         # Package results

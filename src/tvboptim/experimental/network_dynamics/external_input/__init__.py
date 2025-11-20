@@ -6,21 +6,15 @@ state-dependent) signals.
 """
 
 from .base import AbstractExternalInput
-from .parametric import (
-    SineInput,
-    PulseInput,
-    PulseTrainInput,
-    RampInput,
-    ConstantInput,
-)
 from .data import DataInput
+from .parametric import ConstantInput, PulseInput, PulseTrainInput, RampInput, SineInput
 
 __all__ = [
-    'AbstractExternalInput',
-    'SineInput',
-    'PulseInput',
-    'PulseTrainInput',
-    'RampInput',
-    'ConstantInput',
-    'DataInput',
+    "AbstractExternalInput",
+    "SineInput",
+    "PulseInput",
+    "PulseTrainInput",
+    "RampInput",
+    "ConstantInput",
+    "DataInput",
 ]

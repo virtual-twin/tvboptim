@@ -1,17 +1,17 @@
 """Parameter container with attribute access and JAX PyTree support."""
 
-from typing import Any, Dict, Iterator, Tuple
+from typing import Any, Tuple
 
 import jax
 
 
 class Bunch(dict):
     """Dictionary with attribute access for parameters.
-    
-    A JAX PyTree-compatible parameter container that allows both dict['key'] 
+
+    A JAX PyTree-compatible parameter container that allows both dict['key']
     and dict.key access patterns. Designed for neural dynamics parameters
     with support for JAX transformations.
-    
+
     Examples:
         >>> params = Bunch(a=1.0, b=2.0)
         >>> params.a  # attribute access
@@ -21,12 +21,14 @@ class Bunch(dict):
         >>> jax.tree.map(lambda x: x * 2, params)  # JAX transformations
         Bunch(a=2.0, b=4.0)
     """
-    
+
     def __getattr__(self, key: str) -> Any:
         try:
             return self[key]
         except KeyError:
-            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{key}'")
+            raise AttributeError(
+                f"'{self.__class__.__name__}' object has no attribute '{key}'"
+            )
 
     def __setattr__(self, key: str, value: Any) -> None:
         self[key] = value
@@ -35,7 +37,9 @@ class Bunch(dict):
         try:
             del self[key]
         except KeyError:
-            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{key}'")
+            raise AttributeError(
+                f"'{self.__class__.__name__}' object has no attribute '{key}'"
+            )
 
     def __repr__(self) -> str:
         items = ", ".join(f"{k}={v!r}" for k, v in self.items())
@@ -60,8 +64,4 @@ def _bunch_tree_unflatten(keys: Tuple[str, ...], values: Tuple[Any, ...]) -> Bun
 
 
 # Register the PyTree
-jax.tree_util.register_pytree_node(
-    Bunch,
-    _bunch_tree_flatten,
-    _bunch_tree_unflatten
-)
+jax.tree_util.register_pytree_node(Bunch, _bunch_tree_flatten, _bunch_tree_unflatten)

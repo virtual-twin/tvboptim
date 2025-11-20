@@ -8,8 +8,6 @@ References:
       Springer-Verlag, Berlin.
 """
 
-from typing import Tuple
-
 import jax.numpy as jnp
 
 from ...core.bunch import Bunch
@@ -59,16 +57,16 @@ class Kuramoto(AbstractDynamics):
     Kuramoto (1984). Chemical Oscillations, Waves, and Turbulence. Springer-Verlag, Berlin.
     """
 
-    STATE_NAMES = ('theta',)
+    STATE_NAMES = ("theta",)
     INITIAL_STATE = (0.1,)
 
     DEFAULT_PARAMS = Bunch(
-        omega=1.0,         # Natural frequency (rad/s or Hz depending on units)
+        omega=1.0,  # Natural frequency (rad/s or Hz depending on units)
     )
 
     COUPLING_INPUTS = {
-        'instant': 1,   # Local coupling (phase-dependent)
-        'delayed': 1,   # Long-range delayed coupling
+        "instant": 1,  # Local coupling (phase-dependent)
+        "delayed": 1,  # Long-range delayed coupling
     }
 
     def dynamics(
@@ -77,7 +75,7 @@ class Kuramoto(AbstractDynamics):
         state: jnp.ndarray,
         params: Bunch,
         coupling: Bunch,
-        external: Bunch
+        external: Bunch,
     ) -> jnp.ndarray:
         """Compute Kuramoto dynamics.
 

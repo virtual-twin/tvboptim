@@ -1,9 +1,10 @@
 # %%
-import jax
-import jax.numpy as jnp 
-import numpy as np
-from tvboptim.types.parameter import Parameter
 import equinox as eqx
+import jax
+
+from tvboptim.types.parameter import Parameter
+from tvboptim.utils import format_pytree_as_string
+
 
 def collect_parameters(state):
     """Extract values from Parameter objects in a state tree.
@@ -46,32 +47,49 @@ def collect_parameters(state):
     With the new Parameter system, this function may become less necessary
     as Parameters support the JAX array protocol directly.
     """
+
     def _collect_parameters(leaf):
         if isinstance(leaf, Parameter):
             return leaf.__jax_array__()
         else:
             return leaf
-    return jax.tree.map(lambda x: _collect_parameters(x), state, is_leaf=lambda x: isinstance(x, Parameter))
+
+    return jax.tree.map(
+        lambda x: _collect_parameters(x),
+        state,
+        is_leaf=lambda x: isinstance(x, Parameter),
+    )
+
 
 # %%
 def mark_parameters(state):
     """Mark Parameter objects for partitioning."""
+
     def is_parameter(leaf):
         return isinstance(leaf, Parameter)
-    return jax.tree.map(lambda x: is_parameter(x), state, is_leaf=lambda x: isinstance(x, Parameter))
+
+    return jax.tree.map(
+        lambda x: is_parameter(x), state, is_leaf=lambda x: isinstance(x, Parameter)
+    )
+
 
 # %%
 def partition_state(state):
     """Separate Parameter objects from static values for optimization."""
     param_mask = mark_parameters(state)
-    diff_state, static_state = eqx.partition(state, param_mask, is_leaf=lambda x: isinstance(x, Parameter))
+    diff_state, static_state = eqx.partition(
+        state, param_mask, is_leaf=lambda x: isinstance(x, Parameter)
+    )
     return diff_state, static_state
+
 
 def combine_state(diff_state, static_state):
     """Recombine optimized parameters with static values."""
-    return eqx.combine(diff_state, static_state, is_leaf=lambda x: isinstance(x, Parameter))
+    return eqx.combine(
+        diff_state, static_state, is_leaf=lambda x: isinstance(x, Parameter)
+    )
 
-from tvboptim.utils import format_pytree_as_string
+
 # def show_free(tree):
 #     def _show_free(leaf):
 #         if isinstance(leaf, Value) and leaf.free:
@@ -80,6 +98,12 @@ from tvboptim.utils import format_pytree_as_string
 def show_parameters(tree):
     """Show Parameter objects in the tree."""
     param_mask = mark_parameters(tree)
-    diff_model, _ = eqx.partition(tree, param_mask, is_leaf=lambda x: isinstance(x, Parameter))
-    print(format_pytree_as_string(diff_model, hide_none=True, name="Parameters", show_array_values=True))
+    diff_model, _ = eqx.partition(
+        tree, param_mask, is_leaf=lambda x: isinstance(x, Parameter)
+    )
+    print(
+        format_pytree_as_string(
+            diff_model, hide_none=True, name="Parameters", show_array_values=True
+        )
+    )
     return None

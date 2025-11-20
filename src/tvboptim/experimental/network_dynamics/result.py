@@ -36,30 +36,32 @@ class NativeSolution:
     @property
     def time(self):
         return self.ts
-    
+
     @property
     def data(self):
         return self.ys
-    
+
     def tree_flatten(self):
         """JAX PyTree flatten for transformations."""
         children = (self.ts, self.ys)
-        aux_data = {'dt': self.dt}
+        aux_data = {"dt": self.dt}
         return children, aux_data
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         """JAX PyTree unflatten for transformations."""
         ts, ys = children
-        dt = aux_data.get('dt') if aux_data else None
+        dt = aux_data.get("dt") if aux_data else None
         return cls(ts, ys, dt=dt)
-    
+
     def __repr__(self):
         """String representation."""
         return f"NativeSolution(shape={self.ys.shape}, t=[{self.ts[0]:.2f}, {self.ts[-1]:.2f}])"
 
 
-def wrap_native_result(trajectory: jnp.ndarray, t0: float, t1: float, dt: float) -> NativeSolution:
+def wrap_native_result(
+    trajectory: jnp.ndarray, t0: float, t1: float, dt: float
+) -> NativeSolution:
     """Wrap native solver trajectory in solution object.
 
     Args:

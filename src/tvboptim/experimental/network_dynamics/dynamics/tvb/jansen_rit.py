@@ -61,25 +61,25 @@ class JansenRit(AbstractDynamics):
     AUXILIARY_NAMES = ("sigm_y1_y2", "sigm_y0_1", "sigm_y0_3")
 
     DEFAULT_PARAMS = Bunch(
-        A=3.25,          # Maximum amplitude of EPSP [mV]
-        B=22.0,          # Maximum amplitude of IPSP [mV]
-        a=0.1,           # Reciprocal of membrane time constant [ms^-1]
-        b=0.05,          # Reciprocal of membrane time constant [ms^-1]
-        v0=5.52,         # Firing threshold [mV]
-        nu_max=0.0025,   # Maximum firing rate [ms^-1]
-        r=0.56,          # Steepness of sigmoid [mV^-1]
-        J=135.0,         # Average number of synapses
-        a_1=1.0,         # Excitatory feedback probability
-        a_2=0.8,         # Slow excitatory feedback probability
-        a_3=0.25,        # Inhibitory feedback probability
-        a_4=0.25,        # Slow inhibitory feedback probability
-        mu=0.22,         # Mean input firing rate
+        A=3.25,  # Maximum amplitude of EPSP [mV]
+        B=22.0,  # Maximum amplitude of IPSP [mV]
+        a=0.1,  # Reciprocal of membrane time constant [ms^-1]
+        b=0.05,  # Reciprocal of membrane time constant [ms^-1]
+        v0=5.52,  # Firing threshold [mV]
+        nu_max=0.0025,  # Maximum firing rate [ms^-1]
+        r=0.56,  # Steepness of sigmoid [mV^-1]
+        J=135.0,  # Average number of synapses
+        a_1=1.0,  # Excitatory feedback probability
+        a_2=0.8,  # Slow excitatory feedback probability
+        a_3=0.25,  # Inhibitory feedback probability
+        a_4=0.25,  # Slow inhibitory feedback probability
+        mu=0.22,  # Mean input firing rate
     )
 
     # Multi-coupling: instantaneous and delayed
     COUPLING_INPUTS = {
-        'instant': 1,
-        'delayed': 1,
+        "instant": 1,
+        "delayed": 1,
     }
 
     def dynamics(
@@ -88,7 +88,7 @@ class JansenRit(AbstractDynamics):
         state: jnp.ndarray,
         params: Bunch,
         coupling: Bunch,
-        external: Bunch
+        external: Bunch,
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """Compute Jansen-Rit dynamics with two coupling inputs.
 
@@ -121,7 +121,14 @@ class JansenRit(AbstractDynamics):
         mu = params.mu
 
         # Unpack state variables
-        y0, y1, y2, y3, y4, y5 = state[0], state[1], state[2], state[3], state[4], state[5]
+        y0, y1, y2, y3, y4, y5 = (
+            state[0],
+            state[1],
+            state[2],
+            state[3],
+            state[4],
+            state[5],
+        )
 
         # Unpack coupling inputs
         c_instant = coupling.instant[0]
@@ -137,7 +144,11 @@ class JansenRit(AbstractDynamics):
         dy1_dt = y4
         dy2_dt = y5
         dy3_dt = A * a * sigm_y1_y2 - 2.0 * a * y3 - a**2 * y0
-        dy4_dt = A * a * (mu + a_2 * J * sigm_y0_1 + c_instant + c_delayed) - 2.0 * a * y4 - a**2 * y1
+        dy4_dt = (
+            A * a * (mu + a_2 * J * sigm_y0_1 + c_instant + c_delayed)
+            - 2.0 * a * y4
+            - a**2 * y1
+        )
         dy5_dt = B * b * (a_4 * J * sigm_y0_3) - 2.0 * b * y5 - b**2 * y2
 
         # Package results

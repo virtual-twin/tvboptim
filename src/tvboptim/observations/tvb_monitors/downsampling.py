@@ -4,9 +4,9 @@ This module provides different methods for reducing the temporal resolution
 of simulation outputs, commonly used before BOLD signal computation.
 """
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
-import equinox as eqx
 
 from tvboptim.experimental.network_dynamics.result import NativeSolution
 
@@ -22,6 +22,7 @@ class AbstractMonitor(eqx.Module):
              Normalized to preserve dimensions.
         period: Sampling/averaging period in milliseconds
     """
+
     voi: object = eqx.field(static=True)
     period: float = eqx.field(static=True)
 
@@ -44,13 +45,13 @@ class AbstractMonitor(eqx.Module):
         if voi is None:
             return jnp.s_[:]
         elif isinstance(voi, int):
-            return jnp.s_[voi:voi+1]  # Preserves dimension
+            return jnp.s_[voi : voi + 1]  # Preserves dimension
         elif isinstance(voi, slice):
             # Check if it's a single-index slice like jnp.s_[0]
             # These have start, stop, step where stop is None and step is None
             if voi.stop is None and voi.step is None and isinstance(voi.start, int):
                 # Convert to dimension-preserving slice
-                return jnp.s_[voi.start:voi.start+1]
+                return jnp.s_[voi.start : voi.start + 1]
             else:
                 return voi
         else:
@@ -69,6 +70,7 @@ class SubSampling(AbstractMonitor):
              If None, uses all variables.
         period: Sampling period in milliseconds (default: 4.0)
     """
+
     period: float = eqx.field(static=True)
 
     def __init__(self, voi=None, period=4.0):
@@ -118,6 +120,7 @@ class TemporalAverage(AbstractMonitor):
              If None, uses all variables.
         period: Averaging window size in milliseconds (default: 4.0)
     """
+
     # period: float = 4.0
     period: float = eqx.field(static=True)
 
@@ -177,6 +180,6 @@ class TemporalAverage(AbstractMonitor):
 
         return NativeSolution(
             ts=ts[centered_indices],
-            ys=averaged_trace[:centered_indices.shape[0], ...],
+            ys=averaged_trace[: centered_indices.shape[0], ...],
             dt=self.period,
         )

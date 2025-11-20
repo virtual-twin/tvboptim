@@ -1,9 +1,10 @@
+import math
+
+import equinox as eqx
 import jax
 import jax.numpy as jnp
-import equinox as eqx
 import jax.scipy as jsp
 import matplotlib.pyplot as plt
-import math
 
 from tvboptim.experimental.network_dynamics.result import NativeSolution
 
@@ -19,6 +20,7 @@ class HRFKernel(eqx.Module):
     Attributes:
         duration: Duration of kernel support in milliseconds
     """
+
     duration: float
 
     def __call__(self, t: jax.Array, downsample_dt: float) -> jax.Array:
@@ -55,9 +57,9 @@ class HRFKernel(eqx.Module):
 
         # Plot
         ax.plot(t, kernel_values)
-        ax.set_xlabel('Time (ms)')
-        ax.set_ylabel('Kernel value')
-        ax.set_title(f'{self.__class__.__name__}')
+        ax.set_xlabel("Time (ms)")
+        ax.set_ylabel("Kernel value")
+        ax.set_title(f"{self.__class__.__name__}")
         ax.grid(True, alpha=0.3)
 
         return ax
@@ -78,12 +80,13 @@ class LotkaVolterraHRFKernel(HRFKernel):
         The tau parameters are in seconds (not ms) to match the standard HRF formulation.
         Time input to __call__ is expected in milliseconds and converted internally.
     """
+
     tau_s: float = 0.8  # seconds
     tau_f: float = 0.4  # seconds
     scaling: float = 1.0 / 3.0
     duration: float = 20_000.0  # ms (20 seconds)
 
-    def __init__(self, tau_s=0.8, tau_f=0.4, scaling=1.0/3.0, duration=20_000.0):
+    def __init__(self, tau_s=0.8, tau_f=0.4, scaling=1.0 / 3.0, duration=20_000.0):
         """Initialize Lotka-Volterra HRF kernel.
 
         Args:
@@ -127,12 +130,13 @@ class Bold(AbstractMonitor):
     2. Convolving with a hemodynamic response function kernel
     3. Downsampling to the final BOLD sampling period
     """
+
     # BOLD model parameters
-    k_1: float = 5.6           # Signal scaling factor
-    V_0: float = 0.02          # Resting blood volume fraction
+    k_1: float = 5.6  # Signal scaling factor
+    V_0: float = 0.02  # Resting blood volume fraction
 
     # Sampling parameters
-    period: float = 1000.0     # ms, final BOLD sampling period
+    period: float = 1000.0  # ms, final BOLD sampling period
     downsample_period: float = 4.0  # ms, intermediate downsampling period
 
     # Processing configuration
@@ -204,7 +208,7 @@ class Bold(AbstractMonitor):
         """
         if history is None:
             return None
-        elif hasattr(history, 'ys') and hasattr(history, 'ts'):
+        elif hasattr(history, "ys") and hasattr(history, "ts"):
             # Duck typing: any solution-like object with .ys and .ts attributes
             # Works with both NativeSolution and Diffrax solutions
             # Extract the required history length based on kernel duration
@@ -245,10 +249,9 @@ class Bold(AbstractMonitor):
         # --- Prepare signal with history buffer ---
         if self.history is None:
             # Prepend zeros for warm-up
-            ys_with_history = jnp.vstack([
-                jnp.zeros((kernel_samples, *ys_downsampled.shape[1:])),
-                ys_downsampled
-            ])
+            ys_with_history = jnp.vstack(
+                [jnp.zeros((kernel_samples, *ys_downsampled.shape[1:])), ys_downsampled]
+            )
         else:
             # Use provided history
             ys_with_history = jnp.vstack([self.history, ys_downsampled])
@@ -260,7 +263,8 @@ class Bold(AbstractMonitor):
         # Vectorized convolution over nodes and state variables
         bold = jax.vmap(
             lambda y: jax.vmap(convolve_single, in_axes=1, out_axes=1)(y),
-            in_axes=1, out_axes=1
+            in_axes=1,
+            out_axes=1,
         )(ys_with_history)
 
         # Apply BOLD scaling
@@ -276,7 +280,7 @@ class Bold(AbstractMonitor):
         bold_signal = bold[bold_indices, ...]
 
         # Create time points for BOLD signal using Python int() and round()
-        bold_time = ts[::int(round(self.period / dt))] + t_offset
+        bold_time = ts[:: int(round(self.period / dt))] + t_offset
 
         # Ensure time and signal arrays match in length
         min_len = min(len(bold_time), len(bold_signal))
