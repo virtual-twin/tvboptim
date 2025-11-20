@@ -64,6 +64,8 @@ dev = [
 docs = [
     # "tvbo",
     "jupyter-cache>=1.0.1",
+    "nibabel",
+    "nilearn",
 ]
 
 # Standard PEP 621 optional dependencies (used by PyPI)
@@ -79,6 +81,8 @@ dev = [
 docs = [
     # "tvbo",  # Uncomment when published to PyPI
     "jupyter-cache>=1.0.1",
+    "nibabel",
+    "nilearn",
 ]
 
 [tool.ruff]

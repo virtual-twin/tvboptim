@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./docs/images/tvboptim.png" width="60%">
+  <img src="https://raw.githubusercontent.com/virtual-twin/tvboptim/main/docs/images/tvboptim.png" width="60%">
 </p>
 
 # TVB-Optim
