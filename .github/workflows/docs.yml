@@ -1,0 +1,98 @@
+name: Build and Deploy Documentation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'src/**'
+      - 'pyproject.toml'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'src/**'
+      - 'pyproject.toml'
+  workflow_dispatch:  # Allow manual triggering
+
+# Sets permissions for GitHub Pages deployment
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true  # In case you add large files with Git LFS later
+
+      - name: Setup Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          version: 'pre-release'  # Use latest pre-release for best compatibility
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Install Python dependencies
+        run: |
+          uv sync --all-extras
+
+      - name: Build quartodoc API reference
+        run: |
+          uv run quartodoc build --config docs/_quarto.yml
+
+      - name: Render Quarto documentation
+        run: |
+          quarto render docs/
+        env:
+          # JAX configuration for CPU-only (no GPU in CI)
+          JAX_PLATFORMS: cpu
+          XLA_FLAGS: --xla_force_host_platform_device_count=8
+
+      - name: Convert workflows to notebooks
+        run: |
+          ./docs/convert-workflows.sh
+
+      - name: Setup Pages
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_site
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

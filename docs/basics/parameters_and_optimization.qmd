@@ -47,7 +47,7 @@ collect_parameters(p) # collect all arrays from the Parameters in a PyTree
 After `jaxify`ing the TVB-O experiment, we have a state object which is a PyTree with jax arrays at its leaves. The state helps structuring the many values and inputs needed for the simulation in a simple object for convenience. But in most cases we only want to subject a fraction of the state to optimization. We can mark the values in the state for optimization by wrapping them in the `Parameter` type:
 
 ```{python}
-from tvbo.utils import Bunch # A dictionary with attribute access
+from tvboptim.experimental.network_dynamics import Bunch # A dictionary with attribute access
 
 from tvboptim.types import Parameter, show_parameters
 
@@ -158,12 +158,13 @@ As a simple example on how to use parameters we try to find the fixed point of t
 First, we load the reduced Wong-Wang model and examine its structure:
 
 ```{python}
-from tvbo.knowledge import Model
+from tvboptim.experimental.network_dynamics.dynamics import ReducedWongWang
 
-m = Model("ReducedWongWang")
-dfun = m.execute("jax")
-print(m.render_code("jax"))
-m.parameter_table()
+m = ReducedWongWang()
+
+dfun = m.dynamics
+
+m.DEFAULT_PARAMS
 ```
 
 The model includes parameters like `gamma` (kinetic parameter) and `tau_s` (time constant) that control the dynamics.
@@ -173,10 +174,10 @@ The model includes parameters like `gamma` (kinetic parameter) and `tau_s` (time
 For a specific initial condition and coupling, we have a fixed point if the derivative is zero. We define our loss function to minimize the absolute sum of derivatives:
 
 ```{python}
-p_init = m.parameters
+p_init = m.DEFAULT_PARAMS
 
-def loss_fixed_point(p, S_0 = [0.8], coupling = [0.0]):
-    return jnp.abs(jnp.sum(dfun(S_0, coupling, p)))
+def loss_fixed_point(p, S_0 = [0.8], coupling = Bunch(instant = [0.0], delayed = [0.0])):
+    return jnp.abs(jnp.sum(dfun(0.0, S_0, p, coupling, coupling)[0]))
 
 print(f"Initial loss: {loss_fixed_point(p_init):.6f}")
 ```
@@ -288,20 +289,18 @@ Finally, let's run simulations with the optimized parameters to verify that we'v
 
 ```{python}
 # Run simulation with default parameters
-m = Model("ReducedWongWang")
-ts_default = m.run()
+m = ReducedWongWang()
+ts_default = m.simulate(t1 = 1000, dt = 1.0)
 
 # Run simulation with optimized parameters (regular Parameter)
 p_opt = collect_parameters(p_opt)
-m.metadata.parameters["gamma"].value = p_opt.gamma
-m.metadata.parameters["tau_s"].value = p_opt.tau_s
-ts_opt = m.run()
+m = ReducedWongWang(gamma = p_opt.gamma, tau_s = p_opt.tau_s)
+ts_opt = m.simulate(t1 = 1000, dt = 1.0)
 
 # Run simulation with optimized normalized parameters
 p_opt_norm = collect_parameters(p_opt_norm)
-m.metadata.parameters["gamma"].value = p_opt_norm.gamma
-m.metadata.parameters["tau_s"].value = p_opt_norm.tau_s
-ts_opt_norm = m.run()
+m = ReducedWongWang(gamma = p_opt_norm.gamma, tau_s = p_opt_norm.tau_s)
+ts_opt_norm = m.simulate(t1 = 1000, dt = 1.0)
 ```
 
 Now let's visualize how well each optimization approach achieved the target fixed point:
@@ -312,12 +311,12 @@ Now let's visualize how well each optimization approach achieved the target fixe
 fig, ax = plt.subplots(figsize=(8, 6), dpi=200)
 
 # Plot target line
-ax.hlines(0.8, 0, 10000, color="black", linewidth=2.5, label="Target Fixed Point (0.8)")
+ax.hlines(0.8, 0, 1000, color="black", linewidth=2.5, label="Target Fixed Point (0.8)")
 
 # Plot time series
-ax.plot(ts_default.data[:, 0, :, 0], label="Default Parameters", alpha=0.8)
-ax.plot(ts_opt.data[:, 0, :, 0], color='red', label="Regular Parameters", alpha=0.8)
-ax.plot(ts_opt_norm.data[:, 0, :, 0], color='green', linestyle='--',
+ax.plot(ts_default[1][:, 0, :], label="Default Parameters", alpha=0.8)
+ax.plot(ts_opt[1][:, 0, :], color='red', label="Regular Parameters", alpha=0.8)
+ax.plot(ts_opt_norm[1][:, 0, :], color='green', linestyle='--',
         label="Normalized Parameters", linewidth=2)
 
 ax.set_xlabel('Time Steps')
@@ -325,7 +324,7 @@ ax.set_ylabel('Neural Activity (S)')
 ax.set_title('Neural Activity Trajectories: Comparing Parameter Optimization Methods')
 ax.legend(loc="right")
 ax.grid(True, alpha=0.3)
-ax.set_xlim(0, 10000)
+ax.set_xlim(0, 1000)
 plt.tight_layout()
 plt.show()
 ```
