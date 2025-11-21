@@ -5,7 +5,10 @@
 # TVB-Optim
 
 [![Tests](https://github.com/virtual-twin/tvboptim/actions/workflows/python-package.yml/badge.svg)](https://github.com/virtual-twin/tvboptim/actions/workflows/python-package.yml)
+[![Ruff](https://github.com/virtual-twin/tvboptim/actions/workflows/ruff.yml/badge.svg)](https://github.com/virtual-twin/tvboptim/actions/workflows/ruff.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![PyPI version](https://img.shields.io/pypi/v/tvboptim.svg)](https://pypi.org/project/tvboptim/)
+<!-- [![Downloads](https://img.shields.io/pypi/dm/tvboptim.svg)](https://pypi.org/project/tvboptim/) -->
 <!-- [![codecov](https://codecov.io/gh/virtual-twin/tvboptim/branch/main/graph/badge.svg)](https://codecov.io/gh/virtual-twin/tvboptim) -->
 
 [JAX](https://jax.readthedocs.io/en/latest/)-based framework for brain network simulation and gradient-based optimization.
