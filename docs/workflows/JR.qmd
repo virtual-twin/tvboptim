@@ -54,7 +54,7 @@ import nibabel as nib
 from nilearn import plotting
 
 # Import from tvboptim
-from tvboptim import jaxify
+from tvboptim import prepare
 from tvboptim.types import Parameter, Space, GridAxis
 from tvboptim.types.stateutils import show_parameters
 from tvboptim.utils import set_cache_path, cache
@@ -531,7 +531,7 @@ grid_state.dynamics.b = GridAxis(low = 0.001, high = 0.2, n = n)
 # Create space (product creates all combinations of a and b)
 grid = Space(grid_state, mode = "product")
 
-@cache("explore_15", redo = False)
+@cache("explore", redo = False)
 def explore():
     # Parallel execution across 8 processes
     exec = ParallelExecution(peak_freq, grid, n_pmap=8)
@@ -710,7 +710,7 @@ cb = MultiCallback([
 # Create optimizer
 opt = OptaxOptimizer(loss, optax.adamaxw(0.001), callback = cb, has_aux=True)
 
-@cache("optimize", redo = True)
+@cache("optimize", redo = False)
 def optimize():
     fitted_params, fitting_data = opt.run(init_state, max_steps=151)
     return fitted_params, fitting_data

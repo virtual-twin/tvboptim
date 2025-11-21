@@ -187,7 +187,7 @@ quartodoc:
         - DiffraxSolver
         - Euler
         - Heun
-    - title: Jaxify
-      desc: The entrypoint from TVB-O to the JAX domain
+    - title: Prepare
+      desc: The unified interface for preparing experiments and networks for simulation
       contents:
-        - jaxify
+        - tvbo.prepare

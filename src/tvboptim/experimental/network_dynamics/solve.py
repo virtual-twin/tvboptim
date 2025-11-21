@@ -64,26 +64,211 @@ def prepare(
     t1: float = 1.0,
     dt: float = 0.1,
 ) -> Tuple[Callable, Bunch]:
-    """Prepare network for native solver integration.
+    """Prepare network dynamics model for simulation.
 
-    This function:
-    1. Prepares all couplings (creates history buffers if needed)
-    2. Builds config structure with params, graph, initial_state, _internal
-    3. Pre-generates noise samples if stochastic
-    4. Pre-compiles coupling computation and state update closures
-    5. Returns pure function for integration
+    Transforms a network dynamics model into a JAX-compiled simulation function
+    and corresponding configuration object. Supports both native solvers (Euler, Heun)
+    and Diffrax solvers with different feature sets and performance characteristics.
 
-    Args:
-        network: Network with multi-coupling
-        solver: NativeSolver (Euler, Heun, etc.)
-        t0: Start time
-        t1: End time
-        dt: Time step
+    The preparation process optimizes the model for efficient execution by pre-compiling
+    closures, pre-allocating buffers, and structuring data for JAX transformations.
 
-    Returns:
-        Tuple of (solve_function, config)
-        - solve_function: Pure function that takes config and returns results
-        - config: Bunch with flattened params, graph, initial_state, _internal
+    Parameters
+    ----------
+    network : Network
+        Network dynamics model containing:
+
+        - **dynamics** : Neural mass/population model (e.g., ReducedWongWang, JansenRit)
+        - **couplings** : Inter-region coupling functions (can be delayed or instantaneous)
+        - **graph** : Connectivity structure (weights, delays, distances)
+        - **noise** : Optional stochastic process (additive/multiplicative)
+        - **externals** : Optional external inputs (e.g., stimulation)
+
+    solver : NativeSolver or DiffraxSolver
+        Integration method. Two solver families available:
+
+        **NativeSolver** (Euler, Heun):
+            - Fixed time step integration
+            - Supports **all features**: delays, noise, stateful operations
+            - Optimized for jax.lax.scan
+            - Best for most brain network simulations
+
+        **DiffraxSolver** (Tsit5, Dopri5, etc.):
+            - Adaptive time stepping
+            - **Stateless only**: no delayed coupling, no history buffers
+            - Useful for stiff ODEs or when adaptive stepping is required
+            - Raises ValueError if network has delays
+
+    t0 : float, optional
+        Simulation start time, by default 0.0
+    t1 : float, optional
+        Simulation end time, by default 1.0
+    dt : float, optional
+        Integration time step, by default 0.1
+
+        - For NativeSolver: Fixed step size used throughout simulation
+        - For DiffraxSolver: Initial step size (dt0) for adaptive controller
+
+    Returns
+    -------
+    solve_function : Callable
+        Pure JAX function for running simulation.
+
+        Signature: ``solve_function(config) -> results``
+
+        The function is JIT-compiled and supports:
+
+        - Automatic differentiation (jax.grad, jax.jacobian)
+        - Vectorization (jax.vmap)
+        - Parallel execution (jax.pmap)
+
+    config : Bunch
+        Configuration PyTree containing:
+
+        - **dynamics** : Dynamics model parameters
+        - **coupling** : Coupling parameters (one entry per coupling)
+        - **external** : External input parameters (one entry per input)
+        - **noise** : Noise parameters (if stochastic)
+        - **graph** : Graph structure (weights, delays)
+        - **initial_state** : Initial conditions [n_states, n_nodes]
+        - **_internal** : Precomputed data (coupling indices, noise samples, etc.)
+
+    Raises
+    ------
+    ValueError
+        If using DiffraxSolver with delayed coupling (network.max_delay > 0).
+        Diffrax solvers cannot maintain history buffers due to internal loop control.
+
+    Examples
+    --------
+    **Basic Usage with Native Solver**
+
+    >>> from tvboptim.experimental.network_dynamics import Network, prepare
+    >>> from tvboptim.experimental.network_dynamics.dynamics import ReducedWongWang
+    >>> from tvboptim.experimental.network_dynamics.solvers import Euler
+    >>> from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
+    >>> from tvboptim.experimental.network_dynamics.graph import DenseGraph
+    >>> import jax.numpy as jnp
+    >>>
+    >>> # Create network components
+    >>> dynamics = ReducedWongWang()
+    >>> coupling = LinearCoupling(incoming_states='S', G=1.0)
+    >>> weights = jnp.ones((68, 68))  # 68 brain regions
+    >>> graph = DenseGraph(weights)
+    >>>
+    >>> # Build network
+    >>> network = Network(dynamics, coupling, graph)
+    >>>
+    >>> # Prepare for simulation
+    >>> model_fn, config = prepare(network, Euler(), t0=0, t1=100, dt=0.1)
+    >>>
+    >>> # Run simulation
+    >>> results = model_fn(config)
+    >>> print(results.data.shape)  # [n_timesteps, n_voi, n_nodes]
+
+    **With Delayed Coupling (Native Solver Only)**
+
+    >>> from tvboptim.experimental.network_dynamics.coupling import DelayedLinearCoupling
+    >>> from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph
+    >>>
+    >>> # Create graph with heterogeneous delays
+    >>> delays = jnp.array([...])  # [n_nodes, n_nodes] delay matrix in ms
+    >>> graph = DenseDelayGraph(weights, delays)
+    >>>
+    >>> # Delayed coupling requires history buffer
+    >>> coupling = DelayedLinearCoupling(incoming_states='S', G=2.0)
+    >>> network = Network(dynamics, coupling, graph)
+    >>>
+    >>> # Only NativeSolver supports delays
+    >>> model_fn, config = prepare(network, Euler(), t0=0, t1=100, dt=0.1)
+
+    **With Adaptive Stepping (Diffrax Solver)**
+
+    >>> from tvboptim.experimental.network_dynamics.solvers import DiffraxSolver
+    >>> import diffrax
+    >>>
+    >>> # Diffrax solver with adaptive time stepping
+    >>> solver = DiffraxSolver(
+    ...     diffrax.Tsit5(),
+    ...     saveat=diffrax.SaveAt(ts=jnp.arange(0, 100, 0.1))
+    ... )
+    >>>
+    >>> # Network must NOT have delays for Diffrax
+    >>> network = Network(dynamics, LinearCoupling(...), graph)
+    >>> model_fn, config = prepare(network, solver, t0=0, t1=100, dt=0.1)
+    >>> solution = model_fn(config)  # Returns diffrax.Solution object
+
+    **With Stochastic Dynamics**
+
+    >>> from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
+    >>> import jax
+    >>>
+    >>> # Add noise to network
+    >>> noise = AdditiveNoise(state_indices=[0], sigma=0.01, key=jax.random.PRNGKey(0))
+    >>> network = Network(dynamics, coupling, graph, noise=noise)
+    >>>
+    >>> # Prepare with noise (pre-generates noise samples)
+    >>> model_fn, config = prepare(network, Euler(), t0=0, t1=100, dt=0.1)
+
+    **Modifying Parameters**
+
+    >>> # Config is a PyTree - parameters can be modified
+    >>> import copy
+    >>> config_modified = copy.deepcopy(config)
+    >>> config_modified.dynamics.G = 2.5  # Change global coupling
+    >>> config_modified.coupling.default.G = 1.5  # Change coupling strength
+    >>>
+    >>> # Run with modified parameters
+    >>> results_modified = model_fn(config_modified)
+
+    Notes
+    -----
+    **Preparation Steps (NativeSolver):**
+
+    1. Prepare all couplings (create history buffers for delays if needed)
+    2. Build config structure with flattened parameters and graph
+    3. Pre-generate noise samples if stochastic (one sample per timestep)
+    4. Pre-compile coupling computation closures (avoid dict lookups in scan)
+    5. Pre-compile state update closures (for history buffer management)
+    6. Return pure function optimized for jax.lax.scan
+
+    **Preparation Steps (DiffraxSolver):**
+
+    1. Validate network has no delays (raises ValueError if found)
+    2. Prepare stateless coupling/external input data
+    3. Build config with parameters and precomputed data
+    4. Create Diffrax vector field and control term (for SDEs)
+    5. Return pure function wrapping diffrax.diffeqsolve
+
+    **Solver Selection Guidelines:**
+
+    Use **NativeSolver** (Euler, Heun) when:
+
+    - Network has delayed coupling
+    - Need full control over integration loop
+    - Want optimal performance with jax.lax.scan
+    - Standard brain network simulation
+
+    Use **DiffraxSolver** when:
+
+    - Network has no delays (stateless)
+    - Need adaptive time stepping for stiff systems
+    - Want access to advanced Diffrax features
+    - Require error control and step size adaptation
+
+    **Performance Notes:**
+
+    - Native solvers use jax.lax.scan for optimal compile-time optimization
+    - Pre-compilation of closures eliminates runtime overhead
+    - History buffers for delays use efficient circular indexing
+    - Noise samples are pre-generated to avoid per-step RNG calls
+
+    See Also
+    --------
+    solve : High-level interface that calls prepare() and executes immediately
+    Network : Network dynamics model container
+    NativeSolver : Fixed-step integration methods (Euler, Heun)
+    DiffraxSolver : Adaptive-step integration using Diffrax library
     """
     # Prepare all couplings (creates history buffers, computes indices, etc.)
     coupling_data_dict, coupling_state_dict_init = network.prepare(dt)
@@ -415,26 +600,211 @@ def prepare(
     t1: float = 1.0,
     dt: float = 0.1,
 ) -> Tuple[Callable, Bunch]:
-    """Prepare network for Diffrax solver integration.
+    """Prepare network dynamics model for simulation.
 
-    Note: Diffrax solvers only support STATELESS couplings and external inputs.
-    Stateful couplings (e.g., delayed coupling with history buffers) cannot be
-    used with Diffrax solvers because Diffrax controls the integration loop internally.
+    Transforms a network dynamics model into a JAX-compiled simulation function
+    and corresponding configuration object. Supports both native solvers (Euler, Heun)
+    and Diffrax solvers with different feature sets and performance characteristics.
 
-    Args:
-        network: Network instance
-        solver: DiffraxSolver instance
-        t0: Start time
-        t1: End time
-        dt: Initial time step (used as dt0 for Diffrax)
+    The preparation process optimizes the model for efficient execution by pre-compiling
+    closures, pre-allocating buffers, and structuring data for JAX transformations.
 
-    Returns:
-        Tuple of (solve_function, config)
-        - solve_function: Pure function that takes config and returns Diffrax solution
-        - config: Bunch with parameters and precomputed data
+    Parameters
+    ----------
+    network : Network
+        Network dynamics model containing:
 
-    Raises:
-        ValueError: If network contains stateful couplings or noise
+        - **dynamics** : Neural mass/population model (e.g., ReducedWongWang, JansenRit)
+        - **couplings** : Inter-region coupling functions (can be delayed or instantaneous)
+        - **graph** : Connectivity structure (weights, delays, distances)
+        - **noise** : Optional stochastic process (additive/multiplicative)
+        - **externals** : Optional external inputs (e.g., stimulation)
+
+    solver : NativeSolver or DiffraxSolver
+        Integration method. Two solver families available:
+
+        **NativeSolver** (Euler, Heun):
+            - Fixed time step integration
+            - Supports **all features**: delays, noise, stateful operations
+            - Optimized for jax.lax.scan
+            - Best for most brain network simulations
+
+        **DiffraxSolver** (Tsit5, Dopri5, etc.):
+            - Adaptive time stepping
+            - **Stateless only**: no delayed coupling, no history buffers
+            - Useful for stiff ODEs or when adaptive stepping is required
+            - Raises ValueError if network has delays
+
+    t0 : float, optional
+        Simulation start time, by default 0.0
+    t1 : float, optional
+        Simulation end time, by default 1.0
+    dt : float, optional
+        Integration time step, by default 0.1
+
+        - For NativeSolver: Fixed step size used throughout simulation
+        - For DiffraxSolver: Initial step size (dt0) for adaptive controller
+
+    Returns
+    -------
+    solve_function : Callable
+        Pure JAX function for running simulation.
+
+        Signature: ``solve_function(config) -> results``
+
+        The function is JIT-compiled and supports:
+
+        - Automatic differentiation (jax.grad, jax.jacobian)
+        - Vectorization (jax.vmap)
+        - Parallel execution (jax.pmap)
+
+    config : Bunch
+        Configuration PyTree containing:
+
+        - **dynamics** : Dynamics model parameters
+        - **coupling** : Coupling parameters (one entry per coupling)
+        - **external** : External input parameters (one entry per input)
+        - **noise** : Noise parameters (if stochastic)
+        - **graph** : Graph structure (weights, delays)
+        - **initial_state** : Initial conditions [n_states, n_nodes]
+        - **_internal** : Precomputed data (coupling indices, noise samples, etc.)
+
+    Raises
+    ------
+    ValueError
+        If using DiffraxSolver with delayed coupling (network.max_delay > 0).
+        Diffrax solvers cannot maintain history buffers due to internal loop control.
+
+    Examples
+    --------
+    **Basic Usage with Native Solver**
+
+    >>> from tvboptim.experimental.network_dynamics import Network, prepare
+    >>> from tvboptim.experimental.network_dynamics.dynamics import ReducedWongWang
+    >>> from tvboptim.experimental.network_dynamics.solvers import Euler
+    >>> from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
+    >>> from tvboptim.experimental.network_dynamics.graph import DenseGraph
+    >>> import jax.numpy as jnp
+    >>>
+    >>> # Create network components
+    >>> dynamics = ReducedWongWang()
+    >>> coupling = LinearCoupling(incoming_states='S', G=1.0)
+    >>> weights = jnp.ones((68, 68))  # 68 brain regions
+    >>> graph = DenseGraph(weights)
+    >>>
+    >>> # Build network
+    >>> network = Network(dynamics, coupling, graph)
+    >>>
+    >>> # Prepare for simulation
+    >>> model_fn, config = prepare(network, Euler(), t0=0, t1=100, dt=0.1)
+    >>>
+    >>> # Run simulation
+    >>> results = model_fn(config)
+    >>> print(results.data.shape)  # [n_timesteps, n_voi, n_nodes]
+
+    **With Delayed Coupling (Native Solver Only)**
+
+    >>> from tvboptim.experimental.network_dynamics.coupling import DelayedLinearCoupling
+    >>> from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph
+    >>>
+    >>> # Create graph with heterogeneous delays
+    >>> delays = jnp.array([...])  # [n_nodes, n_nodes] delay matrix in ms
+    >>> graph = DenseDelayGraph(weights, delays)
+    >>>
+    >>> # Delayed coupling requires history buffer
+    >>> coupling = DelayedLinearCoupling(incoming_states='S', G=2.0)
+    >>> network = Network(dynamics, coupling, graph)
+    >>>
+    >>> # Only NativeSolver supports delays
+    >>> model_fn, config = prepare(network, Euler(), t0=0, t1=100, dt=0.1)
+
+    **With Adaptive Stepping (Diffrax Solver)**
+
+    >>> from tvboptim.experimental.network_dynamics.solvers import DiffraxSolver
+    >>> import diffrax
+    >>>
+    >>> # Diffrax solver with adaptive time stepping
+    >>> solver = DiffraxSolver(
+    ...     diffrax.Tsit5(),
+    ...     saveat=diffrax.SaveAt(ts=jnp.arange(0, 100, 0.1))
+    ... )
+    >>>
+    >>> # Network must NOT have delays for Diffrax
+    >>> network = Network(dynamics, LinearCoupling(...), graph)
+    >>> model_fn, config = prepare(network, solver, t0=0, t1=100, dt=0.1)
+    >>> solution = model_fn(config)  # Returns diffrax.Solution object
+
+    **With Stochastic Dynamics**
+
+    >>> from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
+    >>> import jax
+    >>>
+    >>> # Add noise to network
+    >>> noise = AdditiveNoise(state_indices=[0], sigma=0.01, key=jax.random.PRNGKey(0))
+    >>> network = Network(dynamics, coupling, graph, noise=noise)
+    >>>
+    >>> # Prepare with noise (pre-generates noise samples)
+    >>> model_fn, config = prepare(network, Euler(), t0=0, t1=100, dt=0.1)
+
+    **Modifying Parameters**
+
+    >>> # Config is a PyTree - parameters can be modified
+    >>> import copy
+    >>> config_modified = copy.deepcopy(config)
+    >>> config_modified.dynamics.G = 2.5  # Change global coupling
+    >>> config_modified.coupling.default.G = 1.5  # Change coupling strength
+    >>>
+    >>> # Run with modified parameters
+    >>> results_modified = model_fn(config_modified)
+
+    Notes
+    -----
+    **Preparation Steps (NativeSolver):**
+
+    1. Prepare all couplings (create history buffers for delays if needed)
+    2. Build config structure with flattened parameters and graph
+    3. Pre-generate noise samples if stochastic (one sample per timestep)
+    4. Pre-compile coupling computation closures (avoid dict lookups in scan)
+    5. Pre-compile state update closures (for history buffer management)
+    6. Return pure function optimized for jax.lax.scan
+
+    **Preparation Steps (DiffraxSolver):**
+
+    1. Validate network has no delays (raises ValueError if found)
+    2. Prepare stateless coupling/external input data
+    3. Build config with parameters and precomputed data
+    4. Create Diffrax vector field and control term (for SDEs)
+    5. Return pure function wrapping diffrax.diffeqsolve
+
+    **Solver Selection Guidelines:**
+
+    Use **NativeSolver** (Euler, Heun) when:
+
+    - Network has delayed coupling
+    - Need full control over integration loop
+    - Want optimal performance with jax.lax.scan
+    - Standard brain network simulation
+
+    Use **DiffraxSolver** when:
+
+    - Network has no delays (stateless)
+    - Need adaptive time stepping for stiff systems
+    - Want access to advanced Diffrax features
+    - Require error control and step size adaptation
+
+    **Performance Notes:**
+
+    - Native solvers use jax.lax.scan for optimal compile-time optimization
+    - Pre-compilation of closures eliminates runtime overhead
+    - History buffers for delays use efficient circular indexing
+    - Noise samples are pre-generated to avoid per-step RNG calls
+
+    See Also
+    --------
+    solve : High-level interface that calls prepare() and executes immediately
+    Network : Network dynamics model container
+    NativeSolver : Fixed-step integration methods (Euler, Heun)
+    DiffraxSolver : Adaptive-step integration using Diffrax library
     """
     # =========================================================================
     # VALIDATION: Check for unsupported features

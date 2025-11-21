@@ -74,7 +74,7 @@ import optax  # JAX-based optimization library
 from IPython.display import Markdown
 
 # Import from tvboptim - our optimization and execution framework
-from tvboptim import jaxify  # Converts TVB-O experiments to JAX functions
+from tvboptim import prepare  # Converts TVB-O experiments to JAX functions
 from tvboptim.types import Parameter  # Parameter types
 from tvboptim.types.spaces import Space, GridAxis  # Parameter spaces
 from tvboptim.types.stateutils import show_parameters  # Utility functions
@@ -336,13 +336,13 @@ The `model` is a pure JAX function that takes the config and runs the simulation
 
 ## TVB-O
 
-The `jaxify` function converts the TVB-O experiment into a JAX-compatible model function and state object:
+The `prepare` function converts the TVB-O experiment into a JAX-compatible model function and state object:
 
 ```{python}
 #| echo: true
 if HAS_TVBO:
     # Convert TVB-O experiment to JAX function and state
-    model_tvbo, state_tvbo = jaxify(experiment)
+    model_tvbo, state_tvbo = prepare(experiment)
 else:
     print("⚠ TVB-O not available")
 ```
@@ -540,7 +540,7 @@ for coupling, j_n, activity in zip(coupling_vals, j_n_vals, activity_vals):
     grid = grid.at[i, j].set(activity)
 
 # Visualize the parameter space exploration
-plt.figure(figsize=(10, 8))
+plt.figure(figsize=(8.1, 6.48))
 im = plt.imshow(grid, aspect="auto", origin="lower",
                 extent=[unique_coupling[0], unique_coupling[-1],
                        unique_j_n[0], unique_j_n[-1]],

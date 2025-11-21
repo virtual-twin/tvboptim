@@ -69,7 +69,7 @@ print(network)
 
 Coupling objects follow a three-phase lifecycle that mirrors the simulation flow:
 
-## Phase 1: Preparation (`prepare`)
+## Phase 1: Preparation (*prepare*)
 
 Called once before simulation starts:
 
@@ -88,7 +88,7 @@ coupling_data, coupling_state = coupling.prepare(network, dt)
   - History buffers (for delayed coupling)
   - Empty for instantaneous coupling
 
-## Phase 2: Computation (`compute`)
+## Phase 2: Computation (*compute*)
 
 Called every time step during integration:
 
@@ -100,7 +100,7 @@ coupling_input = coupling.compute(t, state, coupling_data,
 **Returns**:
 - Coupling input array `[n_coupling_dims, n_nodes]`
 
-## Phase 3: State Update (`update_state`)
+## Phase 3: State Update (*update_state*)
 
 Called after each integration step:
 

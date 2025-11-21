@@ -105,7 +105,7 @@ print(random_graph)
 ```
 
 ```{python}
-random_graph.plot();
+random_graph.plot(figsize=(8.1, 4));
 ```
 
 The log-normal weight distribution captures the heavy-tailed structure observed in real brain connectivity, where most connections are weak but a few are very strong.
@@ -130,7 +130,7 @@ print(delay_graph)
 ```
 
 ```{python}
-delay_graph.plot();
+delay_graph.plot(figsize=(8.1, 7));
 ```
 
 Delays are only meaningful for non-zero connections. The delay matrix shares the same sparsity pattern as the weight matrix.
@@ -191,7 +191,7 @@ sparse_random = SparseGraph.random(
     key=key
 )
 
-sparse_random.plot();
+sparse_random.plot(figsize=(8.1, 4));
 ```
 
 The BCOO format stores only non-zero elements, making it memory-efficient for sparse connectivity.
@@ -219,7 +219,7 @@ print(f"Sparsity: {jnp.count_nonzero(weights_dk) / (weights_dk.shape[0] * (weigh
 ```{python}
 # Create graph and plot
 graph_dk = DenseDelayGraph(weights_dk, lengths_dk, region_labels=labels_dk)
-graph_dk.plot(log_scale_weights=True);
+graph_dk.plot(log_scale_weights=True, figsize=(8.1, 7));
 ```
 
 ## "dTOR"
@@ -236,5 +236,5 @@ print(f"Sparsity: {jnp.count_nonzero(weights_dtor) / (weights_dtor.shape[0] * (w
 ```{python}
 # Create graph and plot
 graph_dtor = DenseDelayGraph(weights_dtor, lengths_dtor, region_labels=labels_dtor)
-graph_dtor.plot(log_scale_weights=True);
+graph_dtor.plot(log_scale_weights=True, figsize=(8.1, 7));
 ```

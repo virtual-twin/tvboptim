@@ -11,7 +11,7 @@ execute:
 ---
 
 
-## The `solve()` Function
+## The *solve()* Function
 
 The `solve()` function is the main entry point for running network simulations. It takes a network configuration and a solver, then returns the time-evolved state.
 

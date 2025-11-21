@@ -46,7 +46,7 @@ collect_parameters(p) # collect all arrays from the Parameters in a PyTree
 
 ## Marking Parameters for Optimization
 
-After `jaxify`ing the TVB-O experiment, we have a state object which is a PyTree with jax arrays at its leaves. The state helps structuring the many values and inputs needed for the simulation in a simple object for convenience. But in most cases we only want to subject a fraction of the state to optimization. We can mark the values in the state for optimization by wrapping them in the `Parameter` type:
+After using `prepare` on an experiment (TVB-O) or network (tvboptim.experimental.network_dynamics), we have a state object which is a PyTree with jax arrays at its leaves. The state helps structuring the many values and inputs needed for the simulation in a simple object for convenience. But in most cases we only want to subject a fraction of the state to optimization. We can mark the values in the state for optimization by wrapping them in the `Parameter` type:
 
 ```{python}
 from tvboptim.experimental.network_dynamics import Bunch # A dictionary with attribute access

@@ -98,7 +98,7 @@ for n in densities:
 #| code-summary: "Show visualization code"
 
 # Visualize grid sampling
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.1, 4))
 
 # Plot 1: Basic grid values
 ax1.scatter(range(len(values_basic)), values_basic, color='blue', s=50)
@@ -146,7 +146,7 @@ print(f"All regions identical per sample: {jnp.allclose(regional_values[2], regi
 #| code-summary: "Show visualization code"
 
 # Visualize the broadcasting
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.1, 4))
 
 # Show that each sample broadcasts the same value
 sample_idx = 2
@@ -190,7 +190,7 @@ print(f"Value range: [{jnp.min(values1):.3f}, {jnp.max(values1):.3f}]")
 #| code-summary: "Show visualization code"
 
 # Visualize distributions
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.1, 4))
 
 # Histogram of uniform samples
 ax1.hist(values1, bins=20, alpha=0.7, color='green', density=True)
@@ -286,7 +286,7 @@ print(f"Oscillatory pattern range: [{jnp.min(oscillatory):.3f}, {jnp.max(oscilla
 #| code-summary: "Show visualization code"
 
 # Visualize different data patterns
-fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+fig, axes = plt.subplots(2, 2, figsize=(8.1, 8))
 
 # 1. Literature values
 ax = axes[0, 0]
@@ -357,7 +357,7 @@ print(f"LogNormal samples: mean={jnp.mean(lognormal_samples):.3f}, median={jnp.m
 #| code-summary: "Show visualization code"
 
 # Visualize the distributions
-fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+fig, axes = plt.subplots(2, 2, figsize=(8.1, 8))
 
 # Normal distribution
 ax = axes[0, 0]
@@ -441,7 +441,7 @@ print(f"All elements identical: {jnp.allclose(broadcast_samples[0], broadcast_sa
 #| code-summary: "Show visualization code"
 
 # Visualize the difference
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.1, 4))
 
 # Independent sampling heatmap
 im1 = ax1.imshow(independent_samples[0], cmap='RdBu_r', vmin=-3, vmax=3)
@@ -558,7 +558,7 @@ product_y = [p['y'] for p in product_comp]
 zip_x = [p['x'] for p in zip_comp]
 zip_y = [p['y'] for p in zip_comp]
 
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.1, 5))
 
 # Product mode visualization
 ax1.scatter(product_x, product_y, color='blue', s=50, alpha=0.7)
@@ -725,7 +725,7 @@ for i, result in enumerate(sequential_results):
 #| code-summary: "Show visualization code"
 
 # Visualize sequential execution results
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.1, 4))
 
 # Plot activity traces
 for i, result in enumerate(sequential_results):
@@ -835,7 +835,7 @@ print(f"  Max activity range: [{min(max_vals):.3f}, {max(max_vals):.3f}]")
 #| code-summary: "Show visualization code"
 
 # Visualize parallel execution results
-fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+fig, axes = plt.subplots(2, 2, figsize=(8.1, 8))
 
 # 1. Coupling vs Mean Activity
 ax = axes[0, 0]

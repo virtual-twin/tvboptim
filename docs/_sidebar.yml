@@ -83,7 +83,7 @@ website:
         section: Solvers
       section: Network Dynamics (Experimental)
     - contents:
-      - reference/jaxify.qmd
-      section: Jaxify
+      - reference/tvbo.prepare.qmd
+      section: Prepare
     id: reference
   - id: dummy-sidebar
