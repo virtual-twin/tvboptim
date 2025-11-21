@@ -134,7 +134,7 @@ accent_blue = cividis_cmap(0.3)  # Dark blue from cividis
 accent_gold = cividis_cmap(0.85)  # Gold/yellow from cividis
 accent_mid = cividis_cmap(0.6)   # Mid-tone
 
-fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 4))
+fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(8.1, 2.16))
 
 # Structural weights - use cividis
 im1 = ax1.imshow(weights, cmap='cividis', vmin=0, vmax=1)
@@ -567,7 +567,7 @@ mean_S_e_history = fic_results['mean_S_e_history']
 #| code-fold: true
 #| code-summary: "Visualization code"
 
-fig = plt.figure(figsize=(14, 8))
+fig = plt.figure(figsize=(8.1, 4.63))
 gs = fig.add_gridspec(2, 2, hspace=0.3, wspace=0.3)
 
 # Use cividis-derived colors for consistency
@@ -1013,7 +1013,7 @@ print(f"  Improvement: Δcorr = {fc_corr_post - fc_corr_pre:+.4f}, ΔRMSE = {fc_
 #| code-fold: true
 #| code-summary: "Visualization code"
 
-fig = plt.figure(figsize=(14, 8))
+fig = plt.figure(figsize=(8.1, 4.63))
 gs = fig.add_gridspec(2, 3, hspace=0.35, wspace=0.4, height_ratios=[1, 0.6])
 
 # Top row: FC matrices - use cividis
@@ -1189,7 +1189,7 @@ print(f"  Improvement: Δcorr = {fc_corr_opt - fc_corr_pre:+.4f}, ΔRMSE = {fc_r
 loss_values = fitting_data["loss"].save
 n_steps = len(loss_values)
 
-fig = plt.figure(figsize=(14, 8))
+fig = plt.figure(figsize=(8.1, 4.63))
 gs = fig.add_gridspec(2, 3, hspace=0.3, wspace=0.4)
 
 # Top left: Loss trajectory - use cividis-derived colors

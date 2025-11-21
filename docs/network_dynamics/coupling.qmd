@@ -292,7 +292,7 @@ print(f"Speedup: {time_standard/time_fast:.2f}x")
 
 import matplotlib.pyplot as plt
 
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.1, 2.7))
 
 # Bar chart
 couplings = ['Standard\nLinearCoupling', 'Fast\nLinearCoupling']
@@ -450,7 +450,7 @@ print(f"Simulation complete: {len(result_fixed.ts)} time steps")
 #| code-fold: true
 #| code-summary: "Visualization"
 
-fig, axes = plt.subplots(2, 2, figsize=(14, 8))
+fig, axes = plt.subplots(2, 2, figsize=(8.1, 4.63))
 
 # Time series - Fixed coupling
 axes[0, 0].plot(result_fixed.ts, result_fixed.ys[:, 0, 0], 'b-', label='Node 0', linewidth=2)

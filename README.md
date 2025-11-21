@@ -10,14 +10,14 @@
 
 [JAX](https://jax.readthedocs.io/en/latest/)-based framework for brain network simulation and gradient-based optimization.
 
-**[Documentation](https://virtual-twin.github.io/tvboptim)** | **[Get Started](https://virtual-twin.github.io/tvboptim/get_started.html)** | **[Examples](https://virtual-twin.github.io/tvboptim/network_dynamics/network_dynamics.html)**
+**[Documentation](https://virtual-twin.github.io/tvboptim)** | **[Get Started](https://virtual-twin.github.io/tvboptim/get_started.html)** | **[Network Dynamics](https://virtual-twin.github.io/tvboptim/network_dynamics/network_dynamics.html)**
 
 ## Key Features
 
-- **Gradient-based optimization** - Fit thousands of parameters using automatic differentiation through the entire simulation pipeline
-- **Performance** - JAX-powered with seamless GPU/TPU scaling
-- **Flexible & extensible** - Build models with [Network Dynamics](https://virtual-twin.github.io/tvboptim/network_dynamics/network_dynamics.html), a composable framework for whole-brain modeling. Existing TVB workflows supported via [TVB-O](https://github.com/virtual-twin/tvbo).
-- **Intuitive parameter control** - Mark values for optimization with [Parameter()](https://virtual-twin.github.io/tvboptim/parameters_and_optimization.html). Define exploration spaces with [Axes](https://virtual-twin.github.io/tvboptim/axes_and_spaces.html) for automatic parallel evaluation via JAX vmap/pmap.
+- **Gradient-based optimization:** Fit thousands of parameters using automatic differentiation through the entire simulation pipeline
+- **Performance:** JAX-powered with seamless GPU/TPU scaling
+- **Flexible & extensible:** Build models with [Network Dynamics](https://virtual-twin.github.io/tvboptim/network_dynamics/network_dynamics.html), a composable framework for whole-brain modeling. Existing TVB workflows supported via [TVB-O](https://github.com/virtual-twin/tvbo).
+- **Intuitive parameter control:** Mark values for optimization with [Parameter()](https://virtual-twin.github.io/tvboptim/parameters_and_optimization.html). Define exploration spaces with [Axes](https://virtual-twin.github.io/tvboptim/axes_and_spaces.html) for automatic parallel evaluation via JAX vmap/pmap.
 
 ## Installation
 
@@ -77,11 +77,11 @@ See the [full example with visualization](https://virtual-twin.github.io/tvbopti
 
 ## How It Works
 
-**Functional Composition** - Models are composable functions that can be inspected, modified, and extended. Build complexity incrementally by wrapping functions.
+**Functional Composition:** Models are composable functions that can be inspected, modified, and extended. Build complexity incrementally by wrapping functions.
 
-**End-to-End Differentiability** - Compute gradients through the full pipeline: neural dynamics → hemodynamic models → empirical observables.
+**End-to-End Differentiability:** Compute gradients through the full pipeline: neural dynamics → hemodynamic models → empirical observables.
 
-**Interoperability** - Convert existing TVB simulations to JAX-compatible functions via the TVB-O framework.
+**Interoperability:** Convert existing TVB simulations to JAX-compatible functions via the TVB-O framework.
 
 ## Contributing
 

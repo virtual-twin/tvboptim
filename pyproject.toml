@@ -63,6 +63,7 @@ dev = [
 ]
 docs = [
     # "tvbo",
+    "tvb-library",
     "jupyter-cache>=1.0.1",
     "nibabel",
     "nilearn",
@@ -79,7 +80,8 @@ dev = [
     "ipykernel",
 ]
 docs = [
-    # "tvbo",  # Uncomment when published to PyPI
+    # "tvbo",
+    "tvb-library",
     "jupyter-cache>=1.0.1",
     "nibabel",
     "nilearn",

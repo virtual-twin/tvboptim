@@ -120,7 +120,7 @@ import matplotlib.pyplot as plt
 result = solve(network, Euler(), t0=0.0, t1=100.0, dt=0.1)
 
 # Plot results
-fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8.1, 4.86), sharex=True)
 
 colors = ['blue', 'green', 'orange']
 widths = [5.0, 10.0, 20.0]
@@ -207,7 +207,7 @@ result_cubic = solve(network_cubic, Euler(), t0=0.0, t1=100.0, dt=dt_sim)
 ## Visualizing Interpolation Quality
 
 ```{python}
-fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 9), sharex=True)
+fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8.1, 6.075), sharex=True)
 
 # Plot 1: Show original sparse data points
 ax1.scatter(data_times, data_data, s=100, c='red', zorder=5, label='Data points (8 samples)')
@@ -272,7 +272,7 @@ for dt in dt_values:
 
 ```{python}
 # Visualize resolution independence
-fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 7), sharex=True)
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8.1, 4.725), sharex=True)
 
 # Full time range
 ax1.scatter(data_times, data_data, s=80, c='red', zorder=5, label='Data points')

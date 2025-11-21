@@ -60,7 +60,7 @@ dynamics.verify(n_nodes=1)
 
 ```{python}
 # Use built-in plot method
-dynamics.plot(t0=0.0, t1=30.0, dt=0.01, n_nodes=1, figsize=(12, 6))
+dynamics.plot(t0=0.0, t1=30.0, dt=0.01, n_nodes=1, figsize=(8.1, 4.05))
 ```
 
 The Lorenz system exhibits deterministic chaos - the characteristic butterfly attractor emerges from sensitivity to initial conditions despite fully deterministic equations.
@@ -282,7 +282,7 @@ print(f"With aux output shape: {result_with_aux.ys.shape}  # [time, 3 variables,
 
 import matplotlib.pyplot as plt
 
-fig, axes = plt.subplots(3, 2, figsize=(12, 9), sharex=True)
+fig, axes = plt.subplots(3, 2, figsize=(8.1, 6.075), sharex=True)
 
 # Left column: default (states only)
 axes[0, 0].plot(result_default.ts, result_default.ys[:, 0, 0], 'b-')
@@ -346,7 +346,7 @@ times_sup, traj_sup = fhn_supra.simulate(
 #| code-fold: true
 #| code-summary: "Visualization"
 
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.1, 2.7))
 
 # Phase portrait
 ax1.plot(traj_sub[:, 0, 0], traj_sub[:, 1, 0], 'b-', label='Subthreshold', linewidth=2)

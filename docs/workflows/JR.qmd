@@ -152,7 +152,7 @@ for name, fp in zip(region_labels, peak_freqs):
 # Create figure with two equal-sized subplots
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-fig, (ax_gb, ax_freq) = plt.subplots(1, 2, figsize=(8, 4))
+fig, (ax_gb, ax_freq) = plt.subplots(1, 2, figsize=(8.1, 4.05))
 
 # Plot glass brain with distance map
 plotting.plot_glass_brain(
@@ -219,7 +219,6 @@ cbar_freq.set_label('Target Frequency [Hz]')
 
 # Finalize figure
 fig.tight_layout();
-fig.set_dpi(300)
 ```
 
 ## The Jansen-Rit Model
@@ -430,7 +429,7 @@ result2 = model(state)
 #| code-fold: true
 #| code-summary: "Show plotting code"
 from matplotlib.colors import Normalize
-fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 4), sharex=True)
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8.1, 4.05), sharex=True)
 t_max = int(1000 / dt)
 
 # First simulation (transient)
@@ -461,7 +460,6 @@ ax2.text(0.95, 0.95, "Updated Initial Conditions", transform=ax2.transAxes, font
 ax2.set_xlabel("Time [ms]")
 ax2.set_ylabel("y0 [a.u.]")
 
-fig.set_dpi(300)
 plt.tight_layout()
 ```
 
@@ -501,7 +499,7 @@ f, Pxx = jax.block_until_ready(spectrum(state))
 #| fig-cap: "**Power spectral density of initial network dynamics.** Gray lines show individual region spectra, while the black line shows the network-average spectrum. With homogeneous parameters (a=0.04, b=0.04 for all regions), the network exhibits a single dominant peak frequency."
 #| code-fold: true
 #| code-summary: "Show plotting code"
-fig, ax = plt.subplots(1, 1, figsize=(8, 3))
+fig, ax = plt.subplots(1, 1, figsize=(8.1, 3.0375))
 ax.plot(f, Pxx.T, linewidth=1, color = 'k', alpha = 0.15)
 ax.plot(f, S, linewidth=2, color = 'k')
 ax.set_xlabel('Frequency [Hz]')
@@ -510,7 +508,6 @@ ax.text(0.95, 0.95, f'Peak @ {peak_freq(state):.1f} Hz', transform=ax.transAxes,
         ha='right', va='top', bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.8))
 ax.set_xlim(0, 20)
 ax.set_yscale('log')
-fig.set_dpi(300)
 plt.tight_layout()
 ```
 
@@ -560,7 +557,7 @@ a_min, a_max = min(a), max(a)
 b_min, b_max = min(b), max(b)
 
 # Create figure and axis
-fig, ax = plt.subplots(figsize=(5, 2.5))
+fig, ax = plt.subplots(figsize=(8.1, 4.05))
 
 # Create the heatmap
 im = ax.imshow(jnp.stack(exploration_result).reshape(n, n).T,
@@ -577,7 +574,6 @@ ax.set_xlabel(r'a [ms$^{-1}$]')
 ax.set_ylabel(r'b [ms$^{-1}$]')
 ax.set_title('Network Dynamics')
 
-fig.set_dpi(300)
 plt.tight_layout()
 ```
 
@@ -600,7 +596,7 @@ target_PSDs = [cauchy_pdf(f, fp, 1) for fp in peak_freqs]
 target_PSDs = jnp.vstack(target_PSDs)
 
 # Visualize initial vs target spectra for a subset of regions
-fig, ax = plt.subplots(figsize=(8, 3))
+fig, ax = plt.subplots(figsize=(8.1, 3.0375))
 n_show = 7
 for (y, y2) in zip(Pxx[:n_show], target_PSDs[:n_show]):
     ax.plot(f, y, alpha = 0.3, color = "k", linewidth=1.5)
@@ -611,7 +607,6 @@ ax.set_title(f'{n_show} Initial vs Target Power Spectra')
 ax.set_xlim(0, 20)
 ax.set_yscale('log')
 ax.legend(['Initial', 'Target'], loc='upper right')
-fig.set_dpi(300)
 plt.tight_layout()
 ```
 
@@ -667,7 +662,7 @@ class PlotCallback(AbstractCallback):
             idx = dk_info[dk_info.acronym == name].freesurfer_idx.values[0]
             f_map_fitted = np.where(dk.get_fdata() == idx, fp, f_map_fitted)
 
-        fig, ax_init = plt.subplots(1, 1, figsize=(8, 4))
+        fig, ax_init = plt.subplots(1, 1, figsize=(8.1, 4.05))
 
         # Plot initial frequency map
         plotting.plot_glass_brain(
@@ -744,7 +739,7 @@ a_min, a_max = min(a), max(a)
 b_min, b_max = min(b), max(b)
 
 # Create figure and axis
-fig, ax = plt.subplots(figsize=(7, 4.5))
+fig, ax = plt.subplots(figsize=(8.1, 5.207))
 
 # Create the heatmap (frequency landscape from exploration)
 im = ax.imshow(jnp.stack(exploration_result).reshape(n, n).T,
@@ -764,7 +759,6 @@ b_fit = fitted_params.dynamics.b.value
 ax.scatter(a_fit, b_fit, color='white', s=20, marker='o',
            edgecolors='black', linewidths=1, zorder=5, alpha=0.7)
 
-fig.set_dpi(300)
 plt.tight_layout()
 ```
 
@@ -802,7 +796,7 @@ for name, fp in zip(region_labels, peak_freqs_init):
 #| fig-cap: "**Comparison of initial and fitted frequency gradients.** Left: Initial homogeneous network showing similar frequencies across all regions. Right: Fitted frequency gradient matching the target MEG pattern, with lower frequencies in association areas and higher frequencies in sensory cortex."
 #| code-fold: true
 #| code-summary: "Show plotting code"
-fig, (ax_init, ax_fit) = plt.subplots(1, 2, figsize=(8, 4))
+fig, (ax_init, ax_fit) = plt.subplots(1, 2, figsize=(8.1, 4.05))
 
 # Plot initial frequency map
 plotting.plot_glass_brain(
@@ -850,7 +844,6 @@ cbar_fit = plt.colorbar(sm_fit, cax=cax_fit, orientation="vertical")
 cbar_fit.set_label('Fitted Frequency [Hz]')
 
 fig.tight_layout()
-fig.set_dpi(300)
 ```
 
 ## Summary

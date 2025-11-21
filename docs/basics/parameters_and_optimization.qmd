@@ -256,7 +256,7 @@ Let's create plots to visualize the optimization convergence and parameter traje
 #| code-summary: "Show visualization code"
 import matplotlib.pyplot as plt
 
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8, 5), dpi=200)
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.1, 5.0625))
 
 # Loss convergence comparison
 ax1.semilogy(fitting_data["loss"].save, label='Regular Parameters', linewidth=2)
@@ -310,7 +310,7 @@ Now let's visualize how well each optimization approach achieved the target fixe
 ```{python}
 #| code-fold: true
 #| code-summary: "Show visualization code"
-fig, ax = plt.subplots(figsize=(8, 6), dpi=200)
+fig, ax = plt.subplots(figsize=(8.1, 6.075))
 
 # Plot target line
 ax.hlines(0.8, 0, 1000, color="black", linewidth=2.5, label="Target Fixed Point (0.8)")

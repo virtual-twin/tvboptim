@@ -264,7 +264,7 @@ import matplotlib.pyplot as plt
 
 if HAS_TVB:
     # Side-by-side comparison when TVB is available
-    fig, axes = plt.subplots(3, 2, figsize=(14, 10), sharey=True)
+    fig, axes = plt.subplots(3, 2, figsize=(8.1, 5.786), sharey=True)
 
     # Select a few representative nodes
     nodes_to_plot = [0, 20, 40]
@@ -296,7 +296,7 @@ if HAS_TVB:
     plt.show()
 else:
     # Show only Network Dynamics when TVB is not available
-    fig, axes = plt.subplots(3, 1, figsize=(10, 10))
+    fig, axes = plt.subplots(3, 1, figsize=(8.1, 8.1))
 
     # Select a few representative nodes
     nodes_to_plot = [0, 20, 40]
