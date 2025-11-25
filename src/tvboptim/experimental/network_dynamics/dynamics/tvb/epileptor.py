@@ -97,7 +97,7 @@ class Epileptor(AbstractDynamics):
         Ks=0.0,  # Slow time scale coupling (to z, permittivity)
         # Global parameters
         tt=1.0,  # Global time scaling
-        modification=False,  # Use nonlinear permittivity influence on z
+        modification=0.0,  # Use nonlinear permittivity influence on z (1.0=yes, 0.0=no)
     )
 
     COUPLING_INPUTS = {
@@ -164,12 +164,14 @@ class Epileptor(AbstractDynamics):
         z_nonlin_if_pos = 0.0
         z_nonlin = jnp.where(z < 0.0, z_nonlin_if_neg, z_nonlin_if_pos)
 
-        if params.modification:
-            # Nonlinear (sigmoidal) permittivity influence
-            h = params.x0 + 3.0 / (1.0 + jnp.exp(-(x1 + 0.5) / 0.1))
-        else:
-            # Linear permittivity influence
-            h = 4.0 * (x1 - params.x0) + z_nonlin
+        # Compute both permittivity influence variants
+        # Nonlinear (sigmoidal) permittivity influence
+        h_nonlinear = params.x0 + 3.0 / (1.0 + jnp.exp(-(x1 + 0.5) / 0.1))
+        # Linear permittivity influence
+        h_linear = 4.0 * (x1 - params.x0) + z_nonlin
+
+        # Select based on modification parameter (1.0=nonlinear, 0.0=linear)
+        h = params.modification * h_nonlinear + (1.0 - params.modification) * h_linear
 
         dz_dt = params.tt * params.r * (h - z + params.Ks * c_pop1)
 

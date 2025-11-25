@@ -111,8 +111,8 @@ class WilsonCowan(AbstractDynamics):
         # Input gain parameters
         alpha_e=1.0,  # Excitatory input scaling
         alpha_i=1.0,  # Inhibitory input scaling
-        # Sigmoid shift option
-        shift_sigmoid=False,  # Whether to use baseline-corrected sigmoid
+        # Sigmoid shift option (use 1.0 for shifted, 0.0 for standard)
+        shift_sigmoid=1.0,  # Whether to use baseline-corrected sigmoid (1.0=yes, 0.0=no)
     )
 
     COUPLING_INPUTS = {
@@ -181,23 +181,22 @@ class WilsonCowan(AbstractDynamics):
         )
 
         # Compute sigmoid activation functions
-        if params.shift_sigmoid:
-            # Baseline-corrected sigmoid (passes through zero)
-            sigmoid_offset_e = 1.0 / (1.0 + jnp.exp(params.a_e * params.b_e))
-            S_e = params.c_e * (
-                1.0 / (1.0 + jnp.exp(-params.a_e * (x_e - params.b_e)))
-                - sigmoid_offset_e
-            )
+        # Standard sigmoid
+        sigmoid_e = params.c_e / (1.0 + jnp.exp(-params.a_e * (x_e - params.b_e)))
+        sigmoid_i = params.c_i / (1.0 + jnp.exp(-params.a_i * (x_i - params.b_i)))
 
-            sigmoid_offset_i = 1.0 / (1.0 + jnp.exp(params.a_i * params.b_i))
-            S_i = params.c_i * (
-                1.0 / (1.0 + jnp.exp(-params.a_i * (x_i - params.b_i)))
-                - sigmoid_offset_i
-            )
-        else:
-            # Standard sigmoid
-            S_e = params.c_e / (1.0 + jnp.exp(-params.a_e * (x_e - params.b_e)))
-            S_i = params.c_i / (1.0 + jnp.exp(-params.a_i * (x_i - params.b_i)))
+        # Baseline correction offset (only applied if shift_sigmoid=1.0)
+        # When shift_sigmoid=0.0, offset is zero (standard sigmoid)
+        # When shift_sigmoid=1.0, offset shifts sigmoid to pass through zero
+        sigmoid_offset_e = (
+            params.shift_sigmoid * params.c_e / (1.0 + jnp.exp(params.a_e * params.b_e))
+        )
+        sigmoid_offset_i = (
+            params.shift_sigmoid * params.c_i / (1.0 + jnp.exp(params.a_i * params.b_i))
+        )
+
+        S_e = sigmoid_e - sigmoid_offset_e
+        S_i = sigmoid_i - sigmoid_offset_i
 
         # Population dynamics
         dE_dt = (-E + (params.k_e - params.r_e * E) * S_e) / params.tau_e

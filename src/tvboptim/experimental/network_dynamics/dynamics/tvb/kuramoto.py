@@ -109,10 +109,11 @@ class Kuramoto(AbstractDynamics):
 
         # Phase dynamics with Kuramoto-style local coupling
         # Local coupling is phase-dependent via sinusoidal transformation
-        local_range_coupling = jnp.sin(c_instant * theta)
+        local_coupling = 0
+        local_range_coupling = jnp.sin(local_coupling * theta)
 
         # Phase update: natural frequency + long-range + local coupling
-        dtheta_dt = params.omega + c_delayed + local_range_coupling
+        dtheta_dt = params.omega + c_delayed + c_instant + local_range_coupling
 
         # Package results
         derivatives = jnp.array([dtheta_dt])

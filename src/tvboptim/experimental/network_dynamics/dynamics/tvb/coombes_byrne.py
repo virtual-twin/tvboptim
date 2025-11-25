@@ -79,7 +79,7 @@ class CoombesByrne2D(AbstractDynamics):
         Delta=1.0,  # Width of heterogeneous noise distribution
         eta=2.0,  # Constant external input
         k=1.0,  # Synaptic conductance scaling (kappa)
-        v_syn=0.0,  # Synaptic reversal potential
+        v_syn=-4.0,  # Synaptic reversal potential
     )
 
     COUPLING_INPUTS = {
@@ -136,7 +136,7 @@ class CoombesByrne2D(AbstractDynamics):
 
         # Mean field dynamics
         # Firing rate dynamics (with quadratic damping from conductance)
-        dr_dt = params.Delta / jnp.pi + 2.0 * V * r - g * r**2
+        dr_dt = params.Delta / jnp.pi + 2.0 * V * r - g * r
 
         # Membrane potential dynamics (with conductance-based interaction)
         dV_dt = (
