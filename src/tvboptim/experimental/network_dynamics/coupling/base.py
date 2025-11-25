@@ -684,8 +684,26 @@ class DelayedCoupling(AbstractCoupling):
         local_idx = dynamics.name_to_index(self.LOCAL_STATE_NAMES)
 
         # Setup delay indexing (static)
+        # Convert delay times to discrete timesteps
         delays_dense = _ensure_dense(graph.delays)
-        delay_indices = jnp.round(delays_dense / dt).astype(jnp.int32)
+
+        # Compute delay indices for history buffer lookup
+        # History buffer structure: [max_delay_steps+1, n_states, n_nodes]
+        #   - history[0] contains the oldest state (max_delay in the past)
+        #   - history[max_delay_steps] contains the newest state (current step)
+        #
+        # For edge (j,k) with delay τ_jk, we need: state from (max_delay - τ_jk) ago
+        # This inverted indexing ensures:
+        #   - Large delays (close to max_delay) → small index (older states)
+        #   - Small delays (close to 0) → large index (newer states)
+        #
+        # Example: max_delay=10ms, dt=1ms, τ_jk=3ms
+        #   → delay_index[j,k] = 10 - 3 = 7
+        #   → history[7] gives state from 3ms ago (10ms - 3ms from oldest)
+        max_delay_steps = jnp.rint(graph.max_delay / dt).astype(jnp.int32)
+        delay_steps = jnp.rint(delays_dense / dt).astype(jnp.int32)
+        delay_indices = max_delay_steps - delay_steps
+
         state_indices = jnp.arange(graph.n_nodes)
 
         # Precompute BCOO indices for sparse incoming states optimization
@@ -744,8 +762,12 @@ class DelayedCoupling(AbstractCoupling):
         from ..graph.sparse import SparseDelayGraph
 
         # Extract delayed states from history using indices from coupling_data
-        # delayed_states[i, j, k] = history[delay[j,k], i, k]
-        # i.e., state i from node k delayed by delay[j,k] going to node j
+        # History indexing: history[delay_indices[j,k], :, k] retrieves state from node k
+        # at the appropriate time delay for edge j←k
+        #
+        # Result shape after indexing: [n_nodes_target, n_nodes_source, n_incoming, n_nodes]
+        # After transpose: delayed_states[i, j, k] = history[delay_indices[j,k], i, k]
+        # i.e., incoming state i from source node k, delayed by τ_jk, going to target node j
         delayed_states = jnp.transpose(
             coupling_state.history[
                 coupling_data.delay_indices, :, coupling_data.state_indices
@@ -824,9 +846,18 @@ class DelayedCoupling(AbstractCoupling):
             New Bunch with updated history buffer
         """
         # Update history buffer (circular) - only mutable operation
+        # History structure after roll: [max_delay_steps+1, n_incoming, n_nodes]
+        #   - history[0] = oldest state (at time t - max_delay)
+        #   - history[-1] = newest state (at time t, before update)
+        #
+        # Roll by -1 shifts all states towards index 0 (older end):
+        #   [oldest, ..., newest] → [2nd_oldest, ..., newest, oldest]
+        # Then overwrite index -1 with new current state:
+        #   [2nd_oldest, ..., old_newest, **new_state**]
+        # This maintains history[0]=oldest, history[-1]=newest
         new_history = jnp.roll(coupling_state.history, -1, axis=0)
         new_incoming_states = new_state[coupling_data.incoming_indices]
-        new_history = new_history.at[0].set(new_incoming_states)
+        new_history = new_history.at[-1].set(new_incoming_states)
 
         return Bunch(history=new_history)
 

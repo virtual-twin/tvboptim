@@ -1,6 +1,5 @@
 ---
 title: "Axes and Spaces: Systematic Parameter Exploration in TVBOptim"
-author: "TVBOptim Documentation"
 format:
   html:
     code-fold: false
@@ -919,12 +918,14 @@ print(f"\nBoth produced {len(seq_results)} results")
 ### When to Use Each Approach
 
 **Sequential Execution:**
+
 - **Debugging**: Easy to trace through individual parameter combinations
 - **Memory constraints**: Processes one combination at a time
 - **Complex models**: When models don't easily vectorize
 - **Small parameter spaces**: Overhead of parallelization not worth it
 
 **Parallel Execution:**
+
 - **Large parameter spaces**: Massive speedups for hundreds/thousands of combinations
 - **JAX-compatible models**: Models that can be easily vectorized
 - **Production runs**: When you need results fast

@@ -455,15 +455,15 @@ Mix and match components freely:
 
 Built for parameter inference and model fitting through a pure functional architecture:
 
-**The `prepare()` pattern**: Under the hood, `solve()` calls `prepare()` which separates configuration from execution:
+**The `prepare()` pattern**: Under the hood, `solve()` calls `prepare()` which separates state from execution:
 
 ```python
 # High-level: convenient class-based API
 result = solve(network, solver, t0=0.0, t1=1000.0, dt=0.5)
 
-# Under the hood: prepare() returns a pure function and config
-solve_fn, config = prepare(network, solver, t0=0.0, t1=1000.0, dt=0.5)
-result = solve_fn(config)  # Pure function call with PyTree config
+# Under the hood: prepare() returns a pure function and state
+solve_fn, state = prepare(network, solver, t0=0.0, t1=1000.0, dt=0.5)
+result = solve_fn(state)  # Pure function call with PyTree state
 ```
 
 **Why this enables optimization**:
@@ -472,11 +472,11 @@ result = solve_fn(config)  # Pure function call with PyTree config
 - `prepare()` compiles everything into a pure function and a PyTree of parameters
 - This pure function can be passed to JAX transformations: `jit`, `grad`, `vmap`
 - Direct gradient access: Use JAX's `grad()` or `value_and_grad()` on `solve_fn`
-- The config is just nested dictionaries (Bunch objects), fully compatible with JAX's PyTree system
+- The state is just nested dictionaries (Bunch objects), fully compatible with JAX's PyTree system
 - Mark parameters for optimization with `Parameter` and `BoundedParameter`
 - Easy integration with Optax, BlackJAX, and other JAX optimization libraries
 - Efficiently explore parameter spaces with `vmap` for batch simulations
-- Inspect, modify, or serialize the config as plain data
+- Inspect, modify, or serialize the state as plain data
 
 This architecture gives you the convenience of high-level classes while maintaining JAX's functional core for optimization.
 
@@ -526,8 +526,9 @@ This simplifies indexing and makes it clearer what each dimension represents.
 ## Noise Parameterization
 
 As noted earlier, noise parameters differ:
+
 - **TVB**: `nsig = 0.5 * sigma^2` (scaled parameter specific to TVB's implementation)
-- **Network Dynamics**: `sigma` directly represents the standard deviation of Gaussian noise
+- **Network Dynamics**: `sigma` directly represents the standard deviation of Gaussian noise or `sigma = $\sqrt{2\ \mathrm{nsig}}$`
 
 The Network Dynamics parameterization is more intuitive and matches standard SDE literature.
 

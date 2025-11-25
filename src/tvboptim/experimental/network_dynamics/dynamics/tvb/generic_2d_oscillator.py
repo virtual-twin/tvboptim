@@ -133,7 +133,7 @@ class Generic2dOscillator(AbstractDynamics):
                 + params.alpha * W
                 + params.gamma * params.I
                 + params.gamma * c_delayed
-                + c_instant
+                + params.gamma * c_instant
             )
             + stim
         )

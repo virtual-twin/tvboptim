@@ -528,10 +528,7 @@ class Network:
             Otherwise history buffer [n_steps, n_states, n_nodes]
                 where n_steps = ceil(max_delay / dt)
         """
-        if self.max_delay == 0.0:
-            return None
-
-        n_steps = int(jnp.ceil(self.max_delay / dt))
+        n_steps = max(1, int(jnp.ceil(self.max_delay / dt))) # at least 1 step (case: speed = inf)
         return jnp.broadcast_to(
             self.initial_state[None, :, :],
             (n_steps, self.initial_state.shape[0], self.initial_state.shape[1]),
@@ -552,7 +549,7 @@ class Network:
                 where n_steps = ceil(max_delay / dt)
         """
         # Calculate required number of steps
-        n_steps_needed = int(jnp.ceil(self.max_delay / dt))
+        n_steps_needed = int(jnp.rint(self.max_delay / dt)) + 1
 
         # Get history data
         hist_ts = self._history.ts
@@ -657,9 +654,6 @@ class Network:
             Otherwise history buffer [n_steps, n_states, n_nodes]
                 where n_steps = ceil(max_delay / dt)
         """
-        if self.max_delay == 0.0:
-            return None
-
         if self._history is None:
             return self._get_initial_history(dt)
         else:
