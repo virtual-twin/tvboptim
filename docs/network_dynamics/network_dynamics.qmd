@@ -27,9 +27,16 @@ Network Dynamics is a pure JAX interface for defining and simulating brain netwo
 
 This document provides a gentle introduction through a complete working example, comparing the traditional TVB approach with the Network Dynamics framework. For detailed documentation on each component, see the linked sections throughout.
 
+# A Complete Example: TVB vs Network Dynamics
+
+Let's simulate a resting-state brain network using the Reduced Wong-Wang model with empirical connectivity. We'll show both approaches side-by-side so you can see the correspondence between frameworks.
+
+::: {.callout-note collapse="true"}
 ## Mathematical Framework
 
-Network Dynamics simulates systems of stochastic differential equations with the following structure:
+Network Dynamics implements TVB's standard mathematical framework for brain network simulations. While this framework is the default, Network Dynamics can in principle model other system architectures due to its flexible JAX-based design.
+
+The standard TVB framework simulates systems of stochastic differential equations with the following structure:
 
 $$
 \begin{align*}
@@ -56,10 +63,7 @@ $$
 - $\theta^c$ - coupling parameters (strength, thresholds, etc.)
 
 Each code component in Network Dynamics directly implements one part of this mathematical structure, making the mapping from theory to implementation transparent.
-
-# A Complete Example: TVB vs Network Dynamics
-
-Let's simulate a resting-state brain network using the Reduced Wong-Wang model with empirical connectivity. We'll show both approaches side-by-side so you can see the correspondence between frameworks.
+:::
 
 ::: {.columns}
 

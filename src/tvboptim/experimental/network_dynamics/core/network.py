@@ -528,7 +528,9 @@ class Network:
             Otherwise history buffer [n_steps, n_states, n_nodes]
                 where n_steps = ceil(max_delay / dt)
         """
-        n_steps = max(1, int(jnp.ceil(self.max_delay / dt))) # at least 1 step (case: speed = inf)
+        n_steps = max(
+            1, int(jnp.ceil(self.max_delay / dt))
+        )  # at least 1 step (case: speed = inf)
         return jnp.broadcast_to(
             self.initial_state[None, :, :],
             (n_steps, self.initial_state.shape[0], self.initial_state.shape[1]),
