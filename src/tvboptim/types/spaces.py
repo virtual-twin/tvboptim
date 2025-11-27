@@ -14,7 +14,7 @@ Axes generate raw JAX arrays only. Parameter creation is handled separately by u
 
 Examples
 --------
->>> from tvboptim.types.spaces import Space, GridAxis, UniformAxis, NumPyroAxis
+>>> from tvboptim.types.spaces import Space, GridAxis, LogGridAxis, UniformAxis, NumPyroAxis
 >>> import numpyro.distributions as dist
 >>> import copy
 >>>
@@ -70,13 +70,18 @@ class AbstractAxis(ABC):
 
     Examples
     --------
-    >>> from tvboptim.types.spaces import GridAxis, UniformAxis, NumPyroAxis
+    >>> from tvboptim.types.spaces import GridAxis, LogGridAxis, UniformAxis, NumPyroAxis
     >>> import numpyro.distributions as dist
     >>>
     >>> # Grid sampling from 0 to 1 with 5 points
     >>> grid_axis = GridAxis(0.0, 1.0, 5)
     >>> values = grid_axis.generate_values()
     >>> print(f"Grid values: {values}")
+    >>>
+    >>> # Log-spaced grid sampling from 0.001 to 1.0
+    >>> log_axis = LogGridAxis(0.001, 1.0, 4)
+    >>> values = log_axis.generate_values()
+    >>> print(f"Log grid values: {values}")
     >>>
     >>> # Random uniform sampling
     >>> uniform_axis = UniformAxis(0.0, 1.0, 3)
@@ -217,6 +222,103 @@ class GridAxis(AbstractAxis):
 
     def __repr__(self):
         return f"GridAxis(low={self.low}, high={self.high}, n={self.n})"
+
+
+class LogGridAxis(AbstractAxis):
+    """Axis for systematic logarithmic grid sampling over parameter bounds.
+
+    Generates logarithmically spaced values between low and high bounds using
+    deterministic grid sampling. Useful for parameters that span multiple orders
+    of magnitude (e.g., learning rates, regularization coefficients).
+
+    Parameters
+    ----------
+    low : float
+        Lower bound for sampling (must be positive).
+    high : float
+        Upper bound for sampling (must be positive).
+    n : int
+        Number of grid points to generate.
+
+    Raises
+    ------
+    ValueError
+        If n <= 0, low >= high, or if low or high are not positive.
+
+    Examples
+    --------
+    >>> log_grid = LogGridAxis(0.001, 1.0, 5)
+    >>> values = log_grid.generate_values()
+    >>> print(values)  # [0.001, 0.00562, 0.0316, 0.178, 1.0] (approximately)
+    """
+
+    def __init__(
+        self, low: float, high: float, n: int, shape: Optional[Tuple[int, ...]] = None
+    ):
+        """Initialize log grid axis.
+
+        Parameters
+        ----------
+        low : float
+            Lower bound for sampling (must be positive).
+        high : float
+            Upper bound for sampling (must be positive).
+        n : int
+            Number of grid points to generate.
+        shape : Tuple[int, ...], optional
+            Shape of generated values. If specified, values are broadcast to this shape.
+            Default is None.
+        """
+        super().__init__()
+        self.low = low
+        self.high = high
+        self.n = n
+        self.shape = shape
+
+        if n <= 0:
+            raise ValueError(f"Grid size must be positive, got {n}")
+        if low <= 0:
+            raise ValueError(f"Low bound must be positive for log scale, got {low}")
+        if high <= 0:
+            raise ValueError(f"High bound must be positive for log scale, got {high}")
+        if low >= high:
+            raise ValueError(f"Low bound ({low}) must be less than high bound ({high})")
+
+    def generate_values(self, key: Optional[jax.random.PRNGKey] = None) -> jnp.ndarray:
+        """Generate logarithmically spaced grid values.
+
+        Parameters
+        ----------
+        key : jax.random.PRNGKey, optional
+            Random key. Ignored for deterministic grid sampling.
+
+        Returns
+        -------
+        jnp.ndarray
+            Array of logarithmically spaced values from low to high. If shape is
+            specified, values are broadcast to shape (n,) + shape with identical
+            values across additional dimensions.
+        """
+        values = jnp.geomspace(self.low, self.high, self.n)
+        if self.shape:
+            # Broadcast to (n,) + shape - all values in additional dims are identical
+            values = values.reshape(self.n, *([1] * len(self.shape)))
+            values = jnp.broadcast_to(values, (self.n,) + self.shape)
+        return values
+
+    @property
+    def size(self) -> int:
+        """Number of grid points.
+
+        Returns
+        -------
+        int
+            Number of grid points (n).
+        """
+        return self.n
+
+    def __repr__(self):
+        return f"LogGridAxis(low={self.low}, high={self.high}, n={self.n})"
 
 
 class UniformAxis(AbstractAxis):

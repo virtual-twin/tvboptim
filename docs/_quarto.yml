@@ -99,6 +99,7 @@ quartodoc:
       contents:
         - spaces.Space
         - spaces.GridAxis
+        - spaces.LogGridAxis
         - spaces.UniformAxis
         - spaces.DataAxis
     - title: Executors & Results
