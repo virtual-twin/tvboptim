@@ -139,7 +139,7 @@ class AbstractCoupling(ABC):
     """Ultra-minimal interface for completely custom coupling implementations.
 
     Use this base class only when you need full control over coupling computation
-    and the standard matrix multiplication patterns don't apply.
+    and the standard matrix multiplication patterns don't apply (e.g., SubspaceCoupling).
 
     Attributes:
         N_OUTPUT_STATES: Number of output states after coupling
@@ -264,7 +264,217 @@ class AbstractCoupling(ABC):
         pass
 
 
-class InstantaneousCoupling(AbstractCoupling):
+class PrePostCoupling(AbstractCoupling):
+    """Base class for couplings with pre/post transform pattern.
+
+    This intermediate class provides common infrastructure for couplings that
+    follow the TVB-style pattern:
+    1. Extract states (incoming or delayed)
+    2. Apply pre() transformation
+    3. Matrix multiplication with connectivity weights
+    4. Apply post() transformation
+
+    Subclasses must implement:
+    - prepare(): Setup coupling data and state
+    - compute(): Compute coupling input
+    - update_state(): Update internal state after integration
+    - _build_network_form(): Build the network form string for describe()
+
+    Users typically only need to override pre() and/or post() methods.
+    """
+
+    # ========================================================================
+    # Shared Helper Methods
+    # ========================================================================
+
+    def _format_state_list(self, states, with_subscript: bool = False) -> str:
+        """Format state names for display.
+
+        Args:
+            states: State names (str, list, or tuple)
+            with_subscript: If True, add subscript ⱼ to each state
+
+        Returns:
+            Formatted string like 'S', 'Sⱼ', '(y1ⱼ, y2ⱼ)', etc.
+        """
+        if isinstance(states, str):
+            return states + "ⱼ" if with_subscript else states
+        elif isinstance(states, (list, tuple)):
+            if len(states) == 0:
+                return ""
+            elif len(states) == 1:
+                state = states[0]
+                return state + "ⱼ" if with_subscript else state
+            else:
+                # Multiple states: format as (state1ⱼ, state2ⱼ)
+                if with_subscript:
+                    formatted = [s + "ⱼ" for s in states]
+                else:
+                    formatted = states
+                return f"({', '.join(formatted)})"
+        return str(states)
+
+    def _infer_pre_form(self, incoming: str, local: str) -> str:
+        """Infer pre() transformation form by introspecting the method.
+
+        Returns empty string if pre() is the default identity.
+        """
+        import inspect
+
+        try:
+            pre_source = inspect.getsource(self.pre)
+            # Check if it's the default identity (returns first argument unchanged)
+            # Works for both "incoming_states" and "delayed_states" naming
+            if (
+                "return incoming_states" in pre_source
+                or "return delayed_states" in pre_source
+            ) and pre_source.count("\n") <= 5:
+                return ""  # Default identity, don't show
+        except (AttributeError, OSError, TypeError):
+            pass
+
+        return ""
+
+    def _infer_post_form(self) -> str:
+        """Infer post() transformation form by introspecting the method.
+
+        Returns the post transformation with actual parameter values.
+        """
+        import inspect
+
+        try:
+            post_source = inspect.getsource(self.post)
+
+            # Try to extract the return expression
+            lines = post_source.strip().split("\n")
+            for line in lines:
+                if "return" in line:
+                    # Extract expression after return
+                    expr = line.split("return", 1)[1].strip()
+
+                    # Substitute parameter values
+                    for key, value in self.params.items():
+                        # Replace params.key with actual value
+                        expr = expr.replace(f"params.{key}", str(value))
+
+                    # Clean up common patterns
+                    expr = expr.replace("summed_inputs", "(...)")
+                    expr = expr.replace("local_states", "local")
+
+                    return expr
+        except (AttributeError, OSError, TypeError, KeyError):
+            pass
+
+        # Fallback: check for common parameter patterns
+        if "G" in self.params:
+            return "G * (...)"
+
+        return ""
+
+    def _sparse_pre(self, incoming_states, local_states: jnp.ndarray, params: Bunch):
+        """Sparse version of pre() using sparsify decorator.
+
+        Default implementation wraps self.pre() with sparsify.
+        Subclasses can override this for custom sparse implementations.
+
+        Args:
+            incoming_states: BCOO tensor [n_incoming, n_nodes, n_nodes]
+            local_states: Dense tensor [n_local, n_nodes]
+            params: Coupling parameters
+
+        Returns:
+            BCOO tensor [n_output, n_nodes, n_nodes]
+        """
+        import jax.experimental.sparse as jsparse
+
+        return jsparse.sparsify(self.pre)(incoming_states, local_states, params)
+
+    # ========================================================================
+    # Describe Infrastructure (Template Method Pattern)
+    # ========================================================================
+
+    def describe(self) -> dict:
+        """Generate human-readable description of coupling for printing.
+
+        Uses introspection of pre() and post() methods to infer mathematical form.
+        Calls _build_network_form() for subclass-specific network form building.
+
+        Returns:
+            Dictionary with 'network_form', 'pre_form', 'post_form' keys
+        """
+        incoming = self._format_state_list(self.INCOMING_STATE_NAMES)
+        local = self._format_state_list(self.LOCAL_STATE_NAMES)
+
+        pre_form = self._infer_pre_form(incoming, local)
+        post_form = self._infer_post_form()
+
+        network_form = self._build_network_form(pre_form, post_form)
+
+        return {
+            "network_form": network_form,
+            "pre_form": pre_form if pre_form else None,
+            "post_form": post_form if post_form else None,
+        }
+
+    @abstractmethod
+    def _build_network_form(self, pre_form: str, post_form: str) -> str:
+        """Build the network form string for describe().
+
+        Subclasses implement this to provide coupling-specific network form.
+
+        Args:
+            pre_form: Inferred pre() form string (empty if identity)
+            post_form: Inferred post() form string
+
+        Returns:
+            Complete network form string like "G * Σⱼ wᵢⱼ * Sⱼ"
+        """
+        pass
+
+    # ========================================================================
+    # Pre/Post Transform Interface
+    # ========================================================================
+
+    def pre(
+        self, incoming_states: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
+    ) -> jnp.ndarray:
+        """Transform states before matrix multiplication. Default: identity (per-edge).
+
+        Args:
+            incoming_states: States from connected nodes in per-edge format
+                           Shape: [n_incoming, n_nodes_target, n_nodes_source]
+                           where [:, j, k] is state from source node k to target node j
+                           For delayed coupling, these are delayed states from history.
+            local_states: States from current node [n_local, n_nodes]
+            params: Coupling parameters
+
+        Returns:
+            Transformed states - shape determines coupling mode:
+            - [n_states, n_nodes]: Vectorized mode (uses matmul)
+            - [n_states, n_nodes, n_nodes]: Per-edge mode (uses element-wise multiply + sum)
+
+            Default returns incoming_states unchanged (3D) → per-edge mode.
+        """
+        return incoming_states
+
+    @abstractmethod
+    def post(
+        self, summed_inputs: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
+    ) -> jnp.ndarray:
+        """Transform coupling after summation. Must be implemented by subclasses.
+
+        Args:
+            summed_inputs: Summed coupling inputs [n_coupling_inputs, n_nodes]
+            local_states: States from current node [n_local, n_nodes]
+            params: Coupling parameters
+
+        Returns:
+            Final coupling input [n_coupling_inputs, n_nodes]
+        """
+        pass
+
+
+class InstantaneousCoupling(PrePostCoupling):
     """Base class for coupling without delays (ODE/SDE systems).
 
     Handles standard weight matrix multiplication pattern:
@@ -462,197 +672,32 @@ class InstantaneousCoupling(AbstractCoupling):
         """
         return coupling_state
 
-    def describe(self) -> dict:
-        """Generate human-readable description of coupling for printing.
+    def _build_network_form(self, pre_form: str, post_form: str) -> str:
+        """Build network form for instantaneous coupling.
 
-        Uses introspection of pre() and post() methods to infer mathematical form.
-        Subclasses can override to provide custom descriptions.
-
-        Returns:
-            Dictionary with 'network_form', 'pre_form', 'post_form' keys
+        Handles both incoming_states and local_states modes (for FastLinearCoupling).
         """
-        # Get incoming/local state descriptions (no subscripts here)
         incoming = self._format_state_list(self.INCOMING_STATE_NAMES)
-        local = self._format_state_list(self.LOCAL_STATE_NAMES)
 
-        # Check if pre() and post() are customized
-        pre_form = self._infer_pre_form(incoming, local)
-        post_form = self._infer_post_form()
-
-        # Determine which states are used in the network form
-        # FastLinearCoupling uses local states (vectorized mode)
-
-        # Get subscripted version for network form
+        # Determine which states to use: incoming if available, else local
         state_with_subscript = self._format_state_list(
             self.INCOMING_STATE_NAMES if incoming else self.LOCAL_STATE_NAMES,
             with_subscript=True,
         )
 
-        # Build network form with pre/post embedded
-        # Use post_form directly if available (already has actual values substituted)
         base_sum = f"Σⱼ wᵢⱼ * {state_with_subscript}"
 
         if pre_form and post_form:
-            # Substitute base into post_form
-            network_form = post_form.replace(
-                "(...)", f"Σⱼ wᵢⱼ * pre({state_with_subscript})"
-            )
+            return post_form.replace("(...)", f"Σⱼ wᵢⱼ * pre({state_with_subscript})")
         elif pre_form:
-            network_form = f"Σⱼ wᵢⱼ * pre({state_with_subscript})"
+            return f"Σⱼ wᵢⱼ * pre({state_with_subscript})"
         elif post_form:
-            # Substitute the sum into post form
-            network_form = post_form.replace("(...)", base_sum)
+            return post_form.replace("(...)", base_sum)
         else:
-            network_form = base_sum
-
-        return {
-            "network_form": network_form,
-            "pre_form": pre_form if pre_form else None,
-            "post_form": post_form if post_form else None,
-        }
-
-    def _format_state_list(self, states, with_subscript: bool = False) -> str:
-        """Format state names for display.
-
-        Args:
-            states: State names (str, list, or tuple)
-            with_subscript: If True, add subscript ⱼ to each state
-
-        Returns:
-            Formatted string like 'S', 'Sⱼ', '(y1ⱼ, y2ⱼ)', etc.
-        """
-        if isinstance(states, str):
-            return states + "ⱼ" if with_subscript else states
-        elif isinstance(states, (list, tuple)):
-            if len(states) == 0:
-                return ""
-            elif len(states) == 1:
-                state = states[0]
-                return state + "ⱼ" if with_subscript else state
-            else:
-                # Multiple states: format as (state1ⱼ, state2ⱼ)
-                if with_subscript:
-                    formatted = [s + "ⱼ" for s in states]
-                else:
-                    formatted = states
-                return f"({', '.join(formatted)})"
-        return str(states)
-
-    def _infer_pre_form(self, incoming: str, local: str) -> str:
-        """Infer pre() transformation form by introspecting the method.
-
-        Returns empty string if pre() is the default identity.
-        """
-        import inspect
-
-        try:
-            pre_source = inspect.getsource(self.pre)
-            # Check if it's the default identity (returns incoming_states unchanged)
-            if "return incoming_states" in pre_source and pre_source.count("\n") <= 5:
-                return ""  # Default identity, don't show
-        except (AttributeError, OSError, TypeError):
-            pass
-
-        # Check if there are meaningful parameters used in pre
-        # For now, return empty - subclasses will override if needed
-        return ""
-
-    def _infer_post_form(self) -> str:
-        """Infer post() transformation form by introspecting the method.
-
-        Returns the post transformation with actual parameter values.
-        """
-        import inspect
-
-        try:
-            post_source = inspect.getsource(self.post)
-
-            # Try to extract the return expression
-            lines = post_source.strip().split("\n")
-            for line in lines:
-                if "return" in line:
-                    # Extract expression after return
-                    expr = line.split("return", 1)[1].strip()
-
-                    # Substitute parameter values
-                    for key, value in self.params.items():
-                        # Replace params.key with actual value
-                        expr = expr.replace(f"params.{key}", str(value))
-
-                    # Clean up common patterns
-                    expr = expr.replace("summed_inputs", "(...)")
-                    expr = expr.replace("local_states", "local")
-
-                    return expr
-        except (AttributeError, OSError, TypeError, KeyError):
-            pass
-
-        # Fallback: check for common parameter patterns
-        if "G" in self.params:
-            return "G * (...)"
-
-        return ""
-
-    def pre(
-        self, incoming_states: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
-    ) -> jnp.ndarray:
-        """Transform states before matrix multiplication. Default: identity (per-edge).
-
-        Args:
-            incoming_states: States from connected nodes in per-edge format
-                           Shape: [n_incoming, n_nodes_target, n_nodes_source]
-                           where [:, j, k] is state from source node k to target node j
-            local_states: States from current node [n_local, n_nodes]
-            params: Coupling parameters
-
-        Returns:
-            Transformed states - shape determines coupling mode:
-            - [n_states, n_nodes]: Vectorized mode (uses matmul)
-            - [n_states, n_nodes, n_nodes]: Per-edge mode (uses element-wise multiply + sum)
-
-            Default returns incoming_states unchanged (3D) → per-edge mode
-            This matches v1 behavior where default pre() is identity.
-        """
-        # Default: return incoming_states unchanged (identity)
-        # This gives [n_incoming, n_nodes, n_nodes] shape → per-edge mode (like v1)
-        return incoming_states
-
-    def _sparse_pre(self, incoming_states, local_states: jnp.ndarray, params: Bunch):
-        """Sparse version of pre() using sparsify decorator.
-
-        Default implementation wraps self.pre() with sparsify.
-        Subclasses can override this for custom sparse implementations.
-
-        Args:
-            incoming_states: BCOO tensor [n_incoming, n_nodes, n_nodes]
-            local_states: Dense tensor [n_local, n_nodes]
-            params: Coupling parameters
-
-        Returns:
-            BCOO tensor [n_output, n_nodes, n_nodes]
-        """
-        import jax.experimental.sparse as jsparse
-
-        return jsparse.sparsify(self.pre)(incoming_states, local_states, params)
-
-    @abstractmethod
-    def post(
-        self, summed_inputs: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
-    ) -> jnp.ndarray:
-        """Transform coupling after summation. Must be implemented by subclasses.
-
-        Args:
-            summed_inputs: Summed coupling inputs [n_coupling_inputs, n_nodes]
-            local_states: States from current node [n_local, n_nodes]
-            params: Coupling parameters
-
-        Returns:
-            Final coupling input [n_coupling_inputs, n_nodes]
-        """
-        pass
+            return base_sum
 
 
-class DelayedCoupling(AbstractCoupling):
+class DelayedCoupling(PrePostCoupling):
     """Base class for coupling with transmission delays (DDE/SDDE systems).
 
     Handles delayed coupling pattern:
@@ -861,176 +906,22 @@ class DelayedCoupling(AbstractCoupling):
 
         return Bunch(history=new_history)
 
-    def describe(self) -> dict:
-        """Generate human-readable description of delayed coupling for printing.
+    def _build_network_form(self, pre_form: str, post_form: str) -> str:
+        """Build network form for delayed coupling.
 
-        Uses introspection of pre() and post() methods to infer mathematical form.
-        Subclasses can override to provide custom descriptions.
-
-        Returns:
-            Dictionary with 'network_form', 'pre_form', 'post_form' keys
+        Always uses incoming states with delay notation (t - τᵢⱼ).
         """
-        # Get incoming/local state descriptions (no subscripts here)
-        incoming = self._format_state_list(self.INCOMING_STATE_NAMES)
-        local = self._format_state_list(self.LOCAL_STATE_NAMES)
-
-        # Check if pre() and post() are customized
-        pre_form = self._infer_pre_form(incoming, local)
-        post_form = self._infer_post_form()
-
-        # Get subscripted version for network form
         incoming_with_subscript = self._format_state_list(
             self.INCOMING_STATE_NAMES, with_subscript=True
         )
 
-        # Build network form with pre/post embedded and delays
+        state_expr = f"{incoming_with_subscript}(t - τᵢⱼ)"
+
         if pre_form and post_form:
-            network_form = f"post(Σⱼ wᵢⱼ * pre({incoming_with_subscript}(t - τᵢⱼ)))"
+            return f"post(Σⱼ wᵢⱼ * pre({state_expr}))"
         elif pre_form:
-            network_form = f"Σⱼ wᵢⱼ * pre({incoming_with_subscript}(t - τᵢⱼ))"
+            return f"Σⱼ wᵢⱼ * pre({state_expr})"
         elif post_form:
-            network_form = f"post(Σⱼ wᵢⱼ * {incoming_with_subscript}(t - τᵢⱼ))"
+            return f"post(Σⱼ wᵢⱼ * {state_expr})"
         else:
-            network_form = f"Σⱼ wᵢⱼ * {incoming_with_subscript}(t - τᵢⱼ)"
-
-        return {
-            "network_form": network_form,
-            "pre_form": pre_form,
-            "post_form": post_form,
-        }
-
-    def _format_state_list(self, states, with_subscript: bool = False) -> str:
-        """Format state names for display.
-
-        Args:
-            states: State names (str, list, or tuple)
-            with_subscript: If True, add subscript ⱼ to each state
-
-        Returns:
-            Formatted string like 'S', 'Sⱼ', '(y1ⱼ, y2ⱼ)', etc.
-        """
-        if isinstance(states, str):
-            return states + "ⱼ" if with_subscript else states
-        elif isinstance(states, (list, tuple)):
-            if len(states) == 0:
-                return ""
-            elif len(states) == 1:
-                state = states[0]
-                return state + "ⱼ" if with_subscript else state
-            else:
-                # Multiple states: format as (state1ⱼ, state2ⱼ)
-                if with_subscript:
-                    formatted = [s + "ⱼ" for s in states]
-                else:
-                    formatted = states
-                return f"({', '.join(formatted)})"
-        return str(states)
-
-    def _infer_pre_form(self, incoming: str, local: str) -> str:
-        """Infer pre() transformation form by introspecting the method.
-
-        Returns empty string if pre() is the default identity.
-        """
-        import inspect
-
-        try:
-            pre_source = inspect.getsource(self.pre)
-            # Check if it's the default identity (returns delayed_states unchanged)
-            if "return delayed_states" in pre_source and pre_source.count("\n") <= 5:
-                return ""  # Default identity, don't show
-        except (AttributeError, OSError, TypeError):
-            pass
-
-        # Check if there are meaningful parameters used in pre
-        # For now, return empty - subclasses will override if needed
-        return ""
-
-    def _infer_post_form(self) -> str:
-        """Infer post() transformation form by introspecting the method.
-
-        Returns the post transformation with actual parameter values.
-        """
-        import inspect
-
-        try:
-            post_source = inspect.getsource(self.post)
-
-            # Try to extract the return expression
-            lines = post_source.strip().split("\n")
-            for line in lines:
-                if "return" in line:
-                    # Extract expression after return
-                    expr = line.split("return", 1)[1].strip()
-
-                    # Substitute parameter values
-                    for key, value in self.params.items():
-                        # Replace params.key with actual value
-                        expr = expr.replace(f"params.{key}", str(value))
-
-                    # Clean up common patterns
-                    expr = expr.replace("summed_inputs", "(...)")
-                    expr = expr.replace("local_states", "local")
-
-                    return expr
-        except (AttributeError, OSError, TypeError, KeyError):
-            pass
-
-        # Fallback: check for common parameter patterns
-        if "G" in self.params:
-            return "G * (...)"
-
-        return ""
-
-    def pre(
-        self, delayed_states: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
-    ) -> jnp.ndarray:
-        """Transform delayed states before matrix multiplication. Default: identity.
-
-        Args:
-            delayed_states: Delayed states from history in per-edge format
-                          Shape: [n_incoming, n_nodes_target, n_nodes_source]
-                          where [:, j, k] is state from source node k to target node j,
-                          delayed by delay[j, k]
-            local_states: States from current node [n_local, n_nodes]
-            params: Coupling parameters
-
-        Returns:
-            Transformed states [n_incoming, n_nodes_target, n_nodes_source]
-            Note: Delays are always per-edge (3D), unlike instantaneous coupling
-            which supports both vectorized (2D) and per-edge (3D) modes.
-        """
-        return delayed_states
-
-    def _sparse_pre(self, delayed_states, local_states: jnp.ndarray, params: Bunch):
-        """Sparse version of pre() using sparsify decorator.
-
-        Default implementation wraps self.pre() with sparsify.
-        Subclasses can override this for custom sparse implementations.
-
-        Args:
-            delayed_states: BCOO tensor [n_incoming, n_nodes, n_nodes]
-            local_states: Dense tensor [n_local, n_nodes]
-            params: Coupling parameters
-
-        Returns:
-            BCOO tensor [n_output, n_nodes, n_nodes]
-        """
-        import jax.experimental.sparse as jsparse
-
-        return jsparse.sparsify(self.pre)(delayed_states, local_states, params)
-
-    @abstractmethod
-    def post(
-        self, summed_inputs: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
-    ) -> jnp.ndarray:
-        """Transform coupling after summation. Must be implemented by subclasses.
-
-        Args:
-            summed_inputs: Summed coupling inputs [n_coupling_inputs, n_nodes]
-            local_states: States from current node [n_local, n_nodes]
-            params: Coupling parameters
-
-        Returns:
-            Final coupling input [n_coupling_inputs, n_nodes]
-        """
-        pass
+            return f"Σⱼ wᵢⱼ * {state_expr}"
