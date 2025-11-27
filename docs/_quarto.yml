@@ -35,8 +35,9 @@ website:
           - file: network_dynamics/solvers.qmd
       - text: "Advanced Topics"
         menu:
-          - text: "Surface Simulations"
           - text: "Performance Tips"
+          - file: advanced/buffer_strategies.qmd
+          - text: "Surface Simulations"
           - text: "Constraining Parameters"
       - text: "Reference"
         file: reference/index.qmd

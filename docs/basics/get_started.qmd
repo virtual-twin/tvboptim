@@ -24,11 +24,34 @@ TVB-Optim requires Python 3.11 or later and depends on JAX for high-performance 
 
 TVB-Optim is a standalone package that provides utilities for optimization algorithms, parameter spaces, and execution strategies. You can define models directly in TVB-Optim or use models from other frameworks:
 
+::: {.panel-tabset}
+
+## UV
+
 ```bash
-git clone git@github.com:virtual-twin/tvboptim.git
-cd tvboptim
-pip install -e .
+uv pip install tvboptim
 ```
+
+For development:
+```bash
+git clone https://github.com/virtual-twin/tvboptim.git
+cd tvboptim
+uv pip install -e ".[dev]"
+```
+
+## pip
+
+```bash
+pip install tvboptim
+```
+
+For development:
+```bash
+git clone https://github.com/virtual-twin/tvboptim.git
+cd tvboptim
+pip install -e ".[dev]"
+```
+:::
 
 ### Optional: Install TVB-O
 
@@ -39,11 +62,34 @@ TVB-O is **only required** if you want to:
 
 If you need TVB-O, install it with:
 
+::: {.panel-tabset}
+
+## UV
+
 ```bash
-git clone git@github.com:virtual-twin/tvbo.git
-cd tvbo
-pip install -e .
+uv pip install tvbo
 ```
+
+For development:
+```bash
+git clone https://github.com/virtual-twin/tvbo.git
+cd tvboptim
+uv pip install -e ".[dev]"
+```
+
+## pip
+
+```bash
+pip install tvbo
+```
+
+For development:
+```bash
+git clone https://github.com/virtual-twin/tvbo.git
+cd tvboptim
+pip install -e ".[dev]"
+```
+:::
 
 
 ```{python}
@@ -93,30 +139,16 @@ from tvboptim.experimental.network_dynamics.solvers import Heun
 from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
 from tvboptim.data import load_structural_connectivity
 
-# Optional imports for different model frameworks
-# Set flags for availability
-HAS_TVBO = False
-HAS_TVB = False
+# Import from tvbo - the brain simulation framework
+from tvbo.export.experiment import SimulationExperiment  # Main experiment class
+from tvbo.datamodel import tvbo_datamodel  # Data structures
+from tvbo.utils import numbered_print  # Utility functions
 
-try:
-    # Import from tvbo - the brain simulation framework (optional dependency)
-    from tvbo.export.experiment import SimulationExperiment  # Main experiment class
-    from tvbo.datamodel import tvbo_datamodel  # Data structures
-    from tvbo.utils import numbered_print  # Utility functions
-    HAS_TVBO = True
-    print("✓ TVB-O is available - you can use TVB-O experiments and models")
-except ImportError:
-    print("ℹ TVB-O not installed - you can still use TVB-Optim standalone models")
-    print("  Install with: pip install tvbo")
-
-try:
-    # Classic TVB imports - for using TVB simulator directly
+# Classic TVB imports - for using TVB simulator directly
+import warnings
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
     from tvb.simulator.lab import simulator, models, connectivity, coupling, integrators, monitors
-    HAS_TVB = True
-    print("✓ Classic TVB is available - you can convert TVB simulators to experiments")
-except ImportError:
-    print("ℹ Classic TVB not installed - you can still use TVB-O and TVB-Optim models")
-    print("  Install with: pip install tvb-library")
 
 # Set cache path for tvboptim - stores expensive computations for reuse
 set_cache_path("./get_started")
@@ -136,7 +168,8 @@ weights, lengths, labels = load_structural_connectivity("dk_average")
 weights = weights / np.max(weights)
 
 # Calculate delays from tract lengths and conduction speed (3 mm/ms)
-delays = lengths / 3.0
+speed = np.inf
+delays = lengths / speed
 
 ```
 
@@ -183,77 +216,71 @@ For all the details on TVB-O, see its [Documentation](https://virtual-twin.githu
 
 ```{python}
 #| echo: true
+#| eval: false
 #| output: true
 
-if HAS_TVBO:
-    # Create a brain simulation experiment using the Reduced Wong-Wang model
-    # TVB-O uses a declarative dictionary-based approach
-    experiment = SimulationExperiment(
-        model={
-            "name": "ReducedWongWang",
-            "parameters": {
-                "w": {"name": "w", "value": 0.5},      # Excitatory recurrence strength
-                "I_o": {"name": "I_o", "value": 0.32}, # External input current
-            },
-            "state_variables": {
-                "S": {"initial_value": 0.3},  # Initial synaptic gating variable
-            }
+# Create a brain simulation experiment using the Reduced Wong-Wang model
+# TVB-O uses a declarative dictionary-based approach
+experiment = SimulationExperiment(
+    model={
+        "name": "ReducedWongWang",
+        "parameters": {
+            "w": {"name": "w", "value": 0.5},      # Excitatory recurrence strength
+            "I_o": {"name": "I_o", "value": 0.32}, # External input current
         },
-        connectivity={
-            "conduction_speed": {"name": "cs", "value": np.array([3.0])}  # 3 mm/ms
-        },
-        coupling={
-            "name": "Linear",
-            "parameters": {"a": {"name": "a", "value": 0.75}}  # Global coupling strength
-        },
-        integration={
-            "method": "Heun",        # Stochastic Heun integration
-            "step_size": 4.0,        # Integration step in ms
-            "noise": {"parameters": {"sigma": {"value": 0.002}}},  # Noise amplitude
-            "duration": 10_000       # Total simulation time in ms
-        },
-        monitors={
-            "Raw": {"name": "Raw"},  # Monitor raw state variables
-        },
-    )
+        "state_variables": {
+            "S": {"initial_value": 0.3},  # Initial synaptic gating variable
+        }
+    },
+    connectivity={
+        "conduction_speed": {"name": "cs", "value": np.array([speed])}  # 3 mm/ms
+    },
+    coupling={
+        "name": "Linear",
+        "parameters": {"a": {"name": "a", "value": 0.75}}  # Global coupling strength
+    },
+    integration={
+        "method": "Heun",        # Stochastic Heun integration
+        "step_size": 4.0,        # Integration step in ms
+        "noise": {"parameters": {"sigma": {"value": 0.002}}},  # Noise amplitude
+        "duration": 10_000       # Total simulation time in ms
+    },
+    monitors={
+        "Raw": {"name": "Raw"},  # Monitor raw state variables
+    },
+)
 
-    # Set the connectivity data loaded earlier
-    experiment.connectivity.weights = weights
-    experiment.connectivity.lengths = lengths
-    experiment.connectivity.metadata.number_of_regions = weights.shape[0]
+# Set the connectivity data loaded earlier
+experiment.connectivity.weights = weights
+experiment.connectivity.lengths = lengths
+experiment.connectivity.metadata.number_of_regions = weights.shape[0]
 
-    # Configure the experiment (validates and prepares for simulation)
-    experiment.configure()
+# Configure the experiment (validates and prepares for simulation)
+experiment.configure()
 
-    # Run the simulation and get results
-    result_tvbo = experiment.run(format="jax")
+# Run the simulation and get results
+result_tvbo = experiment.run(format="jax")
 
-    # Plot time series: all regions over time
-    plt.plot(result_tvbo.Raw.time, result_tvbo.Raw.data[:, 0, :, 0])
-    plt.xlabel("Time (ms)")
-    plt.ylabel("S (Synaptic gating)")
-    plt.title("TVB-O Experiment Results");
-else:
-    print("⚠ TVB-O not available. Install with: pip install tvbo")
+# Plot time series: all regions over time
+plt.plot(result_tvbo.time, result_tvbo.data[:, 0, :, 0])
+plt.xlabel("Time (ms)")
+plt.ylabel("S (Synaptic gating)")
+plt.title("TVB-O Experiment Results");
 ```
 
 ::: {.callout-note collapse="true" title="Create a Model Report"}
 ```{python}
+#| eval: false
 #| echo: true
-if HAS_TVBO:
-    Markdown(experiment.model.generate_report())
-else:
-    print("⚠ TVB-O not available")
+Markdown(experiment.model.generate_report())
 ```
 :::
 
 ::: {.callout-note collapse="true" title="You can inspect the rendered JAX code"}
 ```{python}
+#| eval: false
 #| echo: true
-if HAS_TVBO:
-    numbered_print(experiment.render_code(format = "jax"))
-else:
-    print("⚠ TVB-O not available")
+numbered_print(experiment.render_code(format = "jax"))
 ```
 :::
 
@@ -262,57 +289,50 @@ else:
 Classic simulator definition in TVB:
 
 ```{python}
-#| eval: true
+#| eval: false
 #| echo: true
 
-if HAS_TVB and HAS_TVBO:
-    # Define simulator using classic TVB (object-oriented approach)
-    sim = simulator.Simulator(
-        # Model with parameters as numpy arrays
-        model=models.ReducedWongWang(
-            w=np.array([0.5]),      # Excitatory recurrence
-            I_o=np.array([0.32])    # External input
-        ),
-        # Connectivity object with structural data
-        connectivity=connectivity.Connectivity(
-            weights=np.array(weights),
-            tract_lengths=np.array(lengths),
-            region_labels=np.array(labels),
-            centres=np.zeros(weights.shape[0]),  # Dummy spatial coordinates
-        ),
-        # Linear coupling function
-        coupling=coupling.Linear(a=np.array([0.75])),
-        # Stochastic Heun integrator with additive noise
-        integrator=integrators.HeunStochastic(
-            noise=integrators.noise.Additive(nsig=np.array([0.5 * 0.002**2])),
-            dt=4.0
-        ),
-        # Initial conditions: shape (history_length, state_vars, regions, modes)
-        initial_conditions=0.3 * np.ones((50, 1, 84, 1)),
-        simulation_length=10_000,  # Total time in ms
-        monitors=(monitors.Raw(),)  # Record raw state variables
-    )
+# Define simulator using classic TVB (object-oriented approach)
+sim = simulator.Simulator(
+    # Model with parameters as numpy arrays
+    model=models.ReducedWongWang(
+        w=np.array([0.5]),      # Excitatory recurrence
+        I_o=np.array([0.32])    # External input
+    ),
+    # Connectivity object with structural data
+    connectivity=connectivity.Connectivity(
+        weights=np.array(weights),
+        tract_lengths=np.array(lengths),
+        region_labels=np.array(labels),
+        centres=np.zeros(weights.shape[0]),  # Dummy spatial coordinates
+    ),
+    # Linear coupling function
+    coupling=coupling.Linear(a=np.array([0.75])),
+    # Stochastic Heun integrator with additive noise
+    integrator=integrators.HeunStochastic(
+        noise=integrators.noise.Additive(nsig=np.array([0.5 * 0.002**2])),
+        dt=4.0
+    ),
+    # Initial conditions: shape (history_length, state_vars, regions, modes)
+    initial_conditions=0.3 * np.ones((50, 1, 84, 1)),
+    simulation_length=10_000,  # Total time in ms
+    monitors=(monitors.Raw(),)  # Record raw state variables
+)
 
-    # Configure the simulator (sets up internal structures)
-    sim.configure()
+# Configure the simulator (sets up internal structures)
+sim.configure()
 
-    # Convert classic TVB simulator to TVB-O experiment format
-    experiment_tvb = SimulationExperiment.from_tvb_simulator(sim)
+# Convert classic TVB simulator to TVB-O experiment format
+experiment_tvb = SimulationExperiment.from_tvb_simulator(sim)
 
-    # Run using JAX backend
-    result_tvb = experiment_tvb.run(format="jax")
+# Run using JAX backend
+result_tvb = experiment_tvb.run(format="jax")
 
-    # Plot time series: all regions over time
-    plt.plot(result_tvb.Raw.time, result_tvb.Raw.data[:, 0, :, 0])
-    plt.xlabel("Time (ms)")
-    plt.ylabel("S (Synaptic gating)")
-    plt.title("Classic TVB Simulator Results");
-else:
-    print("⚠ Classic TVB and TVB-O both required. Install with:")
-    if not HAS_TVB:
-        print("  pip install tvb-library")
-    if not HAS_TVBO:
-        print("  pip install tvbo")
+# Plot time series: all regions over time
+plt.plot(result_tvb.Raw.time, result_tvb.Raw.data[:, 0, :, 0])
+plt.xlabel("Time (ms)")
+plt.ylabel("S (Synaptic gating)")
+plt.title("Classic TVB Simulator Results");
 ```
 :::
 
@@ -339,12 +359,10 @@ The `model` is a pure JAX function that takes the config and runs the simulation
 The `prepare` function converts the TVB-O experiment into a JAX-compatible model function and state object:
 
 ```{python}
+#| eval: false
 #| echo: true
-if HAS_TVBO:
-    # Convert TVB-O experiment to JAX function and state
-    model_tvbo, state_tvbo = prepare(experiment)
-else:
-    print("⚠ TVB-O not available")
+# Convert TVB-O experiment to JAX function and state
+model_tvbo, state_tvbo = prepare(experiment)
 ```
 
 The `model` is a pure JAX function that takes the config and runs the simulation. The `state` contains all parameters, initial conditions, and precomputed data needed for the simulation.
@@ -368,11 +386,9 @@ state.keys()
 ## TVB-O
 
 ```{python}
+#| eval: false
 #| echo: true
-if HAS_TVBO:
-    state_tvbo
-else:
-    print("⚠ TVB-O not available")
+state_tvbo
 ```
 
 :::
@@ -407,27 +423,25 @@ plt.title("Raw Neural Activity Across All Brain Regions");
 ## TVB-O
 
 ```{python}
+#| eval: false
 #| echo: true
-if HAS_TVBO:
-    # Run the simulation - model returns (raw_activity, )
-    result = model_tvbo(state_tvbo)
-    raw = result[0]
-else:
-    print("⚠ TVB-O not available")
+# Run the simulation - model returns (raw_activity, )
+result = model_tvbo(state_tvbo)
+raw = result[0]
 ```
 
 ```{python}
+#| eval: false
 #| echo: true
 #| code-fold: true
 #| code-summary: "Visualization"
 
-if HAS_TVBO:
-    # Plot raw neural activity for all 84 brain regions over time
-    # Shape: [time_points, state_variables, regions, modes]
-    plt.plot(raw.data[:,0,:,0], color = "royalblue", alpha = 0.5)
-    plt.xlabel("Time (ms)")
-    plt.ylabel("Neural Activity")
-    plt.title("Raw Neural Activity Across All Brain Regions");
+# Plot raw neural activity for all 84 brain regions over time
+# Shape: [time_points, state_variables, regions, modes]
+plt.plot(raw.data[:,0,:,0], color = "royalblue", alpha = 0.5)
+plt.xlabel("Time (ms)")
+plt.ylabel("Neural Activity")
+plt.title("Raw Neural Activity Across All Brain Regions");
 ```
 ::: 
 
@@ -458,21 +472,19 @@ print(f"Mean activity: {observation(state):.4f}")
 
 ```{python}
 #| echo: true
+#| eval: false
 
-if HAS_TVBO:
-    def observation_tvbo(state):
-        """
-        Extract a simple observation from the simulation.
-        We use the mean activity of the last 500 timesteps to avoid transient effects.
-        """
-        ts = model_tvbo(state)[0].data[-500:,0,:,0]  # Last 500 timesteps, skip transient
-        mean_activity = jnp.mean(ts)  # Average across time and regions
-        return mean_activity
+def observation_tvbo(state):
+    """
+    Extract a simple observation from the simulation.
+    We use the mean activity of the last 500 timesteps to avoid transient effects.
+    """
+    ts = model_tvbo(state)[0].data[-500:,0,:,0]  # Last 500 timesteps, skip transient
+    mean_activity = jnp.mean(ts)  # Average across time and regions
+    return mean_activity
 
-    # Test the observation function
-    print(f"Mean activity: {observation_tvbo(state_tvbo):.4f}")
-else:
-    print("⚠ TVB-O not available")
+# Test the observation function
+print(f"Mean activity: {observation_tvbo(state_tvbo):.4f}")
 ```
 :::
 
@@ -555,74 +567,72 @@ plt.grid(True, alpha=0.2, color='white')
 ## TVB-O
 ```{python}
 #| echo: true
+#| eval: false
 
-if HAS_TVBO:
-    # Create a copy of the state for parameter exploration
-    exploration_state_tvbo = copy.deepcopy(state_tvbo)
+# Create a copy of the state for parameter exploration
+exploration_state_tvbo = copy.deepcopy(state_tvbo)
 
-    # Set up parameter exploration by setting GridAxis in the state
-    n = 32  # 32x32 grid = 1024 parameter combinations
-    exploration_state_tvbo.parameters.coupling.a = GridAxis(0.0, 1.0, n)
-    exploration_state_tvbo.parameters.model.J_N = GridAxis(0.0, 0.5, n)
+# Set up parameter exploration by setting GridAxis in the state
+n = 32  # 32x32 grid = 1024 parameter combinations
+exploration_state_tvbo.parameters.coupling.a = GridAxis(0.0, 1.0, n)
+exploration_state_tvbo.parameters.model.J_N = GridAxis(0.0, 0.5, n)
 
-    # Create a grid space for systematic parameter exploration
-    params_space_tvbo = Space(exploration_state_tvbo, mode="product")
+# Create a grid space for systematic parameter exploration
+params_space_tvbo = Space(exploration_state_tvbo, mode="product")
 
-    @cache("explore_tvbo", redo = False)  # Cache results to avoid recomputation
-    def explore():
-        # Use parallel execution with 8 virtual devices (pmap trick)
-        exec = ParallelExecution(observation_tvbo, params_space_tvbo, n_pmap=8)
-        return exec.run()
+@cache("explore_tvbo", redo = False)  # Cache results to avoid recomputation
+def explore():
+    # Use parallel execution with 8 virtual devices (pmap trick)
+    exec = ParallelExecution(observation_tvbo, params_space_tvbo, n_pmap=8)
+    return exec.run()
 
-    # Run the exploration (or load from cache)
-    exploration = explore()
-else:
-    print("⚠ TVB-O not available")
+# Run the exploration (or load from cache)
+exploration = explore()
 ```
 
 ```{python}
 #| echo: true
 #| code-fold: true
 #| code-summary: "Visualization"
+#| eval: false
 
-if HAS_TVBO:
-    # Collect parameter values and results
-    coupling_vals_tvbo = []
-    j_n_vals_tvbo = []
-    activity_vals_tvbo = []
-    for params, activity in zip(params_space_tvbo, exploration):
-        coupling_vals_tvbo.append(params.parameters.coupling.a)
-        j_n_vals_tvbo.append(params.parameters.model.J_N)
-        activity_vals_tvbo.append(activity)
+# Collect parameter values and results
+coupling_vals_tvbo = []
+j_n_vals_tvbo = []
+activity_vals_tvbo = []
+for params, activity in zip(params_space_tvbo, exploration):
+    coupling_vals_tvbo.append(params.parameters.coupling.a)
+    j_n_vals_tvbo.append(params.parameters.model.J_N)
+    activity_vals_tvbo.append(activity)
 
-    # Convert to arrays
-    coupling_vals_tvbo = jnp.array(coupling_vals_tvbo)
-    j_n_vals_tvbo = jnp.array(j_n_vals_tvbo)
-    activity_vals_tvbo = jnp.array(activity_vals_tvbo)
+# Convert to arrays
+coupling_vals_tvbo = jnp.array(coupling_vals_tvbo)
+j_n_vals_tvbo = jnp.array(j_n_vals_tvbo)
+activity_vals_tvbo = jnp.array(activity_vals_tvbo)
 
-    # Create properly gridded heatmap
-    # Get unique sorted values for each parameter
-    unique_coupling_tvbo = jnp.sort(jnp.unique(coupling_vals_tvbo))
-    unique_j_n_tvbo = jnp.sort(jnp.unique(j_n_vals_tvbo))
+# Create properly gridded heatmap
+# Get unique sorted values for each parameter
+unique_coupling_tvbo = jnp.sort(jnp.unique(coupling_vals_tvbo))
+unique_j_n_tvbo = jnp.sort(jnp.unique(j_n_vals_tvbo))
 
-    # Create grid and map values
-    grid_tvbo = jnp.zeros((len(unique_j_n_tvbo), len(unique_coupling_tvbo)))
-    for coupling, j_n, activity in zip(coupling_vals_tvbo, j_n_vals_tvbo, activity_vals_tvbo):
-        i = jnp.where(unique_j_n_tvbo == j_n)[0][0]
-        j = jnp.where(unique_coupling_tvbo == coupling)[0][0]
-        grid_tvbo = grid_tvbo.at[i, j].set(activity)
+# Create grid and map values
+grid_tvbo = jnp.zeros((len(unique_j_n_tvbo), len(unique_coupling_tvbo)))
+for coupling, j_n, activity in zip(coupling_vals_tvbo, j_n_vals_tvbo, activity_vals_tvbo):
+    i = jnp.where(unique_j_n_tvbo == j_n)[0][0]
+    j = jnp.where(unique_coupling_tvbo == coupling)[0][0]
+    grid_tvbo = grid_tvbo.at[i, j].set(activity)
 
-    # Visualize the parameter space exploration
-    plt.figure(figsize=(10, 8))
-    im = plt.imshow(grid_tvbo, aspect="auto", origin="lower",
-                    extent=[unique_coupling_tvbo[0], unique_coupling_tvbo[-1],
-                           unique_j_n_tvbo[0], unique_j_n_tvbo[-1]],
-                    cmap="cividis")
-    plt.xlabel("Global Coupling (a)")
-    plt.ylabel("Recurrent Excitation (J_N) [nA]")
-    plt.title("Mean Activity Across Parameter Space")
-    plt.colorbar(im, label="Mean Activity")
-    plt.grid(True, alpha=0.2, color='white')
+# Visualize the parameter space exploration
+plt.figure(figsize=(10, 8))
+im = plt.imshow(grid_tvbo, aspect="auto", origin="lower",
+                extent=[unique_coupling_tvbo[0], unique_coupling_tvbo[-1],
+                       unique_j_n_tvbo[0], unique_j_n_tvbo[-1]],
+                cmap="cividis")
+plt.xlabel("Global Coupling (a)")
+plt.ylabel("Recurrent Excitation (J_N) [nA]")
+plt.title("Mean Activity Across Parameter Space")
+plt.colorbar(im, label="Mean Activity")
+plt.grid(True, alpha=0.2, color='white')
 ```
 :::
 
@@ -654,21 +664,19 @@ print(f"Current loss: {loss(state):.6f}")
 
 ```{python}
 #| echo: true
-if HAS_TVBO:
-    def loss_tvbo(state):
-        """
-        Define a loss function that penalizes deviations from target activity.
-        Goal: Each brain region should have mean activity of 0.5
-        """
-        ts = model_tvbo(state)[0].data[-500:,0,:,0]  # Skip transient period
-        mean_activity = jnp.mean(ts, axis = 0)  # Average over time for each region
-        # Compute mean squared error between actual and target (0.5) activity
-        return jnp.mean((mean_activity - 0.5)**2)  # Region-wise difference
+#| eval: false
+def loss_tvbo(state):
+    """
+    Define a loss function that penalizes deviations from target activity.
+    Goal: Each brain region should have mean activity of 0.5
+    """
+    ts = model_tvbo(state)[0].data[-500:,0,:,0]  # Skip transient period
+    mean_activity = jnp.mean(ts, axis = 0)  # Average over time for each region
+    # Compute mean squared error between actual and target (0.5) activity
+    return jnp.mean((mean_activity - 0.5)**2)  # Region-wise difference
 
-    # Test the loss function
-    print(f"Current loss: {loss_tvbo(state_tvbo):.6f}")
-else:
-    print("⚠ TVB-O not available")
+# Test the loss function
+print(f"Current loss: {loss_tvbo(state_tvbo):.6f}")
 ```
 :::
 
@@ -701,24 +709,22 @@ optimizer = OptaxOptimizer(
 
 ```{python}
 #| echo: true
+#| eval: false
 
-if HAS_TVBO:
-    # Mark the excitatory recurrence parameter as free for optimization
-    state_tvbo.parameters.model.J_N = Parameter(state_tvbo.parameters.model.J_N)
-    show_parameters(state_tvbo)  # Display all parameters available for optimization
+# Mark the excitatory recurrence parameter as free for optimization
+state_tvbo.parameters.model.J_N = Parameter(state_tvbo.parameters.model.J_N)
+show_parameters(state_tvbo)  # Display all parameters available for optimization
 
-    # Create an optimizer using Adam with automatic differentiation
-    optimizer_tvbo = OptaxOptimizer(
-        loss_tvbo,                           # Loss function to minimize
-        optax.adam(0.005),             # Adam optimizer with learning rate 0.005
-        callback=DefaultPrintCallback(every=5) # Print progress during optimization
-    )
+# Create an optimizer using Adam with automatic differentiation
+optimizer_tvbo = OptaxOptimizer(
+    loss_tvbo,                           # Loss function to minimize
+    optax.adam(0.005),             # Adam optimizer with learning rate 0.005
+    callback=DefaultPrintCallback(every=5) # Print progress during optimization
+)
 
-    # Run optimization using forward-mode automatic differentiation
-    # Forward mode is efficient when we have few parameters (like here: a and J_N)
-    %time optimized_state_tvbo, _ = optimizer_tvbo.run(state_tvbo, max_steps=50, mode="fwd")
-else:
-    print("⚠ TVB-O not available")
+# Run optimization using forward-mode automatic differentiation
+# Forward mode is efficient when we have few parameters (like here: a and J_N)
+%time optimized_state_tvbo, _ = optimizer_tvbo.run(state_tvbo, max_steps=50, mode="fwd")
 ```
 :::
 
@@ -754,30 +760,28 @@ plt.grid(True, alpha=0.3)
 ## TVB-O
 
 ```{python}
+#| eval: false
 #| echo: true
-if HAS_TVBO:
-    # Simulate with optimized parameters
-    ts_optimized_tvbo = model_tvbo(optimized_state_tvbo)[0].data[:,0,:,0]
-else:
-    print("⚠ TVB-O not available")
+# Simulate with optimized parameters
+ts_optimized_tvbo = model_tvbo(optimized_state_tvbo)[0].data[:,0,:,0]
 ```
 
 ```{python}
 #| echo: true
+#| eval: false
 #| code-fold: true
 #| code-summary: "Visualization"
 
-if HAS_TVBO:
-    plt.figure(figsize=(10, 6))
-    plt.plot(ts_optimized_tvbo, alpha = 0.5, color = "royalblue")
-    plt.hlines(0.5, 0, 2500, color = "black", linewidth = 2.5, label="Target (0.5)")
-    plt.hlines(observation_tvbo(optimized_state_tvbo), 0, 2500, color = "red", linewidth = 2.5,
-               label=f"Actual Mean ({observation_tvbo(optimized_state_tvbo):.3f})")
-    plt.xlabel("Time (ms)")
-    plt.ylabel("Neural Activity")
-    plt.title("Optimized Neural Activity")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
+plt.figure(figsize=(10, 6))
+plt.plot(ts_optimized_tvbo, alpha = 0.5, color = "royalblue")
+plt.hlines(0.5, 0, 2500, color = "black", linewidth = 2.5, label="Target (0.5)")
+plt.hlines(observation_tvbo(optimized_state_tvbo), 0, 2500, color = "red", linewidth = 2.5,
+           label=f"Actual Mean ({observation_tvbo(optimized_state_tvbo):.3f})")
+plt.xlabel("Time (ms)")
+plt.ylabel("Neural Activity")
+plt.title("Optimized Neural Activity")
+plt.legend()
+plt.grid(True, alpha=0.3)
 ```
 :::
 
@@ -813,23 +817,21 @@ optimized_state_het, _ = optimizer_het.run(optimized_state, max_steps=201, mode=
 ## TVB-O
 
 ```{python}
+#| eval: false
 #| echo: true
-if HAS_TVBO:
-    # Make parameters heterogeneous: one value per brain region (84 regions), one mode
-    optimized_state_tvbo.parameters.model.J_N.shape = (weights.shape[0],1)  # Excitatory recurrence per region
-    print(f"J_N parameter shape: {optimized_state_tvbo.parameters.model.J_N.shape}")
+# Make parameters heterogeneous: one value per brain region (84 regions), one mode
+optimized_state_tvbo.parameters.model.J_N.shape = (weights.shape[0],1)  # Excitatory recurrence per region
+print(f"J_N parameter shape: {optimized_state_tvbo.parameters.model.J_N.shape}")
 
-    # Create optimizer for heterogeneous parameters
-    optimizer_het_tvbo = OptaxOptimizer(
-        loss_tvbo,                              # Same loss function
-        optax.adam(0.005),                      # Lower learning rate for stability
-        callback=MultiCallback([DefaultPrintCallback(every=10), StopLossCallback(stop_loss=0.005)]) # Print every 10 steps
-    )
+# Create optimizer for heterogeneous parameters
+optimizer_het_tvbo = OptaxOptimizer(
+    loss_tvbo,                              # Same loss function
+    optax.adam(0.005),                      # Lower learning rate for stability
+    callback=MultiCallback([DefaultPrintCallback(every=10), StopLossCallback(stop_loss=0.005)]) # Print every 10 steps
+)
 
-    # Use reverse-mode AD (more efficient for many parameters)
-    optimized_state_het_tvbo, _ = optimizer_het_tvbo.run(optimized_state_tvbo, max_steps=201, mode="rev")
-else:
-    print("⚠ TVB-O not available")
+# Use reverse-mode AD (more efficient for many parameters)
+optimized_state_het_tvbo, _ = optimizer_het_tvbo.run(optimized_state_tvbo, max_steps=201, mode="rev")
 ```
 
 :::
@@ -880,44 +882,42 @@ plt.tight_layout()
 ## TVB-O
 
 ```{python}
+#| eval: false
 #| echo: true
-if HAS_TVBO:
-    # Simulate with heterogeneous parameters
-    ts_optimized_het_tvbo = model_tvbo(optimized_state_het_tvbo)[0].data[:,0,:,0]
-else:
-    print("⚠ TVB-O not available")
+# Simulate with heterogeneous parameters
+ts_optimized_het_tvbo = model_tvbo(optimized_state_het_tvbo)[0].data[:,0,:,0]
 ```
 
 ```{python}
+#| eval: false
 #| echo: true
 #| code-fold: true
 #| code-summary: "Visualization"
 
-if HAS_TVBO:
-    plt.figure(figsize=(15, 10))
+plt.figure(figsize=(15, 10))
 
-    # Plot 1: Time series for all regions
-    plt.subplot(2, 1, 1)
-    plt.plot(ts_optimized_het_tvbo, alpha = 0.5, color = "royalblue")
-    plt.hlines(0.5, 0, 2500, color = "black", linewidth = 2.5, label="Target (0.5)")
-    plt.hlines(observation_tvbo(optimized_state_het_tvbo), 0, 2500, color = "red", linewidth = 2.5,
-               label=f"Mean ({observation_tvbo(optimized_state_het_tvbo):.3f})")
-    plt.xlabel("Time (ms)")
-    plt.ylabel("Neural Activity")
-    plt.title("Heterogeneous Optimization")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
+# Plot 1: Time series for all regions
+plt.subplot(2, 1, 1)
+plt.plot(ts_optimized_het_tvbo, alpha = 0.5, color = "royalblue")
+plt.hlines(0.5, 0, 2500, color = "black", linewidth = 2.5, label="Target (0.5)")
+plt.hlines(observation_tvbo(optimized_state_het_tvbo), 0, 2500, color = "red", linewidth = 2.5,
+           label=f"Mean ({observation_tvbo(optimized_state_het_tvbo):.3f})")
+plt.xlabel("Time (ms)")
+plt.ylabel("Neural Activity")
+plt.title("Heterogeneous Optimization")
+plt.legend()
+plt.grid(True, alpha=0.3)
 
-    # Plot 2: J_N parameters vs mean regionwise coupling
-    mean_coupling = jnp.mean(experiment.connectivity.weights, axis=1)
-    plt.subplot(2, 1, 2)
-    plt.scatter(mean_coupling, optimized_state_het_tvbo.parameters.model.J_N.value.flatten(), alpha=0.7, color="k", s=30)
-    plt.xlabel(r"Mean Regionwise Coupling $\sum_i C_{ij}$")
-    plt.ylabel("J_N [nA]")
-    plt.title("Fitted J_N Parameters")
-    plt.grid(True, alpha=0.3)
+# Plot 2: J_N parameters vs mean regionwise coupling
+mean_coupling = jnp.mean(experiment.connectivity.weights, axis=1)
+plt.subplot(2, 1, 2)
+plt.scatter(mean_coupling, optimized_state_het_tvbo.parameters.model.J_N.value.flatten(), alpha=0.7, color="k", s=30)
+plt.xlabel(r"Mean Regionwise Coupling $\sum_i C_{ij}$")
+plt.ylabel("J_N [nA]")
+plt.title("Fitted J_N Parameters")
+plt.grid(True, alpha=0.3)
 
-    plt.tight_layout()
+plt.tight_layout()
 ```
 
 :::

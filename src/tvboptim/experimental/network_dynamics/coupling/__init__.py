@@ -1,6 +1,6 @@
 """Coupling functions for network interactions."""
 
-from .base import AbstractCoupling
+from .base import AbstractCoupling, BufferStrategy, DelayedCoupling
 from .linear import (
     DelayedDifferenceCoupling,
     DelayedLinearCoupling,
@@ -12,6 +12,8 @@ from .tvb import DelayedSigmoidalJansenRit, SigmoidalJansenRit
 
 __all__ = [
     "AbstractCoupling",
+    "BufferStrategy",
+    "DelayedCoupling",
     "LinearCoupling",
     "DifferenceCoupling",
     "SigmoidalJansenRit",

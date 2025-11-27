@@ -271,7 +271,7 @@ def prepare(
     DiffraxSolver : Adaptive-step integration using Diffrax library
     """
     # Prepare all couplings (creates history buffers, computes indices, etc.)
-    coupling_data_dict, coupling_state_dict_init = network.prepare(dt)
+    coupling_data_dict, coupling_state_dict_init = network.prepare(dt, t0, t1)
 
     # Prepare all external inputs
     external_data_dict, external_state_dict_init = network.prepare_external(dt)
@@ -831,7 +831,7 @@ def prepare(
     # =========================================================================
 
     # Prepare all couplings (get read-only data, ignore state since we can't maintain it)
-    coupling_data_dict, _ = network.prepare(dt)
+    coupling_data_dict, _ = network.prepare(dt, t0, t1)
 
     # Prepare all external inputs (get read-only data, ignore state)
     external_data_dict, _ = network.prepare_external(dt)

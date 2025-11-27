@@ -62,7 +62,7 @@ dev = [
     "ipykernel",
 ]
 docs = [
-    # "tvbo",
+    "tvbo",
     "tvb-library",
     "jupyter-cache>=1.0.1",
     "nibabel",
@@ -80,7 +80,7 @@ dev = [
     "ipykernel",
 ]
 docs = [
-    # "tvbo",
+    "tvbo",
     "tvb-library",
     "jupyter-cache>=1.0.1",
     "nibabel",

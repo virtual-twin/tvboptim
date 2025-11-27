@@ -294,13 +294,15 @@ class Network:
 
         self._history = solution
 
-    def prepare(self, dt: float) -> tuple[Bunch, Bunch]:
+    def prepare(self, dt: float, t0: float, t1: float) -> tuple[Bunch, Bunch]:
         """Prepare all couplings for simulation.
 
         Calls prepare() on each coupling to get coupling_data and coupling_state.
 
         Args:
             dt: Integration timestep
+            t0: Simulation start time
+            t1: Simulation end time
 
         Returns:
             coupling_data_dict: Bunch {name: coupling_data_bunch}
@@ -312,7 +314,7 @@ class Network:
         coupling_state_dict = Bunch()
 
         for name, coupling in self.couplings.items():
-            data, state = coupling.prepare(self, dt)
+            data, state = coupling.prepare(self, dt, t0, t1)
             coupling_data_dict[name] = data
             coupling_state_dict[name] = state
 

@@ -7,9 +7,11 @@ This module implements the coupling architecture with:
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple
+from typing import Literal, Optional, Tuple
 
 import jax.numpy as jnp
+
+BufferStrategy = Literal["roll", "circular", "preallocated"]
 
 from ..core.bunch import Bunch
 from ..graph.base import AbstractGraph
@@ -187,7 +189,7 @@ class AbstractCoupling(ABC):
             self.params[key] = value
 
     @abstractmethod
-    def prepare(self, network, dt: float) -> Tuple[Bunch, Bunch]:
+    def prepare(self, network, dt: float, t0: float, t1: float) -> Tuple[Bunch, Bunch]:
         """Prepare coupling for simulation.
 
         Handles all setup logic that was previously in solve.py:
@@ -198,6 +200,8 @@ class AbstractCoupling(ABC):
         Args:
             network: Network instance with graph, dynamics, initial_state
             dt: Integration timestep
+            t0: Simulation start time
+            t1: Simulation end time
 
         Returns:
             Tuple of (coupling_data, coupling_state):
@@ -513,17 +517,20 @@ class InstantaneousCoupling(PrePostCoupling):
 
         return "vectorized" if result.ndim == 2 else "per_edge"
 
-    def prepare(self, network, dt: float) -> Tuple[Bunch, Bunch]:
+    def prepare(self, network, dt: float, t0: float, t1: float) -> Tuple[Bunch, Bunch]:
         """Standard preparation for instantaneous coupling.
 
         Args:
             network: Network instance with graph, dynamics, initial_state
             dt: Integration timestep (not used for instantaneous coupling)
+            t0: Simulation start time (not used for instantaneous coupling)
+            t1: Simulation end time (not used for instantaneous coupling)
 
         Returns:
             coupling_data: Bunch with incoming_indices, local_indices, state_indices, mode
             coupling_state: Empty Bunch (no internal state)
         """
+        del t0, t1  # Unused for instantaneous coupling
         graph = network.graph
         dynamics = network.dynamics
 
@@ -708,18 +715,48 @@ class DelayedCoupling(PrePostCoupling):
     5. Update history buffer
 
     Users typically only need to override pre() and/or post() methods.
+
+    Parameters
+    ----------
+    buffer_strategy : {"roll", "circular", "preallocated"}, default "roll"
+        Strategy for history buffer management:
+        - "roll": Uses jnp.roll to shift buffer each step. Best gradient performance
+          for large networks. Memory: O(T) where T = max_delay_steps + 1.
+        - "circular": Pointer-based circular buffer with modulo indexing. Best for
+          optimization with small dt / large history. Memory: O(T).
+        - "preallocated": Pre-allocates full simulation buffer. Best forward-pass
+          performance but gradients degrade. Memory: O(T + simulation_steps).
+    **kwargs
+        Passed to parent class (incoming_states, local_states, params)
     """
 
-    def prepare(self, network, dt: float) -> Tuple[Bunch, Bunch]:
+    def __init__(
+        self,
+        buffer_strategy: BufferStrategy = "roll",
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+
+        if buffer_strategy not in ("roll", "circular", "preallocated"):
+            raise ValueError(
+                f"Unknown buffer_strategy: {buffer_strategy}. "
+                f"Must be one of: 'roll', 'circular', 'preallocated'"
+            )
+
+        self.buffer_strategy = buffer_strategy
+
+    def prepare(self, network, dt: float, t0: float, t1: float) -> Tuple[Bunch, Bunch]:
         """Standard preparation for delayed coupling.
 
         Args:
             network: Network instance with graph, dynamics, initial_state
             dt: Integration timestep
+            t0: Simulation start time
+            t1: Simulation end time
 
         Returns:
-            coupling_data: Bunch with indices, delay_indices, state_indices
-            coupling_state: Bunch with history buffer
+            coupling_data: Bunch with indices, delay_steps/delay_indices, state_indices
+            coupling_state: Bunch with history buffer (and write_idx for non-roll strategies)
         """
         graph = network.graph
         dynamics = network.dynamics
@@ -728,26 +765,11 @@ class DelayedCoupling(PrePostCoupling):
         incoming_idx = dynamics.name_to_index(self.INCOMING_STATE_NAMES)
         local_idx = dynamics.name_to_index(self.LOCAL_STATE_NAMES)
 
-        # Setup delay indexing (static)
         # Convert delay times to discrete timesteps
         delays_dense = _ensure_dense(graph.delays)
-
-        # Compute delay indices for history buffer lookup
-        # History buffer structure: [max_delay_steps+1, n_states, n_nodes]
-        #   - history[0] contains the oldest state (max_delay in the past)
-        #   - history[max_delay_steps] contains the newest state (current step)
-        #
-        # For edge (j,k) with delay τ_jk, we need: state from (max_delay - τ_jk) ago
-        # This inverted indexing ensures:
-        #   - Large delays (close to max_delay) → small index (older states)
-        #   - Small delays (close to 0) → large index (newer states)
-        #
-        # Example: max_delay=10ms, dt=1ms, τ_jk=3ms
-        #   → delay_index[j,k] = 10 - 3 = 7
-        #   → history[7] gives state from 3ms ago (10ms - 3ms from oldest)
-        max_delay_steps = jnp.rint(graph.max_delay / dt).astype(jnp.int32)
+        max_delay_steps = int(jnp.rint(graph.max_delay / dt))
         delay_steps = jnp.rint(delays_dense / dt).astype(jnp.int32)
-        delay_indices = max_delay_steps - delay_steps
+        base_history_length = max_delay_steps + 1
 
         state_indices = jnp.arange(graph.n_nodes)
 
@@ -756,26 +778,75 @@ class DelayedCoupling(PrePostCoupling):
             graph, incoming_idx
         )
 
-        coupling_data = Bunch(
-            incoming_indices=incoming_idx,
-            local_indices=local_idx,
-            delay_indices=delay_indices,
-            state_indices=state_indices,
-            bcoo_indices=bcoo_indices,
-            bcoo_shape=bcoo_shape,
-            use_sparse_incoming=use_sparse_incoming,
-        )
-
         # Initialize history buffer using network's get_history
-        # This matches v1's network.get_history(dt=dt) behavior
-        history_full = network.get_history(dt)  # [max_delay_steps+1, n_states, n_nodes]
+        history_full = network.get_history(dt)  # [base_history_length, n_states, n_nodes]
+        history_init = history_full[:, incoming_idx, :]  # [base_history_length, n_incoming, n_nodes]
 
-        # Extract only incoming states for history buffer
-        history = history_full[
-            :, incoming_idx, :
-        ]  # [max_delay_steps+1, n_incoming, n_nodes]
+        # Strategy-specific buffer setup
+        if self.buffer_strategy == "roll":
+            # Roll strategy: use pre-computed delay_indices for direct lookup
+            # History buffer structure: [max_delay_steps+1, n_incoming, n_nodes]
+            #   - history[0] = oldest state (max_delay in the past)
+            #   - history[-1] = newest state (current)
+            # delay_indices = max_delay_steps - delay_steps gives direct lookup
+            delay_indices = max_delay_steps - delay_steps
 
-        coupling_state = Bunch(history=history)
+            coupling_data = Bunch(
+                incoming_indices=incoming_idx,
+                local_indices=local_idx,
+                delay_indices=delay_indices,
+                state_indices=state_indices,
+                bcoo_indices=bcoo_indices,
+                bcoo_shape=bcoo_shape,
+                use_sparse_incoming=use_sparse_incoming,
+            )
+            coupling_state = Bunch(history=history_init)
+
+        elif self.buffer_strategy == "circular":
+            # Circular buffer with write pointer and modulo indexing
+            buffer_size = base_history_length
+
+            coupling_data = Bunch(
+                incoming_indices=incoming_idx,
+                local_indices=local_idx,
+                delay_steps=delay_steps,
+                buffer_size=jnp.int32(buffer_size),
+                state_indices=state_indices,
+                bcoo_indices=bcoo_indices,
+                bcoo_shape=bcoo_shape,
+                use_sparse_incoming=use_sparse_incoming,
+            )
+            coupling_state = Bunch(
+                history=history_init,
+                write_idx=jnp.int32(0),
+            )
+
+        else:  # preallocated
+            # Pre-allocate full simulation buffer
+            # Use actual history_init shape (may differ slightly from computed base_history_length)
+            actual_history_length = history_init.shape[0]
+            n_steps = int(jnp.ceil((t1 - t0) / dt))
+            buffer_size = actual_history_length + n_steps
+            n_incoming = history_init.shape[1]
+            n_nodes = history_init.shape[2]
+
+            history = jnp.zeros((buffer_size, n_incoming, n_nodes), dtype=history_init.dtype)
+            history = history.at[:actual_history_length].set(history_init)
+
+            coupling_data = Bunch(
+                incoming_indices=incoming_idx,
+                local_indices=local_idx,
+                delay_steps=delay_steps,
+                buffer_size=jnp.int32(buffer_size),
+                state_indices=state_indices,
+                bcoo_indices=bcoo_indices,
+                bcoo_shape=bcoo_shape,
+                use_sparse_incoming=use_sparse_incoming,
+            )
+            coupling_state = Bunch(
+                history=history,
+                write_idx=jnp.int32(actual_history_length),
+            )
 
         return coupling_data, coupling_state
 
@@ -796,32 +867,41 @@ class DelayedCoupling(PrePostCoupling):
         Args:
             t: Current simulation time
             state: Current network state [n_states, n_nodes]
-            coupling_data: Bunch with indices, delay_indices
-            coupling_state: Bunch with history buffer
+            coupling_data: Bunch with indices, delay_indices/delay_steps
+            coupling_state: Bunch with history buffer (and write_idx for non-roll)
             params: Coupling parameters
             graph: Network graph for accessing weights (dense or sparse)
 
         Returns:
             Coupling input [n_coupling_inputs, n_nodes]
         """
+        del t  # Unused
         from ..graph.sparse import SparseDelayGraph
 
-        # Extract delayed states from history using indices from coupling_data
-        # History indexing: history[delay_indices[j,k], :, k] retrieves state from node k
-        # at the appropriate time delay for edge j←k
-        #
-        # Result shape after indexing: [n_nodes_target, n_nodes_source, n_incoming, n_nodes]
-        # After transpose: delayed_states[i, j, k] = history[delay_indices[j,k], i, k]
-        # i.e., incoming state i from source node k, delayed by τ_jk, going to target node j
+        # Compute read indices based on buffer strategy
+        if self.buffer_strategy == "roll":
+            # Roll strategy: direct lookup using pre-computed delay_indices
+            # history[delay_indices[j,k], :, k] retrieves state from node k
+            read_indices = coupling_data.delay_indices
+
+        elif self.buffer_strategy == "circular":
+            # Circular: compute read indices with modulo
+            # newest_idx = write_idx - 1 (position of most recent state)
+            # read_idx = newest_idx - delay_steps, wrapped with modulo
+            newest_idx = (coupling_state.write_idx - 1) % coupling_data.buffer_size
+            read_indices = (newest_idx - coupling_data.delay_steps) % coupling_data.buffer_size
+
+        else:  # preallocated
+            # Preallocated: no modulo needed, indices always increase
+            newest_idx = coupling_state.write_idx - 1
+            read_indices = newest_idx - coupling_data.delay_steps
+
+        # Extract delayed states using computed indices
+        # Result: delayed_states[i, j, k] = history[read_indices[j,k], i, k]
+        # i.e., incoming state i from source node k, delayed by τ_jk, going to target j
         delayed_states = jnp.transpose(
-            coupling_state.history[
-                coupling_data.delay_indices, :, coupling_data.state_indices
-            ],
-            (
-                2,
-                0,
-                1,
-            ),  # Reorder to [n_incoming, n_nodes_target, n_nodes_source] - matches v1
+            coupling_state.history[read_indices, :, coupling_data.state_indices],
+            (2, 0, 1),  # Reorder to [n_incoming, n_nodes_target, n_nodes_source]
         )
 
         # Extract local states
@@ -884,27 +964,38 @@ class DelayedCoupling(PrePostCoupling):
 
         Args:
             coupling_data: Bunch with incoming_indices (for extracting states)
-            coupling_state: Bunch with current history buffer
+            coupling_state: Bunch with current history buffer (and write_idx for non-roll)
             new_state: New network state after integration [n_states, n_nodes]
 
         Returns:
-            New Bunch with updated history buffer
+            New Bunch with updated history buffer (and write_idx for non-roll)
         """
-        # Update history buffer (circular) - only mutable operation
-        # History structure after roll: [max_delay_steps+1, n_incoming, n_nodes]
-        #   - history[0] = oldest state (at time t - max_delay)
-        #   - history[-1] = newest state (at time t, before update)
-        #
-        # Roll by -1 shifts all states towards index 0 (older end):
-        #   [oldest, ..., newest] → [2nd_oldest, ..., newest, oldest]
-        # Then overwrite index -1 with new current state:
-        #   [2nd_oldest, ..., old_newest, **new_state**]
-        # This maintains history[0]=oldest, history[-1]=newest
-        new_history = jnp.roll(coupling_state.history, -1, axis=0)
         new_incoming_states = new_state[coupling_data.incoming_indices]
-        new_history = new_history.at[-1].set(new_incoming_states)
 
-        return Bunch(history=new_history)
+        if self.buffer_strategy == "roll":
+            # Roll strategy: shift buffer and write at end
+            # Roll by -1 shifts all states towards index 0 (older end):
+            #   [oldest, ..., newest] → [2nd_oldest, ..., newest, oldest]
+            # Then overwrite index -1 with new current state
+            new_history = jnp.roll(coupling_state.history, -1, axis=0)
+            new_history = new_history.at[-1].set(new_incoming_states)
+            return Bunch(history=new_history)
+
+        elif self.buffer_strategy == "circular":
+            # Circular: write at pointer, wrap pointer with modulo
+            new_history = coupling_state.history.at[coupling_state.write_idx].set(
+                new_incoming_states
+            )
+            new_write_idx = (coupling_state.write_idx + 1) % coupling_data.buffer_size
+            return Bunch(history=new_history, write_idx=new_write_idx)
+
+        else:  # preallocated
+            # Preallocated: write at pointer, increment (no wrap)
+            new_history = coupling_state.history.at[coupling_state.write_idx].set(
+                new_incoming_states
+            )
+            new_write_idx = coupling_state.write_idx + 1
+            return Bunch(history=new_history, write_idx=new_write_idx)
 
     def _build_network_form(self, pre_form: str, post_form: str) -> str:
         """Build network form for delayed coupling.

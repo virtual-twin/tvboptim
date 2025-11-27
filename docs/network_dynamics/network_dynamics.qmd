@@ -75,86 +75,79 @@ Each code component in Network Dynamics directly implements one part of this mat
 ```{python}
 #| code-fold: true
 #| code-summary: "Imports"
+import warnings
 import numpy as np
 
-# Check if TVB is available
-HAS_TVB = False
-try:
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
     from tvb.simulator.lab import (
         models, connectivity, coupling,
         integrators, monitors, simulator
     )
-    HAS_TVB = True
-except ImportError:
-    print("⚠ TVB not available - TVB comparison will be skipped")
-    print("  Install with: pip install tvb-library")
 
 from tvboptim.data import (
     load_structural_connectivity
 )
 ```
 ```{python}
-if HAS_TVB:
-    # Load connectivity data
-    weights, lengths, labels = (
-        load_structural_connectivity("dk_average")
+# Load connectivity data
+weights, lengths, labels = (
+    load_structural_connectivity("dk_average")
+)
+
+# Normalize weights
+weights = weights / np.max(weights)
+
+# Create connectivity object
+conn = connectivity.Connectivity(
+    weights=np.array(weights),
+    tract_lengths=np.array(lengths),
+    region_labels=np.array(labels),
+    centres = np.zeros(84),
+    speed=np.array([3.0])
+)
+
+# Create dynamics (defaults used)
+model = models.ReducedWongWang(
+    w=np.array([0.7])
+)
+
+
+# Create coupling
+coupl = coupling.Linear(
+    a=np.array([0.5])
+)
+
+# Create noise
+# Note: TVB uses nsig = 0.5 * sigma^2
+# where sigma is the desired std
+sigma = 0.01
+sigma_tvb = 0.5 * sigma**2
+integrator = integrators.HeunStochastic(
+    dt=1.0,
+    noise=integrators.noise.Additive(
+        nsig=np.array([sigma_tvb])
     )
+)
 
-    # Normalize weights
-    weights = weights / np.max(weights)
+# Build simulator
+sim = simulator.Simulator(
+    model=model,
+    connectivity=conn,
+    coupling=coupl,
+    integrator=integrator,
+    initial_conditions=0.1 * np.ones((100,1,84,1)),
+)
 
-    # Create connectivity object
-    conn = connectivity.Connectivity(
-        weights=np.array(weights),
-        tract_lengths=np.array(lengths),
-        region_labels=np.array(labels),
-        centres = np.zeros(84),
-        speed=np.array([3.0])
-    )
+sim.configure()
 
-    # Create dynamics (defaults used)
-    model = models.ReducedWongWang(
-        w=np.array([0.7])
-    )
+# Run simulation
+print("Running TVB...")
+(time_tvb, data_tvb), = sim.run(
+    simulation_length=1000.0
+)
 
-
-    # Create coupling
-    coupl = coupling.Linear(
-        a=np.array([0.5])
-    )
-
-    # Create noise
-    # Note: TVB uses nsig = 0.5 * sigma^2
-    # where sigma is the desired std
-    sigma = 0.01
-    sigma_tvb = 0.5 * sigma**2
-    integrator = integrators.HeunStochastic(
-        dt=1.0,
-        noise=integrators.noise.Additive(
-            nsig=np.array([sigma_tvb])
-        )
-    )
-
-    # Build simulator
-    sim = simulator.Simulator(
-        model=model,
-        connectivity=conn,
-        coupling=coupl,
-        integrator=integrator,
-        initial_conditions=0.1 * np.ones((100,1,84,1)),
-    )
-
-    sim.configure()
-
-    # Run simulation
-    print("Running TVB...")
-    (time_tvb, data_tvb), = sim.run(
-        simulation_length=1000.0
-    )
-
-    print(f"Shape: {data_tvb.shape}")
-else:
-    print("⚠ TVB not available - skipping TVB simulation")
+print(f"Shape: {data_tvb.shape}")
 ```
 :::
 
@@ -266,63 +259,39 @@ Let's visualize both simulations to verify they produce comparable dynamics:
 
 import matplotlib.pyplot as plt
 
-if HAS_TVB:
-    # Side-by-side comparison when TVB is available
-    fig, axes = plt.subplots(3, 2, figsize=(8.1, 5.786), sharey=True)
+fig, axes = plt.subplots(3, 2, figsize=(8.1, 5.786), sharey=True)
 
-    # Select a few representative nodes
-    nodes_to_plot = [0, 20, 40]
-    colors = ['#3498db', '#e74c3c', '#2ecc71']
+# Select a few representative nodes
+nodes_to_plot = [0, 20, 40]
+colors = ['#3498db', '#e74c3c', '#2ecc71']
 
-    # Time series comparison
-    for idx, node in enumerate(nodes_to_plot):
-        # TVB result
-        axes[idx, 0].plot(time_tvb - 50, data_tvb[:, 0, node, 0],
-                          color=colors[idx], linewidth=1, alpha=0.8)
-        axes[idx, 0].set_ylabel(f'S (Node {node})\n{labels[node][:15]}...', fontsize=9)
-        axes[idx, 0].grid(True, alpha=0.3)
-        if idx == 0:
-            axes[idx, 0].set_title('TVB Framework', fontweight='bold', fontsize=11)
-        if idx == len(nodes_to_plot) - 1:
-            axes[idx, 0].set_xlabel('Time [ms]')
-
-        # Network Dynamics result
-        axes[idx, 1].plot(result.ts, result.ys[:, 0, node],
-                          color=colors[idx], linewidth=1, alpha=0.8)
-        axes[idx, 1].set_ylabel(f'S (Node {node})\n{labels[node][:15]}...', fontsize=9)
-        axes[idx, 1].grid(True, alpha=0.3)
-        if idx == 0:
-            axes[idx, 1].set_title('Network Dynamics Framework', fontweight='bold', fontsize=11)
-        if idx == len(nodes_to_plot) - 1:
-            axes[idx, 1].set_xlabel('Time [ms]')
-
-    plt.tight_layout()
-    plt.show()
-else:
-    # Show only Network Dynamics when TVB is not available
-    fig, axes = plt.subplots(3, 1, figsize=(8.1, 8.1))
-
-    # Select a few representative nodes
-    nodes_to_plot = [0, 20, 40]
-    colors = ['#3498db', '#e74c3c', '#2ecc71']
-
-    # Time series for Network Dynamics only
-    for idx, node in enumerate(nodes_to_plot):
-        axes[idx].plot(result.ts, result.ys[:, 0, node],
+# Time series comparison
+for idx, node in enumerate(nodes_to_plot):
+    # TVB result
+    axes[idx, 0].plot(time_tvb - 50, data_tvb[:, 0, node, 0],
                       color=colors[idx], linewidth=1, alpha=0.8)
-        axes[idx].set_ylabel(f'S (Node {node})\n{labels[node][:15]}...', fontsize=9)
-        axes[idx].grid(True, alpha=0.3)
-        if idx == 0:
-            axes[idx].set_title('Network Dynamics Framework', fontweight='bold', fontsize=11)
-        if idx == len(nodes_to_plot) - 1:
-            axes[idx].set_xlabel('Time [ms]')
+    axes[idx, 0].set_ylabel(f'S (Node {node})\n{labels[node][:15]}...', fontsize=9)
+    axes[idx, 0].grid(True, alpha=0.3)
+    if idx == 0:
+        axes[idx, 0].set_title('TVB Framework', fontweight='bold', fontsize=11)
+    if idx == len(nodes_to_plot) - 1:
+        axes[idx, 0].set_xlabel('Time [ms]')
 
-    plt.tight_layout()
-    plt.show()
-    print("\nℹ TVB comparison not shown - TVB library not available")
+    # Network Dynamics result
+    axes[idx, 1].plot(result.ts, result.ys[:, 0, node],
+                      color=colors[idx], linewidth=1, alpha=0.8)
+    axes[idx, 1].set_ylabel(f'S (Node {node})\n{labels[node][:15]}...', fontsize=9)
+    axes[idx, 1].grid(True, alpha=0.3)
+    if idx == 0:
+        axes[idx, 1].set_title('Network Dynamics Framework', fontweight='bold', fontsize=11)
+    if idx == len(nodes_to_plot) - 1:
+        axes[idx, 1].set_xlabel('Time [ms]')
+
+plt.tight_layout()
+plt.show()
 ```
 
-When TVB is available, the time series show qualitatively similar dynamics - both frameworks produce realistic resting-state activity with fluctuations around the fixed point, driven by noise and network interactions. The differences come from different noise realizations in numpy (TVB) and JAX (Network Dynamics).
+The time series show qualitatively similar dynamics - both frameworks produce realistic resting-state activity with fluctuations around the fixed point, driven by noise and network interactions. The differences come from different noise realizations in numpy (TVB) and JAX (Network Dynamics).
 
 ::: {.callout-important title="Noise Parameter Difference"}
 **TVB** and **Network Dynamics** use different noise parameterizations:
