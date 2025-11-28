@@ -215,12 +215,14 @@ class SubspaceCoupling(AbstractCoupling):
                 f"region_mapping defines {self.n_regions} regions. They must match."
             )
 
-    def prepare(self, network, dt: float) -> Tuple[Bunch, Bunch]:
+    def prepare(self, network, dt: float, t0: float, t1: float) -> Tuple[Bunch, Bunch]:
         """Prepare regional structures and inner coupling.
 
         Args:
             network: Network instance (node-level)
             dt: Integration timestep
+            t0: Simulation start time
+            t1: Simulation end time
 
         Returns:
             coupling_data: Bunch with regional structures and inner_data
@@ -273,7 +275,7 @@ class SubspaceCoupling(AbstractCoupling):
         )
 
         # Prepare inner coupling with regional context
-        inner_data, inner_state = self.inner_coupling.prepare(regional_context, dt)
+        inner_data, inner_state = self.inner_coupling.prepare(regional_context, dt, t0, t1)
 
         coupling_data = Bunch(
             n_regions=self.n_regions,
