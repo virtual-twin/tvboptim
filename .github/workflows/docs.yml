@@ -70,9 +70,8 @@ jobs:
           JAX_PLATFORMS: cpu
           XLA_FLAGS: --xla_force_host_platform_device_count=8
 
-      - name: Convert workflows to notebooks
-        run: |
-          ./docs/convert-workflows.sh
+      # Note: Notebook conversion is done locally and .ipynb files are committed
+      # This enables Google Colab integration via GitHub raw URLs
 
       - name: Setup Pages
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'

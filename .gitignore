@@ -54,9 +54,10 @@ docs/reference/*.qmd
 docs/legacy
 docs/_styles-quartodoc.css
 
-# Generated notebooks (only want them in _site, not source dirs)
-docs/workflows/*.ipynb
-docs/basics/*.ipynb
+# Keep workflow notebooks in source (needed for Colab links)
+# Notebooks are now committed to enable Google Colab integration
+# docs/workflows/*.ipynb
+# docs/advanced/*.ipynb
 
 # Keep tvboptim cache directories (pickle files from @cache decorator)
 # These should be committed for reproducible builds

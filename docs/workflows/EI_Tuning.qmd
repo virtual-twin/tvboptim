@@ -16,11 +16,9 @@ execute:
 
 Try this notebook interactively:
 
-[Download .qmd](EI_Tuning.qmd){.btn .btn-primary download="EI_Tuning.qmd"}
 [Download .ipynb](EI_Tuning.ipynb){.btn .btn-primary download="EI_Tuning.ipynb"}
-<span class="btn btn-secondary disabled" style="pointer-events: none; opacity: 0.5;">
-  Open in Colab (Coming Soon)
-</span>
+[Download .qmd](EI_Tuning.qmd){.btn .btn-secondary download="EI_Tuning.qmd"}
+[Open in Colab](https://colab.research.google.com/github/virtual-twin/tvboptim/blob/main/docs/workflows/EI_Tuning.ipynb){.btn .btn-warning target="_blank"}
 
 ## Introduction
 

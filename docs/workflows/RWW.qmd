@@ -16,11 +16,9 @@ execute:
 
 Try this notebook interactively:
 
-[Download .qmd](RWW.qmd){.btn .btn-primary download="RWW.qmd"}
 [Download .ipynb](RWW.ipynb){.btn .btn-primary download="RWW.ipynb"}
-<span class="btn btn-secondary disabled" style="pointer-events: none; opacity: 0.5;">
-  Open in Colab (Coming Soon)
-</span>
+[Download .qmd](RWW.qmd){.btn .btn-secondary download="RWW.qmd"}
+[Open in Colab](https://colab.research.google.com/github/virtual-twin/tvboptim/blob/main/docs/workflows/RWW.ipynb){.btn .btn-warning target="_blank"}
 
 ## Introduction
 

@@ -1,6 +1,9 @@
 project:
   type: website
   output-dir: _site
+  render:
+    - "*.qmd"
+    - "!*.ipynb"  # Don't render notebooks (they're for Colab)
   
 website:
   title: ""

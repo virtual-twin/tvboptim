@@ -14,13 +14,11 @@ execute:
     cache: true
 ---
 
-Try this notebook interactively:
+Try this notebook interactively: 
 
-[Download .qmd](JR.qmd){.btn .btn-primary download="JR.qmd"}
-[Download .ipynb](JR.ipynb){.btn .btn-primary download="JR.ipynb"}
-<span class="btn btn-secondary disabled" style="pointer-events: none; opacity: 0.5;">
-  Open in Colab (Coming Soon)
-</span>
+[Download .ipynb](JR.ipynb){.btn .btn-primary download="JR.ipynb"} 
+[Download .qmd](JR.qmd){.btn .btn-secondary download="JR.qmd"}
+[Open in Colab](https://colab.research.google.com/github/virtual-twin/tvboptim/blob/main/docs/workflows/JR.ipynb){.btn .btn-warning target="_blank"} 
 
 ## Introduction
 
@@ -86,9 +84,29 @@ We load the Desikan-Killiany parcellation atlas and structural connectivity data
 #| code-fold: true
 #| code-summary: "Load structural connectivity data"
 # Load volume data for visualization
-dk_info = pd.read_csv("../data/dk_average/fs_default_freesurfer_idx.csv")
+# Try local path first, fall back to GitHub download for Colab
+try:
+    dk_info = pd.read_csv("../data/dk_average/fs_default_freesurfer_idx.csv")
+    dk = nib.load("../data/dk_average/aparc+aseg-mni_09c.nii.gz")
+except FileNotFoundError:
+    import urllib.request
+    from pathlib import Path
+
+    # Download from GitHub to local cache
+    cache_dir = Path.home() / ".cache" / "tvboptim" / "dk_average"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    base_url = "https://raw.githubusercontent.com/virtual-twin/tvboptim/main/docs/data/dk_average"
+
+    for filename in ["fs_default_freesurfer_idx.csv", "aparc+aseg-mni_09c.nii.gz"]:
+        local_file = cache_dir / filename
+        if not local_file.exists():
+            print(f"Downloading {filename}...")
+            urllib.request.urlretrieve(f"{base_url}/{filename}", local_file)
+
+    dk_info = pd.read_csv(cache_dir / "fs_default_freesurfer_idx.csv")
+    dk = nib.load(cache_dir / "aparc+aseg-mni_09c.nii.gz")
+
 dk_info.drop_duplicates(subset="freesurfer_idx", inplace=True)
-dk = nib.load("../data/dk_average/aparc+aseg-mni_09c.nii.gz")
 
 # Load structural connectivity with region labels
 weights, lengths, region_labels = load_structural_connectivity(name="dk_average")

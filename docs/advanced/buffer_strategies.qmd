@@ -16,8 +16,9 @@ execute:
 
 Try this notebook interactively:
 
-[Download .qmd](buffer_strategies.qmd){.btn .btn-primary download="buffer_strategies.qmd"}
 [Download .ipynb](buffer_strategies.ipynb){.btn .btn-primary download="buffer_strategies.ipynb"}
+[Download .qmd](buffer_strategies.qmd){.btn .btn-secondary download="buffer_strategies.qmd"}
+[Open in Colab](https://colab.research.google.com/github/virtual-twin/tvboptim/blob/main/docs/advanced/buffer_strategies.ipynb){.btn .btn-warning target="_blank"}
 
 ## Introduction
 
