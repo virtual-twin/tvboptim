@@ -9,7 +9,8 @@ import numpy as np
 # Get the data directory - use importlib.resources for better compatibility
 try:
     from importlib.resources import files
-    _DATA_DIR = Path(str(files('tvboptim.data')))
+
+    _DATA_DIR = Path(str(files("tvboptim.data")))
 except (TypeError, ModuleNotFoundError):
     # Fallback for development without package installation
     _DATA_DIR = Path(__file__).parent

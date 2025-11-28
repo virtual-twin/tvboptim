@@ -275,7 +275,9 @@ class SubspaceCoupling(AbstractCoupling):
         )
 
         # Prepare inner coupling with regional context
-        inner_data, inner_state = self.inner_coupling.prepare(regional_context, dt, t0, t1)
+        inner_data, inner_state = self.inner_coupling.prepare(
+            regional_context, dt, t0, t1
+        )
 
         coupling_data = Bunch(
             n_regions=self.n_regions,

@@ -779,8 +779,12 @@ class DelayedCoupling(PrePostCoupling):
         )
 
         # Initialize history buffer using network's get_history
-        history_full = network.get_history(dt)  # [base_history_length, n_states, n_nodes]
-        history_init = history_full[:, incoming_idx, :]  # [base_history_length, n_incoming, n_nodes]
+        history_full = network.get_history(
+            dt
+        )  # [base_history_length, n_states, n_nodes]
+        history_init = history_full[
+            :, incoming_idx, :
+        ]  # [base_history_length, n_incoming, n_nodes]
 
         # Strategy-specific buffer setup
         if self.buffer_strategy == "roll":
@@ -830,7 +834,9 @@ class DelayedCoupling(PrePostCoupling):
             n_incoming = history_init.shape[1]
             n_nodes = history_init.shape[2]
 
-            history = jnp.zeros((buffer_size, n_incoming, n_nodes), dtype=history_init.dtype)
+            history = jnp.zeros(
+                (buffer_size, n_incoming, n_nodes), dtype=history_init.dtype
+            )
             history = history.at[:actual_history_length].set(history_init)
 
             coupling_data = Bunch(
@@ -889,7 +895,9 @@ class DelayedCoupling(PrePostCoupling):
             # newest_idx = write_idx - 1 (position of most recent state)
             # read_idx = newest_idx - delay_steps, wrapped with modulo
             newest_idx = (coupling_state.write_idx - 1) % coupling_data.buffer_size
-            read_indices = (newest_idx - coupling_data.delay_steps) % coupling_data.buffer_size
+            read_indices = (
+                newest_idx - coupling_data.delay_steps
+            ) % coupling_data.buffer_size
 
         else:  # preallocated
             # Preallocated: no modulo needed, indices always increase
