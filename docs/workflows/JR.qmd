@@ -16,13 +16,26 @@ execute:
 
 Try this notebook interactively: 
 
-[Download .ipynb](JR.ipynb){.btn .btn-primary download="JR.ipynb"} 
+[Download .ipynb](https://github.com/virtual-twin/tvboptim/blob/main/docs/workflows/JR.ipynb){.btn .btn-primary download="JR.ipynb"} 
 [Download .qmd](JR.qmd){.btn .btn-secondary download="JR.qmd"}
 [Open in Colab](https://colab.research.google.com/github/virtual-twin/tvboptim/blob/main/docs/workflows/JR.ipynb){.btn .btn-warning target="_blank"} 
 
 ## Introduction
 
 This tutorial demonstrates how to use TVBOptim's Network Dynamics framework to model and optimize brain network dynamics. We aim to reproduce the frequency gradient observed in resting-state MEG data, where different brain regions exhibit characteristic peak frequencies that vary with their distance from visual cortex.
+
+```{python}
+#| output: false
+#| echo: false
+# Install dependencies if running in Google Colab
+try:
+    import google.colab
+    print("Running in Google Colab - installing dependencies...")
+    !pip install -q tvboptim nibabel nilearn
+    print("✓ Dependencies installed!")
+except ImportError:
+    pass  # Not in Colab, assume dependencies are available
+```
 
 ```{python}
 #| output: false

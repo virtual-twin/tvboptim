@@ -98,10 +98,6 @@ def clean_quarto_markdown(cell_source):
     else:
         content = cell_source
 
-    # Remove Quarto callout blocks (:::{.callout-note} etc)
-    content = re.sub(r':::\{[^}]+\}.*?\n', '', content)
-    content = re.sub(r'^\s*:::\s*$', '', content, flags=re.MULTILINE)
-
     # Clean up Quarto button syntax
     # Remove text-based Colab button (new format)
     content = re.sub(r'\[Open in Colab\]\([^)]+\)\{[^}]+\}\s*\n*', '', content)

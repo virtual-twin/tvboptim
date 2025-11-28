@@ -16,13 +16,26 @@ execute:
 
 Try this notebook interactively:
 
-[Download .ipynb](RWW.ipynb){.btn .btn-primary download="RWW.ipynb"}
+[Download .ipynb](https://github.com/virtual-twin/tvboptim/blob/main/docs/workflows/RWW.ipynb){.btn .btn-primary download="RWW.ipynb"}
 [Download .qmd](RWW.qmd){.btn .btn-secondary download="RWW.qmd"}
 [Open in Colab](https://colab.research.google.com/github/virtual-twin/tvboptim/blob/main/docs/workflows/RWW.ipynb){.btn .btn-warning target="_blank"}
 
 ## Introduction
 
 This tutorial demonstrates how to use TVBOptim to fit functional connectivity (FC) data from resting-state fMRI. We use the Reduced Wong-Wang (RWW) neural mass model to simulate brain activity, convert it to BOLD signal using a hemodynamic response function, and optimize model parameters to match empirical FC patterns.
+
+```{python}
+#| output: false
+#| echo: false
+# Install dependencies if running in Google Colab
+try:
+    import google.colab
+    print("Running in Google Colab - installing dependencies...")
+    !pip install -q tvboptim
+    print("✓ Dependencies installed!")
+except ImportError:
+    pass  # Not in Colab, assume dependencies are available
+```
 
 The workflow includes:
 

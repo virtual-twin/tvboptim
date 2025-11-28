@@ -16,13 +16,26 @@ execute:
 
 Try this notebook interactively:
 
-[Download .ipynb](buffer_strategies.ipynb){.btn .btn-primary download="buffer_strategies.ipynb"}
+[Download .ipynb](https://github.com/virtual-twin/tvboptim/blob/main/docs/advanced/buffer_strategies.ipynb){.btn .btn-primary download="buffer_strategies.ipynb"}
 [Download .qmd](buffer_strategies.qmd){.btn .btn-secondary download="buffer_strategies.qmd"}
 [Open in Colab](https://colab.research.google.com/github/virtual-twin/tvboptim/blob/main/docs/advanced/buffer_strategies.ipynb){.btn .btn-warning target="_blank"}
 
 ## Introduction
 
 Delay differential equations (DDEs) are computationally demanding because they require maintaining and accessing a history of past states. In brain network models, transmission delays arise from finite axonal conduction speeds, turning the system into a DDE where coupling terms depend on states at previous time points.
+
+```{python}
+#| output: false
+#| echo: false
+# Install dependencies if running in Google Colab
+try:
+    import google.colab
+    print("Running in Google Colab - installing dependencies...")
+    !pip install -q tvboptim
+    print("✓ Dependencies installed!")
+except ImportError:
+    pass  # Not in Colab, assume dependencies are available
+```
 
 The core challenge is **history buffer management**: at each integration step, we must:
 

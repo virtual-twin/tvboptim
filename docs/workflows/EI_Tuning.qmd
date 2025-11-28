@@ -16,13 +16,26 @@ execute:
 
 Try this notebook interactively:
 
-[Download .ipynb](EI_Tuning.ipynb){.btn .btn-primary download="EI_Tuning.ipynb"}
+[Download .ipynb](https://github.com/virtual-twin/tvboptim/blob/main/docs/workflows/EI_Tuning.ipynb){.btn .btn-primary download="EI_Tuning.ipynb"}
 [Download .qmd](EI_Tuning.qmd){.btn .btn-secondary download="EI_Tuning.qmd"}
 [Open in Colab](https://colab.research.google.com/github/virtual-twin/tvboptim/blob/main/docs/workflows/EI_Tuning.ipynb){.btn .btn-warning target="_blank"}
 
 ## Introduction
 
 This tutorial demonstrates how to use TVBOptim's Network Dynamics framework to implement **Excitation-Inhibition Balance (EIB) tuning** for whole-brain models, following the methodology introduced by [Schirner et al. (2023)](https://doi.org/10.1038/s41467-023-38626-y). The approach combines **Feedback Inhibition Control (FIC)** to locally maintain E-I balance with **EIB tuning** to globally optimize network connectivity patterns.
+
+```{python}
+#| output: false
+#| echo: false
+# Install dependencies if running in Google Colab
+try:
+    import google.colab
+    print("Running in Google Colab - installing dependencies...")
+    !pip install -q tvboptim
+    print("✓ Dependencies installed!")
+except ImportError:
+    pass  # Not in Colab, assume dependencies are available
+```
 
 We'll use a two-population Reduced Wong-Wang model with separate excitatory and inhibitory populations, and optimize the network coupling to match empirical functional connectivity from resting-state fMRI. This biologically-inspired learning algorithm demonstrates how neural network parameters can be tuned to achieve desired functional connectivity while maintaining physiologically realistic dynamics.
 
