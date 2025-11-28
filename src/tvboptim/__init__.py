@@ -1,6 +1,10 @@
 """TVBOptim - Optimization tools for The Virtual Brain."""
 
-__version__ = "0.1.0"
+try:
+    from importlib.metadata import version
+    __version__ = version("tvboptim")
+except Exception:
+    __version__ = "unknown"
 
 from . import data
 from .tvbo.prepare_experiment import HAS_TVBO, prepare
