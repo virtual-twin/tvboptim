@@ -22,7 +22,7 @@ Try this notebook interactively:
 
 ## Introduction
 
-This tutorial demonstrates how to use TVBOptim's Network Dynamics framework to model and optimize brain network dynamics. We aim to reproduce the frequency gradient observed in resting-state MEG data, where different brain regions exhibit characteristic peak frequencies that vary with their distance from visual cortex.
+This tutorial demonstrates how to use TVB-Optim's Network Dynamics framework to model and optimize brain network dynamics. We aim to reproduce the frequency gradient observed in resting-state MEG data, where different brain regions exhibit characteristic peak frequencies that vary with their distance from visual cortex.
 
 ```{python}
 #| output: false
@@ -546,7 +546,7 @@ plt.tight_layout()
 
 Before attempting optimization, it's useful to understand the relationship between the Jansen-Rit parameters (`a` and `b`) and the resulting peak frequency. We perform a grid search over parameter space to map out this relationship.
 
-The `Space` and `GridAxis` classes from TVBOptim make it easy to define parameter grids, and `ParallelExecution` efficiently evaluates the model across all grid points in parallel.
+The `Space` and `GridAxis` classes from TVB-Optim make it easy to define parameter grids, and `ParallelExecution` efficiently evaluates the model across all grid points in parallel.
 
 ```{python}
 #| echo: true
@@ -676,7 +676,7 @@ loss(state)
 
 Now we use gradient-based optimization to find region-specific parameters `a` and `b` that produce the target frequency gradient. We mark parameters as optimizable using the `Parameter` class and set their shape to be region-specific (heterogeneous).
 
-TVBOptim integrates with `optax` for optimization, providing automatic differentiation through JAX. We use the AdaMax optimizer with callbacks for progress monitoring.
+TVB-Optim integrates with `optax` for optimization, providing automatic differentiation through JAX. We use the AdaMax optimizer with callbacks for progress monitoring.
 
 ```{python}
 #| code-fold: true
@@ -879,7 +879,7 @@ fig.tight_layout()
 
 ## Summary
 
-This tutorial demonstrated the complete workflow for fitting brain network models using TVBOptim:
+This tutorial demonstrated the complete workflow for fitting brain network models using TVB-Optim:
 
 1. **Model Construction**: We built a whole-brain network using the Jansen-Rit neural mass model with structural connectivity and transmission delays.
 
@@ -891,5 +891,5 @@ This tutorial demonstrated the complete workflow for fitting brain network model
 
 5. **Validation**: We visualized the results showing successful reproduction of the spatial frequency gradient across brain regions.
 
-This approach showcases key features of TVBOptim including the modular `Network` architecture, JAX-based automatic differentiation for gradient-based optimization, and integration with visualization tools for neuroimaging data.
+This approach showcases key features of TVB-Optim including the modular `Network` architecture, JAX-based automatic differentiation for gradient-based optimization, and integration with visualization tools for neuroimaging data.
 

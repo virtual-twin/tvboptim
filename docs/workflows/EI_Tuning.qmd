@@ -22,7 +22,7 @@ Try this notebook interactively:
 
 ## Introduction
 
-This tutorial demonstrates how to use TVBOptim's Network Dynamics framework to implement **Excitation-Inhibition Balance (EIB) tuning** for whole-brain models, following the methodology introduced by [Schirner et al. (2023)](https://doi.org/10.1038/s41467-023-38626-y). The approach combines **Feedback Inhibition Control (FIC)** to locally maintain E-I balance with **EIB tuning** to globally optimize network connectivity patterns.
+This tutorial demonstrates how to use TVB-Optim's Network Dynamics framework to implement **Excitation-Inhibition Balance (EIB) tuning** for whole-brain models, following the methodology introduced by [Schirner et al. (2023)](https://doi.org/10.1038/s41467-023-38626-y). The approach combines **Feedback Inhibition Control (FIC)** to locally maintain E-I balance with **EIB tuning** to globally optimize network connectivity patterns.
 
 ```{python}
 #| output: false

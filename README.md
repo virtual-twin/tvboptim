@@ -8,12 +8,11 @@
 [![Ruff](https://github.com/virtual-twin/tvboptim/actions/workflows/ruff.yml/badge.svg)](https://github.com/virtual-twin/tvboptim/actions/workflows/ruff.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![PyPI version](https://img.shields.io/pypi/v/tvboptim.svg)](https://pypi.org/project/tvboptim/)
+[![Documentation](https://img.shields.io/badge/docs-online-brightgreen.svg)](https://virtual-twin.github.io/tvboptim)
 <!-- [![Downloads](https://img.shields.io/pypi/dm/tvboptim.svg)](https://pypi.org/project/tvboptim/) -->
 <!-- [![codecov](https://codecov.io/gh/virtual-twin/tvboptim/branch/main/graph/badge.svg)](https://codecov.io/gh/virtual-twin/tvboptim) -->
 
 [JAX](https://jax.readthedocs.io/en/latest/)-based framework for brain network simulation and gradient-based optimization.
-
-**[Documentation](https://virtual-twin.github.io/tvboptim)** | **[Get Started](https://virtual-twin.github.io/tvboptim/get_started.html)** | **[Network Dynamics](https://virtual-twin.github.io/tvboptim/network_dynamics/network_dynamics.html)**
 
 ## Key Features
 
@@ -71,20 +70,11 @@ final_params, history = opt.run(params, max_steps=50)
 
 See the [full example with visualization](https://virtual-twin.github.io/tvboptim/) in the documentation.
 
-## Documentation
+## [Documentation](https://virtual-twin.github.io/tvboptim)
 
-- **[Get Started](https://virtual-twin.github.io/tvboptim/get_started.html)** - Introduction and basic workflows
-- **[Network Dynamics](https://virtual-twin.github.io/tvboptim/network_dynamics/network_dynamics.html)** - Build differentiable brain network models
+- **[Network Dynamics](https://virtual-twin.github.io/tvboptim/network_dynamics/network_dynamics.html)** - Build differentiable brain network models in TVB-Optim
 - **[Parameters & Optimization](https://virtual-twin.github.io/tvboptim/parameters_and_optimization.html)** - Gradient-based parameter inference
 - **[API Reference](https://virtual-twin.github.io/tvboptim/reference/index.html)** - Complete API documentation
-
-## How It Works
-
-**Functional Composition:** Models are composable functions that can be inspected, modified, and extended. Build complexity incrementally by wrapping functions.
-
-**End-to-End Differentiability:** Compute gradients through the full pipeline: neural dynamics → hemodynamic models → empirical observables.
-
-**Interoperability:** Convert existing TVB simulations to JAX-compatible functions via the TVB-O framework.
 
 ## Contributing
 
@@ -93,12 +83,6 @@ We welcome contributions and questions from the community!
 - **Report Issues**: [Open an issue](https://github.com/virtual-twin/tvboptim/issues)
 - **Ask Questions**: [Start a discussion](https://github.com/virtual-twin/tvboptim/discussions)
 - **Contribute Code**: [Open a pull request](https://github.com/virtual-twin/tvboptim/pulls)
-
-## Contact
-
-Questions or want to collaborate? Reach out:
-
-* marius.pille[at]bih-charite.de
 
 ## Citation
 

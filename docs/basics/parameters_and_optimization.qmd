@@ -1,5 +1,5 @@
 ---
-title: "Parameters and Optimization in TVBOptim"
+title: "Parameters and Optimization in TVB-Optim"
 format:
   html:
     code-fold: false
@@ -153,7 +153,7 @@ print("Smaller than 1:", p_opt < 1.0)
 ```
 # A Simple Example
 
-As a simple example on how to use parameters we try to find the fixed point of the reduced Wong-Wang model. This example demonstrates the key concepts of parameter optimization in TVBOptim by finding parameter values where the neural activity reaches equilibrium.
+As a simple example on how to use parameters we try to find the fixed point of the reduced Wong-Wang model. This example demonstrates the key concepts of parameter optimization in TVB-Optim by finding parameter values where the neural activity reaches equilibrium.
 
 ## Setting up the Model
 

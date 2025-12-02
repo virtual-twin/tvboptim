@@ -197,7 +197,7 @@ This enables synchronization dynamics where coupling strength depends on state m
 
 # Vectorized vs Per-Edge Modes
 
-A key performance consideration is how coupling interacts with the connectivity matrix. TVBOptim supports two modes:
+A key performance consideration is how coupling interacts with the connectivity matrix. TVB-Optim supports two modes:
 
 **Per-Edge Mode (3D)**: `pre()` returns `[n_states, n_nodes, n_nodes]`
 - Element-wise multiply with weights: `pre_states * weights`

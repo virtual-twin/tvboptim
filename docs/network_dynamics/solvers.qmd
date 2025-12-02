@@ -177,7 +177,7 @@ print(f"SDE result shape: {result_sde.ys.shape}")
 
 ## Diffrax Solvers (Advanced)
 
-For advanced use cases, TVBOptim supports [Diffrax](https://docs.kidger.site/diffrax/) - a powerful JAX library for differential equations with features like implicit methods, adaptive stepping, and advanced controllers.
+For advanced use cases, TVB-Optim supports [Diffrax](https://docs.kidger.site/diffrax/) - a powerful JAX library for differential equations with features like implicit methods, adaptive stepping, and advanced controllers.
 
 ### When to Use Diffrax
 

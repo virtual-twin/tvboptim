@@ -1,6 +1,6 @@
 """Network Dynamics: JAX-based brain network modeling interface.
 
-Part of TVBOptim experimental modules.
+Part of TVB-Optim experimental modules.
 """
 
 from .core import Bunch, Network

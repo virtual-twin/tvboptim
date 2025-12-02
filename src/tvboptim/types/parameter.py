@@ -1,5 +1,5 @@
 """
-New minimal Parameter implementation for TVBOptim refactoring.
+New minimal Parameter implementation for TVB-Optim refactoring.
 
 This module implements a simplified Parameter class that:
 - Removes redundant fields (name, doc, free/grad)

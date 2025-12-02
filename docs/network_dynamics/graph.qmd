@@ -137,7 +137,7 @@ Delays are only meaningful for non-zero connections. The delay matrix shares the
 
 # Sparse Graphs
 
-For very large networks with extremely high sparsity (< 1% density), sparse storage can reduce memory usage. TVBOptim uses JAX's [BCOO (Batched COO) format](https://jax.readthedocs.io/en/latest/jax.experimental.sparse.html) for sparse graphs. Such high sparsity is typical in surface-based simulations with tens of thousands of vertices.
+For very large networks with extremely high sparsity (< 1% density), sparse storage can reduce memory usage. TVB-Optim uses JAX's [BCOO (Batched COO) format](https://jax.readthedocs.io/en/latest/jax.experimental.sparse.html) for sparse graphs. Such high sparsity is typical in surface-based simulations with tens of thousands of vertices.
 
 ::: {.callout-warning}
 ## JAX Sparse Support is Experimental
@@ -198,7 +198,7 @@ The BCOO format stores only non-zero elements, making it memory-efficient for sp
 
 # Example Connectivity Data
 
-TVBOptim includes example structural connectivity datasets useful for testing and development:
+TVB-Optim includes example structural connectivity datasets useful for testing and development:
 
 - **`dk_average`**: Desikan-Killiany atlas, 84 cortical regions, averaged across subjects
 - **`dTOR`**: Virtual DBS dataset with Glasser parcellation, 370 regions (cortex + subcortex + striatum)

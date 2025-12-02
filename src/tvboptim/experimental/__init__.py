@@ -1,4 +1,4 @@
-"""Experimental modules for TVBOptim.
+"""Experimental modules for TVB-Optim.
 
 This package contains experimental features and integrations that are under
 active development. APIs may change without notice.

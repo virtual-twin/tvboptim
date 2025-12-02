@@ -1,5 +1,5 @@
 ---
-title: "Get Started"
+title: "Define a Brain Network Model in TVB-Optim, TVB-O, or TVB"
 description: "This page provides installation instructions and guides you through the TVB-Optim workflow. We follow a parallel structure depending on how you want to define your brain network model."
 format:
   html:

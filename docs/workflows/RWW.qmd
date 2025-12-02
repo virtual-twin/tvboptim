@@ -22,7 +22,7 @@ Try this notebook interactively:
 
 ## Introduction
 
-This tutorial demonstrates how to use TVBOptim to fit functional connectivity (FC) data from resting-state fMRI. We use the Reduced Wong-Wang (RWW) neural mass model to simulate brain activity, convert it to BOLD signal using a hemodynamic response function, and optimize model parameters to match empirical FC patterns.
+This tutorial demonstrates how to use TVB-Optim to fit functional connectivity (FC) data from resting-state fMRI. We use the Reduced Wong-Wang (RWW) neural mass model to simulate brain activity, convert it to BOLD signal using a hemodynamic response function, and optimize model parameters to match empirical FC patterns.
 
 ```{python}
 #| output: false
@@ -694,7 +694,7 @@ This would ensure that the optimizer only explores biologically plausible parame
 
 ## Summary
 
-This tutorial demonstrated the complete workflow for fitting brain network models to functional connectivity data using TVBOptim:
+This tutorial demonstrated the complete workflow for fitting brain network models to functional connectivity data using TVB-Optim:
 
 1. **Model Construction**: We built a whole-brain network using the Reduced Wong-Wang neural mass model with structural connectivity.
 
@@ -708,4 +708,4 @@ This tutorial demonstrated the complete workflow for fitting brain network model
 
 6. **Heterogeneous Parameters**: We refined the model with region-specific parameters, achieving better FC fits by accounting for regional variations in neural dynamics.
 
-This approach showcases TVBOptim's capability to perform end-to-end optimization of complex, biophysically-realistic brain network models with automatic differentiation through stochastic simulations and signal processing pipelines.
+This approach showcases TVB-Optim's capability to perform end-to-end optimization of complex, biophysically-realistic brain network models with automatic differentiation through stochastic simulations and signal processing pipelines.

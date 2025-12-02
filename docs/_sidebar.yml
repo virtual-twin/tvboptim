@@ -15,6 +15,7 @@ website:
     - contents:
       - reference/spaces.Space.qmd
       - reference/spaces.GridAxis.qmd
+      - reference/spaces.LogGridAxis.qmd
       - reference/spaces.UniformAxis.qmd
       - reference/spaces.DataAxis.qmd
       section: Spaces

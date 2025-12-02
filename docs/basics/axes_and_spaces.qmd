@@ -1,5 +1,5 @@
 ---
-title: "Axes and Spaces: Systematic Parameter Exploration in TVBOptim"
+title: "Axes and Spaces: Systematic Parameter Exploration in TVB-Optim"
 format:
   html:
     code-fold: false
@@ -14,7 +14,7 @@ execute:
 
 # Introduction & Overview
 
-The Axes and Spaces system in TVBOptim provides a powerful, composable framework for systematic parameter exploration in brain network simulations. This system enables you to:
+The Axes and Spaces system in TVB-Optim provides a powerful, composable framework for systematic parameter exploration in brain network simulations. This system enables you to:
 
 - **Define parameter sampling strategies** using different axis types
 - **Compose complex parameter spaces** from multiple axes
@@ -23,7 +23,7 @@ The Axes and Spaces system in TVBOptim provides a powerful, composable framework
 
 ## Why This Design?
 
-Traditional parameter exploration often requires writing custom loops and managing complex indexing. TVBOptim's axis system provides a flexible and composable approach to make things easier.
+Traditional parameter exploration often requires writing custom loops and managing complex indexing. TVB-Optim's axis system provides a flexible and composable approach to make things easier.
 
 Let's start with a quick preview of what we'll build:
 
@@ -55,7 +55,7 @@ for i, params in enumerate(space):
 
 ## The AbstractAxis Interface
 
-All axes in TVBOptim implement a simple but powerful interface:
+All axes in TVB-Optim implement a simple but powerful interface:
 
 - **`generate_values(key=None)`**: Produces sample values as JAX arrays
 - **`size`**: Returns the number of samples this axis generates
@@ -642,7 +642,7 @@ for i, params in enumerate(every_other):
 
 # Execution: Running Functions Over Spaces
 
-Now that we understand how to create and manipulate parameter spaces, let's see how to actually execute functions over them. TVBOptim provides two execution strategies through `SequentialExecution` and `ParallelExecution` classes.
+Now that we understand how to create and manipulate parameter spaces, let's see how to actually execute functions over them. TVB-Optim provides two execution strategies through `SequentialExecution` and `ParallelExecution` classes.
 
 ## Sequential Execution
 
@@ -953,4 +953,4 @@ print("✓ Parallel execution: vectorizes over any parameter combination")
 print("✓ Results: same access patterns regardless of execution type")
 ```
 
-This execution system provides the final piece of the TVBOptim parameter exploration pipeline - taking your carefully designed parameter spaces and efficiently computing results across all combinations, whether you need the control of sequential execution or the speed of parallel execution.
+This execution system provides the final piece of the TVB-Optim parameter exploration pipeline - taking your carefully designed parameter spaces and efficiently computing results across all combinations, whether you need the control of sequential execution or the speed of parallel execution.

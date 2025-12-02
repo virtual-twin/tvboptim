@@ -1,4 +1,4 @@
-"""TVBOptim - Optimization tools for The Virtual Brain."""
+"""TVB-Optim - Optimization tools for The Virtual Brain."""
 
 try:
     from importlib.metadata import version

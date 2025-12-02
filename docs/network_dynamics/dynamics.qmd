@@ -35,7 +35,7 @@ where $\mathbf{X}$ represents state variables at a given node.
 
 # Using Built-in Dynamics
 
-TVBOptim provides several canonical dynamics models. Let's start with the Lorenz system - a well-known chaotic attractor useful for testing and demonstrating core concepts.
+TVB-Optim provides several canonical dynamics models. Let's start with the Lorenz system - a well-known chaotic attractor useful for testing and demonstrating core concepts.
 
 ## Standalone Simulation: Lorenz System
 
@@ -384,7 +384,7 @@ The FitzHugh-Nagumo model exhibits classic excitable dynamics: subthreshold pert
 
 # Available Dynamics Models
 
-TVBOptim includes several canonical models from computational neuroscience:
+TVB-Optim includes several canonical models from computational neuroscience:
 
 | Model | States | Type | Key Features | Use Cases |
 |-------|--------|------|--------------|-----------|

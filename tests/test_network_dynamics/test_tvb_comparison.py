@@ -1,6 +1,6 @@
-"""Test TVB vs TVBOptim implementation comparison across all models.
+"""Test TVB vs TVB-Optim implementation comparison across all models.
 
-This test suite validates that TVBOptim implementations match TVB reference
+This test suite validates that TVB-Optim implementations match TVB reference
 implementations for all neural mass models with both instant and delayed coupling.
 """
 
@@ -23,7 +23,7 @@ from tvb.simulator.lab import (
     simulator,
 )
 
-# TVBOptim imports
+# TVB-Optim imports
 from tvboptim.data import load_structural_connectivity
 from tvboptim.experimental.network_dynamics import Network, prepare
 from tvboptim.experimental.network_dynamics.coupling import (
@@ -166,7 +166,7 @@ MODEL_REGISTRY = {
 # TEST CLASS
 # ==============================================================================
 class TestTVBComparison(unittest.TestCase):
-    """Compare TVB and TVBOptim implementations across all models."""
+    """Compare TVB and TVB-Optim implementations across all models."""
 
     # ==================== EASY CONFIGURATION SECTION ====================
 
@@ -240,7 +240,7 @@ class TestTVBComparison(unittest.TestCase):
         # 2. Run TVB simulation (returns data and ICs)
         tvb_result = self._run_tvb_simulation(config, coupling_config)
 
-        # 3. Run TVBOptim simulation with matching ICs
+        # 3. Run TVB-Optim simulation with matching ICs
         tvboptim_result = self._run_tvboptim_simulation(
             config,
             coupling_config,
@@ -300,7 +300,7 @@ class TestTVBComparison(unittest.TestCase):
             sim.integrator, (n_time, n_svar, n_node, n_mode)
         )
 
-        # Extract ICs for TVBOptim (already in correct order)
+        # Extract ICs for TVB-Optim (already in correct order)
         initial_conditions_tvboptim = jnp.array(
             initial_conditions[:, :, :, 0], dtype=jnp.float64
         )
@@ -322,7 +322,7 @@ class TestTVBComparison(unittest.TestCase):
     def _run_tvboptim_simulation(
         self, config, coupling_config, tvb_initial_conditions, tvb_conn
     ):
-        """Run TVBOptim simulation with matching initial conditions from TVB."""
+        """Run TVB-Optim simulation with matching initial conditions from TVB."""
         # Compute delays
         speed = coupling_config["speed"]
         if np.isinf(speed):
@@ -378,9 +378,9 @@ class TestTVBComparison(unittest.TestCase):
         return {"time": np.array(result.ts), "data": np.array(result.ys)}
 
     def _compare_results(self, tvb_data, tvboptim_data, state_indices):
-        """Compare TVB and TVBOptim results."""
+        """Compare TVB and TVB-Optim results."""
         # TVB data shape: [time, state_var, regions, mode]
-        # TVBOptim data shape: [time, state_var, regions]
+        # TVB-Optim data shape: [time, state_var, regions]
 
         # Extract relevant states from TVB (remove mode dimension)
         # Use advanced indexing to select specific states
@@ -389,7 +389,7 @@ class TestTVBComparison(unittest.TestCase):
             [V_tvb[:, i, :] for i in state_indices], axis=1
         )  # [time, n_states, regions]
 
-        # Extract relevant states from TVBOptim
+        # Extract relevant states from TVB-Optim
         V_tvboptim = np.stack(
             [tvboptim_data[:, i, :] for i in state_indices], axis=1
         )  # [time, n_states, regions]

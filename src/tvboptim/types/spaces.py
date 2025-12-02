@@ -1,4 +1,4 @@
-"""Clean axis and space system for TVBOptim.
+"""Clean axis and space system for TVB-Optim.
 
 This module implements a simple, composable parameter space system for systematic
 exploration of brain simulation parameters.

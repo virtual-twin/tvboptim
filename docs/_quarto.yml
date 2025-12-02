@@ -13,17 +13,15 @@ website:
     right:
       - icon: github
         href: https://github.com/virtual-twin/tvboptim
-        aria-label: TVBOptim on GitHub
+        aria-label: TVB-Optim on GitHub
     left:
-      - text: "Get started"
-        file: basics/get_started.qmd
       - text: "Basics"
         menu:
+          - file: basics/get_started.qmd
           - file: basics/parameters_and_optimization.qmd
           - file: basics/axes_and_spaces.qmd
       - text: "Workflows"
         menu:
-          # - text: "Functional Connectivity Dynamics in the Reduced Wong Wang Model"
           - file: workflows/RWW.qmd
           - file: workflows/JR.qmd
           - file: workflows/EI_Tuning.qmd
