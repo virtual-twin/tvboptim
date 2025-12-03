@@ -38,7 +38,7 @@ website:
         menu:
           - text: "Performance Tips"
           - file: advanced/buffer_strategies.qmd
-          - text: "Surface Simulations"
+          - file: advanced/subspace_coupling.qmd
           - text: "Constraining Parameters"
       - text: "Reference"
         file: reference/index.qmd
@@ -162,6 +162,7 @@ quartodoc:
         - DelayedDifferenceCoupling
         - SigmoidalJansenRit
         - DelayedSigmoidalJansenRit
+        - SubspaceCoupling
 
     - subtitle: Graphs
       desc: Connectivity and topology

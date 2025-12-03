@@ -6,7 +6,7 @@ from .parameter import (
     SigmoidBoundedParameter,
     TransformedParameter,
 )
-from .spaces import AbstractAxis, DataAxis, GridAxis, Space, UniformAxis, LogGridAxis
+from .spaces import AbstractAxis, DataAxis, GridAxis, LogGridAxis, Space, UniformAxis
 from .stateutils import (
     collect_parameters,
     combine_state,

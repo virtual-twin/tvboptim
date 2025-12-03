@@ -9,6 +9,7 @@ from .linear import (
     LinearCoupling,
 )
 from .tvb import DelayedSigmoidalJansenRit, SigmoidalJansenRit
+from .subspace import SubspaceCoupling
 
 __all__ = [
     "AbstractCoupling",
@@ -21,4 +22,5 @@ __all__ = [
     "DelayedLinearCoupling",
     "DelayedDifferenceCoupling",
     "FastLinearCoupling",
+    "SubspaceCoupling",
 ]

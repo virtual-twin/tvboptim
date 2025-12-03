@@ -19,15 +19,25 @@ from .base import AbstractCoupling
 
 
 class _RegionalNetworkContext:
-    """Minimal context for regional coupling preparation.
+    """Lightweight Network-like interface for inner coupling preparation.
 
-    This lightweight class provides only the interface needed by coupling.prepare():
-    - graph: Regional graph
-    - dynamics: Dynamics model (for state name resolution)
-    - get_initial_history(): Aggregated regional history
+    Provides minimal interface for coupling.prepare(): graph, dynamics, get_history().
+    Aggregates node-level history to regional level on-the-fly.
 
-    This avoids the need to create a full Network instance and deal with
-    property overriding issues.
+    Parameters
+    ----------
+    graph : AbstractGraph
+        Regional graph
+    dynamics : AbstractDynamics
+        For state name resolution
+    node_network : Network
+        Node-level network for history aggregation
+    region_one_hot_normalized : ndarray or BCOO
+        Aggregation matrix
+    n_regions : int
+        Number of regions
+    aggregator : callable
+        Aggregation function (typically SubspaceCoupling.aggregate)
     """
 
     def __init__(
@@ -39,16 +49,6 @@ class _RegionalNetworkContext:
         n_regions: int,
         aggregator: Callable,
     ):
-        """Initialize regional network context.
-
-        Args:
-            graph: Regional graph
-            dynamics: Dynamics model
-            node_network: Node-level network (for history aggregation)
-            region_one_hot_normalized: [n_nodes, n_regions] normalized one-hot encoding
-            n_regions: Number of regions
-            aggregator: Function to aggregate states (typically SubspaceCoupling.aggregate)
-        """
         self.graph = graph
         self.dynamics = dynamics
         self._node_network = node_network
@@ -56,14 +56,37 @@ class _RegionalNetworkContext:
         self._n_regions = n_regions
         self._aggregator = aggregator
 
+    def get_history(self, dt: float) -> Optional[jnp.ndarray]:
+        """Get aggregated regional history buffer.
+
+        Parameters
+        ----------
+        dt : float
+            Integration timestep
+
+        Returns
+        -------
+        ndarray, shape (n_steps, n_states, n_regions) or None
+            Aggregated history if delays present, None otherwise
+        """
+        # Check if node network has custom history set
+        if self._node_network._history is None:
+            return self.get_initial_history(dt)
+        else:
+            return self._extract_regional_history_window(dt)
+
     def get_initial_history(self, dt: float) -> Optional[jnp.ndarray]:
-        """Return aggregated regional history.
+        """Create initial history from aggregated node initial states.
 
-        Args:
-            dt: Integration timestep
+        Parameters
+        ----------
+        dt : float
+            Integration timestep
 
-        Returns:
-            Regional history [n_steps, n_states, n_regions] or None if no delays
+        Returns
+        -------
+        ndarray, shape (n_steps, n_states, n_regions) or None
+            Initial regional history or None if no delays
         """
         # Check if regional graph has delays
         if not hasattr(self.graph, "max_delay") or self.graph.max_delay == 0.0:
@@ -93,80 +116,85 @@ class _RegionalNetworkContext:
 
         return regional_history
 
+    def _extract_regional_history_window(self, dt: float) -> jnp.ndarray:
+        """Extract and aggregate custom node history to regional level.
+
+        Parameters
+        ----------
+        dt : float
+            Integration timestep
+
+        Returns
+        -------
+        ndarray, shape (n_steps, n_states, n_regions)
+            Aggregated regional history window
+        """
+        from ..utils.history import extract_history_window
+
+        # Create minimal coupling_data for aggregator
+        aggregation_data = Bunch(
+            region_one_hot_normalized=self._region_one_hot_normalized
+        )
+
+        # Define transformation: node states -> regional states
+        def aggregate_to_regional(node_state_at_t: jnp.ndarray) -> jnp.ndarray:
+            """Aggregate node states [n_states, n_nodes] to [n_states, n_regions]"""
+            return self._aggregator(node_state_at_t, aggregation_data)
+
+        # Use shared utility with aggregation transform
+        return extract_history_window(
+            hist_ts=self._node_network._history.ts,
+            hist_ys=self._node_network._history.ys,
+            max_delay=self.graph.max_delay,
+            dt=dt,
+            transform_fn=aggregate_to_regional,
+        )
+
 
 class SubspaceCoupling(AbstractCoupling):
-    """Coupling that operates on a regional/cluster subspace.
+    """Coupling on regional subspace: aggregate nodes → couple regions → distribute.
 
-    Aggregates node states to regional states, applies inner coupling
-    on regional graph, then distributes results back to nodes.
-
-    Notes
-    -----
-    The coupling operates in three stages:
-
-    1. **Aggregation**: Node states are aggregated to regional states (default: mean)
-
-       $$s_r = \\text{aggregate}(\\{s_i : i \\in \\text{region } r\\})$$
-
-    2. **Regional coupling**: Inner coupling is applied on the regional graph
-
-       $$c_r = f_{\\text{coupling}}(s, \\text{regional_graph})$$
-
-    3. **Distribution**: Regional coupling is distributed back to nodes (default: broadcast)
-
-       $$c_i = \\text{distribute}(c_{\\text{region}[i]})$$
-
-    Users can customize aggregation/distribution by overriding:
-
-    - ``aggregate()``: node_state → regional_state (default: mean)
-    - ``distribute()``: regional_coupling → node_coupling (default: broadcast)
+    Performs three-stage computation:
+    1. Aggregate node states to regional states (default: mean)
+    2. Apply inner coupling on regional graph
+    3. Distribute regional results to nodes (default: broadcast)
 
     Parameters
     ----------
     inner_coupling : AbstractCoupling
-        Coupling to apply at regional level (can be any coupling: Linear, Delayed, custom, etc.)
-    region_mapping : jnp.ndarray
-        Array with shape ``[n_nodes]`` mapping nodes to region IDs (0 to n_regions-1)
+        Coupling applied at regional level
+    region_mapping : ndarray, shape (n_nodes,)
+        Maps each node to region ID (0 to n_regions-1)
     regional_graph : AbstractGraph
-        Graph defining region-to-region connectivity (must have n_nodes == n_regions)
-    use_sparse : bool, optional
-        If True, use BCOO sparse format for aggregation matrix (default: ``True``)
+        Regional connectivity (n_nodes must equal n_regions)
+    use_sparse : bool, default=True
+        Use sparse BCOO format for aggregation (memory efficient)
     **kwargs
-        Additional parameters stored in ``self.params`` for custom subclasses
+        Additional parameters for custom subclasses
 
     Attributes
     ----------
-    inner_coupling : AbstractCoupling
-        Coupling to apply at regional level
-    region_mapping : jnp.ndarray
-        Array mapping nodes to region IDs
-    regional_graph : AbstractGraph
-        Graph defining region-to-region connectivity
     n_regions : int
-        Number of regions (derived from region_mapping)
+        Number of regions from region_mapping
     N_OUTPUT_STATES : int
-        Number of output coupling states (inherited from inner_coupling)
+        Output coupling dimensions from inner_coupling
+
+    Notes
+    -----
+    Customization: Override ``aggregate()`` or ``distribute()`` for custom aggregation/
+    distribution strategies beyond mean/broadcast.
 
     Examples
     --------
-    >>> # 1000 nodes mapped to 90 brain regions
-    >>> region_mapping = jnp.array([...])  # [1000] with values 0-89
-    >>> regional_graph = DelayGraph(weights_90x90, delays_90x90)
+    Surface-level network with regional delayed coupling:
+
+    >>> region_mapping = jnp.array([...])  # [n_vertices] -> region IDs
+    >>> regional_graph = DenseDelayGraph.from_weights_delays(SC, delays)
     >>>
     >>> coupling = SubspaceCoupling(
     ...     inner_coupling=DelayedLinearCoupling(incoming_states='S', G=0.5),
     ...     region_mapping=region_mapping,
     ...     regional_graph=regional_graph
-    ... )
-    >>>
-    >>> # Use in network with mixed coupling
-    >>> network = Network(
-    ...     dynamics=ReducedWongWang(),
-    ...     coupling={
-    ...         'instant': LinearCoupling(incoming_states='S', G=0.2),
-    ...         'delayed': coupling  # Regional delayed coupling
-    ...     },
-    ...     graph=node_graph
     ... )
     """
 
@@ -178,21 +206,11 @@ class SubspaceCoupling(AbstractCoupling):
         use_sparse: bool = True,
         **kwargs,
     ):
-        """Initialize subspace coupling.
-
-        Args:
-            inner_coupling: Coupling to apply at regional level
-                           Can be any coupling (Linear, Delayed, custom, etc.)
-            region_mapping: [n_nodes] array mapping nodes to region IDs (0 to n_regions-1)
-                           Example: [0, 0, 1, 1, 2, 2] maps 6 nodes to 3 regions
-            regional_graph: Graph defining region-to-region connectivity
-                           Must have n_nodes == n_regions
-            use_sparse: If True, use BCOO sparse format for aggregation matrix
-                       Can improve memory usage for large networks with many regions
-            **kwargs: Additional parameters (stored in self.params for custom subclasses)
-
-        Raises:
-            ValueError: If regional_graph size doesn't match number of regions
+        """
+        Raises
+        ------
+        ValueError
+            If regional_graph.n_nodes != max(region_mapping) + 1
         """
         # Extract state names from inner coupling
         super().__init__(
@@ -216,20 +234,28 @@ class SubspaceCoupling(AbstractCoupling):
             )
 
     def prepare(self, network, dt: float, t0: float, t1: float) -> Tuple[Bunch, Bunch]:
-        """Prepare regional structures and inner coupling.
+        """Prepare aggregation matrices, regional context, and inner coupling.
 
-        Args:
-            network: Network instance (node-level)
-            dt: Integration timestep
-            t0: Simulation start time
-            t1: Simulation end time
+        Parameters
+        ----------
+        network : Network
+            Node-level network instance
+        dt : float
+            Integration timestep
+        t0, t1 : float
+            Simulation time window
 
-        Returns:
-            coupling_data: Bunch with regional structures and inner_data
-            coupling_state: Bunch with inner_state
+        Returns
+        -------
+        coupling_data : Bunch
+            Static data with region_one_hot_normalized, inner_data
+        coupling_state : Bunch
+            Mutable state with inner_state, cached_regional_state
 
-        Raises:
-            ValueError: If region_mapping size doesn't match network size
+        Raises
+        ------
+        ValueError
+            If len(region_mapping) != network.graph.n_nodes
         """
         # Validate region_mapping size matches network
         if len(self.region_mapping) != network.graph.n_nodes:
@@ -279,6 +305,15 @@ class SubspaceCoupling(AbstractCoupling):
             regional_context, dt, t0, t1
         )
 
+        # Precompute initial aggregated regional state for caching
+        # This avoids redundant aggregation in first compute() call
+        aggregation_data_for_cache = Bunch(
+            region_one_hot_normalized=region_one_hot_normalized
+        )
+        initial_regional_state = self.aggregate(
+            network.initial_state, aggregation_data_for_cache
+        )
+
         coupling_data = Bunch(
             n_regions=self.n_regions,
             region_one_hot_normalized=region_one_hot_normalized,  # Normalized for mean aggregation
@@ -286,22 +321,27 @@ class SubspaceCoupling(AbstractCoupling):
             inner_data=inner_data,
         )
 
-        coupling_state = Bunch(inner_state=inner_state)
+        coupling_state = Bunch(
+            inner_state=inner_state,
+            cached_regional_state=initial_regional_state,  # Cache to avoid redundant aggregation
+        )
 
         return coupling_data, coupling_state
 
     def _create_regional_context(self, node_network, region_one_hot_normalized):
-        """Create regional context for inner coupling preparation.
+        """Create minimal network-like context for inner coupling preparation.
 
-        This creates a lightweight mock that provides only what coupling.prepare()
-        needs: graph, dynamics, and get_initial_history().
+        Parameters
+        ----------
+        node_network : Network
+            Node-level network instance
+        region_one_hot_normalized : ndarray or BCOO
+            Normalized aggregation matrix
 
-        Args:
-            node_network: Node-level Network instance
-            region_one_hot_normalized: Precomputed normalized one-hot encoding
-
-        Returns:
-            _RegionalNetworkContext instance with regional graph and aggregated history
+        Returns
+        -------
+        _RegionalNetworkContext
+            Provides graph, dynamics, get_history() interface for inner coupling
         """
         return _RegionalNetworkContext(
             graph=self.regional_graph,
@@ -321,21 +361,31 @@ class SubspaceCoupling(AbstractCoupling):
         params: Bunch,
         graph: AbstractGraph,
     ) -> jnp.ndarray:
-        """Compute subspace coupling: aggregate → couple → distribute.
+        """Compute coupling using cached aggregated state.
 
-        Args:
-            t: Current simulation time
-            state: Current network state [n_states, n_nodes]
-            coupling_data: Precomputed regional structures
-            coupling_state: Inner coupling state
-            params: Coupling parameters (not used - inner coupling has its own params)
-            graph: Node-level graph (not used - regional_graph used instead)
+        Parameters
+        ----------
+        t : float
+            Current time
+        state : ndarray, shape (n_states, n_nodes)
+            Not used - cached state from previous update_state() avoids aggregation
+        coupling_data : Bunch
+            Static regional structures
+        coupling_state : Bunch
+            Contains cached_regional_state, inner_state
+        params : Bunch
+            Not used - inner coupling has own params
+        graph : AbstractGraph
+            Not used - regional_graph used instead
 
-        Returns:
-            Node-level coupling input [n_coupling_inputs, n_nodes]
+        Returns
+        -------
+        ndarray, shape (n_coupling_inputs, n_nodes)
+            Node-level coupling input
         """
-        # 1. Aggregate: node states → regional states
-        regional_state = self.aggregate(state, coupling_data)
+        # 1. Use cached aggregated regional state (computed in previous update_state)
+        # This avoids redundant aggregation - the cached state is already aggregated
+        regional_state = coupling_state.cached_regional_state
 
         # 2. Compute coupling at regional level
         regional_coupling = self.inner_coupling.compute(
@@ -355,17 +405,24 @@ class SubspaceCoupling(AbstractCoupling):
     def update_state(
         self, coupling_data: Bunch, coupling_state: Bunch, new_state: jnp.ndarray
     ) -> Bunch:
-        """Update inner coupling state (e.g., regional history buffer).
+        """Update inner coupling state and cache aggregated state.
 
-        Args:
-            coupling_data: Precomputed regional structures
-            coupling_state: Current inner coupling state
-            new_state: New network state [n_states, n_nodes]
+        Parameters
+        ----------
+        coupling_data : Bunch
+            Static regional structures
+        coupling_state : Bunch
+            Current state with inner_state, cached_regional_state
+        new_state : ndarray, shape (n_states, n_nodes)
+            Network state after integration step
 
-        Returns:
-            Updated coupling_state with new inner_state
+        Returns
+        -------
+        Bunch
+            Updated inner_state and cached_regional_state for next compute()
         """
         # Aggregate new node state to regional state
+        # This will be cached for the next compute() call, avoiding redundant aggregation
         regional_state = self.aggregate(new_state, coupling_data)
 
         # Update inner coupling state with regional state
@@ -373,35 +430,36 @@ class SubspaceCoupling(AbstractCoupling):
             coupling_data.inner_data, coupling_state.inner_state, regional_state
         )
 
-        return Bunch(inner_state=new_inner_state)
+        return Bunch(
+            inner_state=new_inner_state,
+            cached_regional_state=regional_state,  # Cache for next compute()
+        )
 
     # ========================================================================
     # Customizable Methods (like pre/post pattern)
     # ========================================================================
 
     def aggregate(self, node_state: jnp.ndarray, coupling_data: Bunch) -> jnp.ndarray:
-        """Aggregate node states to regional states. Default: mean.
+        """Aggregate node states to regional states (default: mean).
 
-        Override this method to customize aggregation strategy.
+        Override for custom aggregation strategies (sum, weighted, etc).
 
-        Args:
-            node_state: [n_states, n_nodes] node-level states
-            coupling_data: Bunch containing precomputed aggregation data
-                          (region_one_hot_normalized, etc.)
+        Parameters
+        ----------
+        node_state : ndarray, shape (n_states, n_nodes)
+            Node-level states
+        coupling_data : Bunch
+            Contains region_one_hot_normalized for aggregation
 
-        Returns:
-            regional_state: [n_states, n_regions] region-level states
+        Returns
+        -------
+        ndarray, shape (n_states, n_regions)
+            Regional states
 
-        Examples:
-            Mean (default): Use normalized region_one_hot_normalized (single matmul)
-            Sum: Use unnormalized region_one_hot instead
-            Weighted: Add custom aggregation matrix to coupling_data in prepare()
-
-        Note:
-            coupling_data is populated in prepare() and contains all precomputed
-            static data needed for aggregation. By default, region_one_hot_normalized
-            is pre-divided by region counts, so a single matrix multiply computes the mean.
-            Supports both dense and BCOO sparse matrices automatically.
+        Notes
+        -----
+        Default uses normalized one-hot matrix: node_state @ region_one_hot_normalized
+        Supports both dense and sparse (BCOO) matrices.
         """
         # Mean aggregation via single matrix multiply
         # [n_states, n_nodes] @ [n_nodes, n_regions] → [n_states, n_regions]
@@ -413,27 +471,25 @@ class SubspaceCoupling(AbstractCoupling):
     def distribute(
         self, regional_coupling: jnp.ndarray, coupling_data: Bunch
     ) -> jnp.ndarray:
-        """Distribute regional coupling to node-level coupling. Default: broadcast.
+        """Distribute regional coupling to nodes (default: broadcast).
 
-        Override this method to customize distribution strategy.
+        Override for custom distribution strategies (scaled, weighted, etc).
 
-        Args:
-            regional_coupling: [n_coupling_inputs, n_regions] regional coupling
-            coupling_data: Bunch containing precomputed distribution data
-                          (region_mapping, region_counts, etc.)
+        Parameters
+        ----------
+        regional_coupling : ndarray, shape (n_coupling_inputs, n_regions)
+            Regional coupling values
+        coupling_data : Bunch
+            Contains region_mapping for distribution
 
-        Returns:
-            node_coupling: [n_coupling_inputs, n_nodes] node-level coupling
+        Returns
+        -------
+        ndarray, shape (n_coupling_inputs, n_nodes)
+            Node-level coupling
 
-        Examples:
-            Broadcast (default): All nodes in region get same value
-            Scaled: Divide by region_counts from coupling_data
-            Weighted: Add custom distribution weights to coupling_data in prepare()
-
-        Note:
-            coupling_data is populated in prepare() and contains all precomputed
-            static data needed for distribution. This design allows flexible
-            customization without changing the API.
+        Notes
+        -----
+        Default broadcasts: each node receives its region's value via indexing.
         """
         # Broadcast: all nodes in region r get regional_coupling[:, r]
         node_coupling = regional_coupling[:, coupling_data.region_mapping]
@@ -441,12 +497,12 @@ class SubspaceCoupling(AbstractCoupling):
         return node_coupling
 
     def describe(self) -> dict:
-        """Generate human-readable description of subspace coupling for printing.
+        """Generate description for network printer.
 
-        Delegates to inner coupling and adds regional/subspace information.
-
-        Returns:
-            Dictionary with coupling description including regional structure
+        Returns
+        -------
+        dict
+            Coupling metadata with regional structure info
         """
         # Check if inner coupling has describe() method
         if hasattr(self.inner_coupling, "describe"):

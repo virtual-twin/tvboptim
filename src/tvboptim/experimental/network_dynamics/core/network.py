@@ -552,97 +552,15 @@ class Network:
             History buffer [n_steps, n_states, n_nodes]
                 where n_steps = ceil(max_delay / dt)
         """
-        # Calculate required number of steps
-        n_steps_needed = int(jnp.rint(self.max_delay / dt)) + 1
+        from ..utils.history import extract_history_window
 
-        # Get history data
-        hist_ts = self._history.ts
-        hist_ys = self._history.ys  # [n_time, n_states, n_nodes]
-
-        # Calculate history dt (assume uniform spacing)
-        hist_dt = hist_ts[1] - hist_ts[0] if len(hist_ts) > 1 else dt
-
-        # Check if we need interpolation (allow small numerical tolerance)
-        needs_interpolation = jnp.abs(hist_dt - dt) > 1e-9
-
-        # Calculate time coverage and check if we need padding
-        time_coverage = hist_ts[-1] - hist_ts[0]
-        needs_padding = time_coverage < self.max_delay
-
-        if needs_padding:
-            # Pad at the beginning with the first timestep
-            n_steps_available = len(hist_ts)
-            n_steps_to_pad = n_steps_needed - n_steps_available
-
-            if n_steps_to_pad > 0:
-                # Repeat first timestep
-                first_state = hist_ys[0:1, :, :]  # [1, n_states, n_nodes]
-                padding = jnp.tile(first_state, (n_steps_to_pad, 1, 1))
-
-                if needs_interpolation:
-                    # Interpolate available data, then pad
-                    interpolated = self._interpolate_history(
-                        hist_ts, hist_ys, n_steps_needed - n_steps_to_pad
-                    )
-                    return jnp.concatenate([padding, interpolated], axis=0)
-                else:
-                    # Just pad and concatenate
-                    return jnp.concatenate([padding, hist_ys], axis=0)
-            else:
-                # We have enough data but warned in update_history
-                # Extract what we need
-                if needs_interpolation:
-                    return self._interpolate_history(hist_ts, hist_ys, n_steps_needed)
-                else:
-                    return hist_ys[-n_steps_needed:]
-        else:
-            # Sufficient time coverage - extract last max_delay seconds
-            if needs_interpolation:
-                # Find the time window we need
-                t_start = hist_ts[-1] - self.max_delay
-                start_idx = jnp.searchsorted(hist_ts, t_start)
-
-                # Extract and interpolate
-                window_ts = hist_ts[start_idx:]
-                window_ys = hist_ys[start_idx:]
-
-                return self._interpolate_history(window_ts, window_ys, n_steps_needed)
-            else:
-                # No interpolation needed, just extract
-                return hist_ys[-n_steps_needed:]
-
-    def _interpolate_history(
-        self, old_ts: jnp.ndarray, old_ys: jnp.ndarray, n_steps: int
-    ) -> jnp.ndarray:
-        """Interpolate history to match target dt.
-
-        Args:
-            old_ts: Original time points [n_time_old]
-            old_ys: Original trajectory [n_time_old, n_states, n_nodes]
-            n_steps: Number of steps needed in output
-
-        Returns:
-            Interpolated history [n_steps, n_states, n_nodes]
-        """
-        # Create new time grid
-        new_ts = jnp.linspace(old_ts[0], old_ts[-1], n_steps)
-
-        # Reshape for vectorized interpolation: [n_time, n_states * n_nodes]
-        n_time_old, n_states, n_nodes = old_ys.shape
-        old_ys_flat = old_ys.reshape(n_time_old, -1)  # [n_time_old, n_states*n_nodes]
-
-        # Interpolate each (state, node) combination
-        # jnp.interp works on 1D, so we vmap over the second dimension
-        def interp_1d(y_values):
-            return jnp.interp(new_ts, old_ts, y_values)
-
-        # Vectorize over all state-node combinations
-        from jax import vmap
-
-        new_ys_flat = vmap(interp_1d, in_axes=1, out_axes=1)(old_ys_flat)
-
-        # Reshape back to [n_steps, n_states, n_nodes]
-        return new_ys_flat.reshape(n_steps, n_states, n_nodes)
+        return extract_history_window(
+            hist_ts=self._history.ts,
+            hist_ys=self._history.ys,
+            max_delay=self.max_delay,
+            dt=dt,
+            transform_fn=None,  # No transformation for direct node history
+        )
 
     def get_history(self, dt: float) -> Optional[jnp.ndarray]:
         """Get history buffer for delayed coupling networks.
