@@ -68,7 +68,7 @@ opt = OptaxOptimizer(loss, optax.adam(learning_rate=0.03))
 final_params, history = opt.run(params, max_steps=50)
 ```
 
-See the [full example with visualization](https://virtual-twin.github.io/tvboptim/) in the documentation.
+See the [full example with visualization](https://virtual-twin.github.io/tvboptim/) in the documentation or [run it directly in Google Colab](https://colab.research.google.com/github/virtual-twin/tvboptim/blob/main/docs/workflows/RWW.ipynb): 
 
 ## [Documentation](https://virtual-twin.github.io/tvboptim)
 

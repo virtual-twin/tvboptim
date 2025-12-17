@@ -1,6 +1,6 @@
 """Coupling functions for network interactions."""
 
-from .base import AbstractCoupling, BufferStrategy, DelayedCoupling
+from .base import AbstractCoupling, BufferStrategy, DelayedCoupling, InstantaneousCoupling
 from .linear import (
     DelayedDifferenceCoupling,
     DelayedLinearCoupling,
@@ -13,6 +13,7 @@ from .subspace import SubspaceCoupling
 
 __all__ = [
     "AbstractCoupling",
+    "InstantaneousCoupling",
     "BufferStrategy",
     "DelayedCoupling",
     "LinearCoupling",

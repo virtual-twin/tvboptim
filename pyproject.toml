@@ -46,6 +46,15 @@ dependencies = [
 [tool.setuptools]
 package-dir = {"" = "src"}
 
+[tool.setuptools.package-data]
+tvboptim = [
+    "data/connectivity/*/data.npz",
+    "data/functional/*/data.npz",
+    "data/plotting/*/*.nii.gz",
+    "data/plotting/*/*.csv",
+    "data/plotting/*/*.txt",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
