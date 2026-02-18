@@ -173,6 +173,29 @@ result_sde = solve(network_sde, Heun(), t0=0.0, t1=100.0, dt=0.1)
 print(f"SDE result shape: {result_sde.ys.shape}")
 ```
 
+### Solver Wrappers
+
+Native solvers can be wrapped to modify their behavior by hooking into the `step()` function. This allows you to add post-processing or constraints without changing the underlying integration method.
+
+**BoundedSolver** wraps any solver to enforce hard bounds on state variables via clipping:
+
+```python
+from tvboptim.experimental.network_dynamics.solvers import BoundedSolver, Heun
+
+# Ensure all states stay non-negative (e.g., for firing rates)
+solver = BoundedSolver(Heun(), low=0.0)
+
+# Clip states to [0, 1] range (e.g., for probabilities)
+solver = BoundedSolver(Euler(), low=0.0, high=1.0)
+
+# Different bounds per state variable
+solver = BoundedSolver(
+    RungeKutta4(),
+    low=jnp.array([0.0, -5.0]),   # state 0: ≥0, state 1: ≥-5
+    high=jnp.array([1.0, 5.0])    # state 0: ≤1, state 1: ≤5
+)
+```
+
 ---
 
 ## Diffrax Solvers (Advanced)

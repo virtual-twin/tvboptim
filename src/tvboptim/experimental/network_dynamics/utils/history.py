@@ -1,8 +1,9 @@
 """Utilities for history buffer extraction and manipulation."""
 
+from typing import Callable, Optional
+
 import jax.numpy as jnp
 from jax import vmap
-from typing import Tuple, Callable, Optional
 
 
 def interpolate_history(
@@ -91,7 +92,9 @@ def extract_history_window(
     # Apply transformation if provided (before interpolation for accuracy)
     if transform_fn is not None:
         # Transform each timestep: [n_time, ...] -> [n_time, ...transformed...]
-        hist_ys_transformed = jnp.array([transform_fn(hist_ys[t]) for t in range(len(hist_ts))])
+        hist_ys_transformed = jnp.array(
+            [transform_fn(hist_ys[t]) for t in range(len(hist_ts))]
+        )
     else:
         hist_ys_transformed = hist_ys
 
@@ -103,7 +106,9 @@ def extract_history_window(
         if n_steps_to_pad > 0:
             # Repeat first timestep
             first_state = hist_ys_transformed[0:1]  # [1, ...]
-            padding = jnp.tile(first_state, (n_steps_to_pad,) + (1,) * (hist_ys_transformed.ndim - 1))
+            padding = jnp.tile(
+                first_state, (n_steps_to_pad,) + (1,) * (hist_ys_transformed.ndim - 1)
+            )
 
             if needs_interpolation:
                 # Interpolate available data, then pad

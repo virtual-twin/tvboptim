@@ -11,10 +11,10 @@ from typing import Literal, Optional, Tuple
 
 import jax.numpy as jnp
 
-BufferStrategy = Literal["roll", "circular", "preallocated"]
-
 from ..core.bunch import Bunch
 from ..graph.base import AbstractGraph
+
+BufferStrategy = Literal["roll", "circular", "preallocated"]
 
 # ============================================================================
 # Helper Functions
