@@ -50,8 +50,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
-          enable-cache: false
-          # enable-cache: true
+          enable-cache: true
           cache-dependency-glob: "pyproject.toml"
 
       - name: Install Python dependencies

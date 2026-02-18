@@ -72,7 +72,8 @@ dev = [
 ]
 docs = [
     "tvbo",
-    "tvb-library",
+    # "tvb-library",
+    "tvb-library @ git+https://github.com/the-virtual-brain/tvb-root.git@master#subdirectory=tvb_library",
     "jupyter-cache>=1.0.1",
     "nibabel",
     "nilearn",
@@ -90,7 +91,8 @@ dev = [
 ]
 docs = [
     "tvbo",
-    "tvb-library",
+    # "tvb-library",
+    "tvb-library @ git+https://github.com/the-virtual-brain/tvb-root.git@master#subdirectory=tvb_library",
     "jupyter-cache>=1.0.1",
     "nibabel",
     "nilearn",
