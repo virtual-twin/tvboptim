@@ -62,6 +62,7 @@ website:
         - reference/DelayedDifferenceCoupling.qmd
         - reference/SigmoidalJansenRit.qmd
         - reference/DelayedSigmoidalJansenRit.qmd
+        - reference/SubspaceCoupling.qmd
         section: Coupling
       - contents:
         - reference/AbstractGraph.qmd
