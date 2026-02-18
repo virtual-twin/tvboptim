@@ -24,18 +24,11 @@ jobs:
     - name: Install uv
       uses: astral-sh/setup-uv@v5
       with:
-        enable-cache: true
+        enable-cache: false
+        # enable-cache: true
     - name: Install dependencies
       run: |
         uv sync --all-extras
     - name: Test with pytest
       run: |
-        uv run pytest --cov=tvboptim --cov-report=xml --cov-report=term
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v4
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        file: ./coverage.xml
-        flags: unittests
-        name: codecov-${{ matrix.os }}-py${{ matrix.python-version }}
-        fail_ci_if_error: false
+        uv run pytest --cov=tvboptim --cov-report=term
