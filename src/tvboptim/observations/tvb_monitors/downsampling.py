@@ -27,6 +27,28 @@ class AbstractMonitor(eqx.Module):
     period: float = eqx.field(static=True)
 
     @staticmethod
+    def _resolve_dt(sol) -> float:
+        """Return dt from solution, raising a clear error if not set.
+
+        Args:
+            sol: Solution object with .dt attribute
+
+        Returns:
+            Concrete Python float for use in int/round patterns
+
+        Raises:
+            ValueError: If sol.dt is None (e.g. diffrax solution with non-ts saveat)
+        """
+        if sol.dt is not None:
+            return sol.dt
+        raise ValueError(
+            "Solution has dt=None. Monitors require a concrete dt to compute sampling "
+            "intervals. When using a DiffraxSolver, pass a ts-based saveat: "
+            "SaveAt(ts=jnp.arange(t0, t1, dt)) so the effective save step can be "
+            "inferred at prepare time."
+        )
+
+    @staticmethod
     def _normalize_voi(voi):
         """Normalize voi to preserve dimensions.
 
@@ -98,7 +120,7 @@ class SubSampling(AbstractMonitor):
         ts, ys = sol.ts, sol.ys
         # Use sol.dt from auxiliary data and convert with Python int()
         # This keeps sample_step concrete during JIT compilation
-        sample_step = int(round(self.period / sol.dt))
+        sample_step = int(round(self.period / self._resolve_dt(sol)))
         # Select indices at regular intervals
         sample_indices = jnp.arange(sample_step - 1, ts.shape[0], sample_step)
         return NativeSolution(
@@ -152,10 +174,11 @@ class TemporalAverage(AbstractMonitor):
 
         # Number of samples per averaging window
         # Use sol.dt from auxiliary data and convert with Python int()
-        samples_per_window = int(round(self.period / sol.dt))
+        dt = self._resolve_dt(sol)
+        samples_per_window = int(round(self.period / dt))
 
         # Map time points to sample indices
-        time_indices = (ts[::samples_per_window] / sol.dt).astype(int)
+        time_indices = (ts[::samples_per_window] / dt).astype(int)
 
         def average_window(start_idx):
             """Compute average over a temporal window."""

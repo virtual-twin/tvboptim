@@ -234,7 +234,7 @@ class Bold(AbstractMonitor):
             NativeSolution with BOLD signal timeseries
         """
         ts = sol.ts
-        dt = sol.dt  # Use dt from auxiliary data
+        dt = self._resolve_dt(sol)
 
         # --- Downsample neural activity ---
         downsampled = self.downsample(sol)

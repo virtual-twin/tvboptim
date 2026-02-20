@@ -59,6 +59,55 @@ class NativeSolution:
         return f"NativeSolution(shape={self.ys.shape}, t=[{self.ts[0]:.2f}, {self.ts[-1]:.2f}])"
 
 
+@tree_util.register_pytree_node_class
+class DiffraxSolution(NativeSolution):
+    """Solution wrapper for Diffrax solvers, compatible with NativeSolution interface.
+
+    Wraps a diffrax Solution object and exposes the NativeSolution interface
+    (.ts, .ys, .dt), while preserving access to the full diffrax solution.
+
+    Attributes:
+        _solution: The underlying diffrax Solution object
+        dt: Effective save time step inferred from saveat.ts at prepare time,
+            or None if saveat was not ts-based
+    """
+
+    def __init__(self, solution, dt=None):
+        self._solution = solution
+        self.dt = dt
+
+    @property
+    def ts(self):
+        return self._solution.ts
+
+    @property
+    def ys(self):
+        return self._solution.ys
+
+    @property
+    def stats(self):
+        return self._solution.stats
+
+    @property
+    def result(self):
+        return self._solution.result
+
+    def tree_flatten(self):
+        children = (self._solution,)
+        aux_data = {"dt": self.dt}
+        return children, aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(children[0], dt=aux_data.get("dt"))
+
+    def __repr__(self):
+        return (
+            f"DiffraxSolution(shape={self.ys.shape}, "
+            f"t=[{self.ts[0]:.2f}, {self.ts[-1]:.2f}], dt={self.dt})"
+        )
+
+
 def wrap_native_result(
     trajectory: jnp.ndarray, t0: float, t1: float, dt: float
 ) -> NativeSolution:

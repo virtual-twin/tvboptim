@@ -14,7 +14,7 @@ from plum import dispatch
 
 from .core.bunch import Bunch
 from .core.network import Network
-from .result import wrap_native_result
+from .result import DiffraxSolution, wrap_native_result
 from .solvers.diffrax import DiffraxSolver
 from .solvers.native import NativeSolver
 
@@ -1051,6 +1051,18 @@ def prepare(
         diffusion_term = diffrax.ControlTerm(diffusion_vector_field, brownian_motion)
 
     # =========================================================================
+    # COMPUTE EFFECTIVE SAVE DT FROM SAVEAT
+    # =========================================================================
+    # Infer the effective output dt from saveat.ts if available (ts-based saveat).
+    # This is a Python-level computation done once at prepare time, so it is
+    # concrete and usable as static data in monitors (int/round patterns, etc.).
+    # None signals that dt cannot be determined; monitors must handle this case.
+    effective_save_dt = None
+    saveat_ts = getattr(getattr(solver.saveat, "subs", solver.saveat), "ts", None)
+    if saveat_ts is not None and len(saveat_ts) > 1:
+        effective_save_dt = float(saveat_ts[1] - saveat_ts[0])
+
+    # =========================================================================
     # CREATE SOLVE FUNCTION
     # =========================================================================
 
@@ -1086,6 +1098,6 @@ def prepare(
         #   finite_mask = jnp.isfinite(solution.ts)
         #   solution_filtered = solution.ts[finite_mask], solution.ys[finite_mask]
 
-        return solution
+        return DiffraxSolution(solution, dt=effective_save_dt)
 
     return _f, config
