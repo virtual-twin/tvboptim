@@ -94,7 +94,7 @@ class Network:
         self.noise = noise
 
         # Normalize coupling input to dict format with validation
-        self.couplings = self._normalize_couplings(coupling, dynamics)
+        self.coupling = self._normalize_couplings(coupling, dynamics)
 
         # Normalize external input to dict format with validation
 
@@ -313,7 +313,7 @@ class Network:
         coupling_data_dict = Bunch()
         coupling_state_dict = Bunch()
 
-        for name, coupling in self.couplings.items():
+        for name, coupling in self.coupling.items():
             data, state = coupling.prepare(self, dt, t0, t1)
             coupling_data_dict[name] = data
             coupling_state_dict[name] = state
@@ -367,12 +367,12 @@ class Network:
         coupling_inputs = Bunch()
 
         for name, n_dims in self.dynamics.COUPLING_INPUTS.items():
-            if name not in self.couplings:
+            if name not in self.coupling:
                 # Missing coupling - use zeros
                 coupling_inputs[name] = jnp.zeros((n_dims, self.graph.n_nodes))
             else:
                 # Compute coupling
-                coupling = self.couplings[name]
+                coupling = self.coupling[name]
                 data = coupling_data_dict[name]
                 state_data = coupling_state_dict[name]
                 coupling_inputs[name] = coupling.compute(
@@ -436,7 +436,7 @@ class Network:
         """
         new_states = Bunch()
 
-        for name, coupling in self.couplings.items():
+        for name, coupling in self.coupling.items():
             new_states[name] = coupling.update_state(
                 coupling_data_dict[name],
                 coupling_state_dict[name],
@@ -487,7 +487,7 @@ class Network:
 
         # Couplings as nested dict
         p.coupling = Bunch()
-        for name, coupling in self.couplings.items():
+        for name, coupling in self.coupling.items():
             p.coupling[name] = coupling.params
 
         # External inputs as nested dict
@@ -587,7 +587,7 @@ class Network:
             "Network(",
             f"  dynamics={self.dynamics.__class__.__name__}",
             f"  nodes={self.graph.n_nodes}",
-            f"  couplings={list(self.couplings.keys())}",
+            f"  coupling={list(self.coupling.keys())}",
         ]
 
         if self.externals:

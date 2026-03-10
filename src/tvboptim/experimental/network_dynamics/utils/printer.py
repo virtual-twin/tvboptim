@@ -37,7 +37,7 @@ class NetworkPrinter:
     def _build_coupling_descriptions(self) -> Dict[str, Dict[str, Any]]:
         """Generate descriptions for each coupling."""
         descriptions = {}
-        for name, coupling in self.network.couplings.items():
+        for name, coupling in self.network.coupling.items():
             desc = CouplingDescriptor(coupling, self.network).describe()
             descriptions[name] = desc
         return descriptions

@@ -221,6 +221,37 @@ class AbstractCoupling(ABC):
         """
         pass
 
+    def precompute(
+        self,
+        coupling_data: Bunch,
+        params: Bunch,
+        graph: AbstractGraph,
+    ) -> Bunch:
+        """Called once per forward pass, inside JIT, before the scan.
+
+        Use this to compute quantities that depend on optimisable parameters
+        (e.g. wLRE, wFFI) combined with static graph data (e.g. W), such that
+        gradients flow through the parameters while the computation is only
+        performed once per simulation call rather than once per integration step.
+
+        The returned Bunch is passed to compute() as the coupling_data argument,
+        replacing the static coupling_data from prepare(). It may contain both
+        the original static fields and new JAX-traced fields.
+
+        Default implementation is a no-op (returns coupling_data unchanged),
+        so existing couplings require no modification.
+
+        Args:
+            coupling_data: Static data returned by prepare().
+            params: Current coupling parameters (JAX-traced, gradients flow).
+            graph: Network graph (weights, delays etc.)
+
+        Returns:
+            Updated coupling_data Bunch, potentially with additional
+            JAX-traced fields.
+        """
+        return coupling_data
+
     @abstractmethod
     def compute(
         self,

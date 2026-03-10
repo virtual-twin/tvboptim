@@ -302,7 +302,7 @@ def prepare(
     )
 
     # Add coupling params
-    for name, coupling in network.couplings.items():
+    for name, coupling in network.coupling.items():
         config.coupling[name] = coupling.params
 
     # Add external input params
@@ -328,8 +328,8 @@ def prepare(
     coupling_names_ordered = []
     for name in network.dynamics.COUPLING_INPUTS.keys():
         coupling_names_ordered.append(name)
-        if name in network.couplings:
-            coupling = network.couplings[name]
+        if name in network.coupling:
+            coupling = network.coupling[name]
             data = coupling_data_dict[name]
             coupling_list.append((name, coupling, data))
         else:
@@ -338,23 +338,25 @@ def prepare(
     n_nodes = network.graph.n_nodes
     graph = network.graph  # Capture graph for closure
 
-    def compute_all_couplings(t, network_state, coupling_state_dict, config):
+    def compute_all_couplings(t, network_state, coupling_state_dict, config, coupling_data_dict):
         """Pre-compiled closure for coupling computation.
 
         Avoids method calls and dict iterations in scan loop.
 
         Args:
             config: Config containing coupling parameters to use
+            coupling_data_dict: Per-coupling data (enriched by precompute if applicable)
         """
         coupling_inputs = Bunch()
 
-        for name, coupling, data in coupling_list:
+        for name, coupling, _ in coupling_list:
             if coupling is None:
                 # Missing coupling - use zeros
                 n_dims = network.dynamics.COUPLING_INPUTS[name]
                 coupling_inputs[name] = jnp.zeros((n_dims, n_nodes))
             else:
-                # Compute coupling using pre-fetched data and graph
+                # Compute coupling using enriched data and graph
+                data = coupling_data_dict[name]
                 state_data = coupling_state_dict[name]
                 coupling_inputs[name] = coupling.compute(
                     t, network_state, data, state_data, config.coupling[name], graph
@@ -367,18 +369,19 @@ def prepare(
     # =========================================================================
     # Build list of couplings that need state updates (avoid dict iteration)
     update_list = [
-        (name, network.couplings[name], coupling_data_dict[name])
-        for name in network.couplings.keys()
+        (name, network.coupling[name], coupling_data_dict[name])
+        for name in network.coupling.keys()
     ]
 
-    def update_all_coupling_states(coupling_state_dict, new_network_state):
+    def update_all_coupling_states(coupling_state_dict, new_network_state, coupling_data_dict):
         """Pre-compiled closure for coupling state updates.
 
         Avoids method calls and dict iterations in scan loop.
         """
         new_states = Bunch()
 
-        for name, coupling, data in update_list:
+        for name, coupling, _ in update_list:
+            data = coupling_data_dict[name]
             new_states[name] = coupling.update_state(
                 data,
                 coupling_state_dict[name],
@@ -386,6 +389,18 @@ def prepare(
             )
 
         return new_states
+
+    def precompute_all_couplings(config):
+        """Call precompute() for each coupling. Runs inside JIT, once per forward pass."""
+        enriched = {}
+        for name, coupling, static_data in coupling_list:
+            if coupling is not None:
+                enriched[name] = coupling.precompute(
+                    static_data, config.coupling[name], graph
+                )
+            else:
+                enriched[name] = None
+        return enriched
 
     # =========================================================================
     # PRE-COMPILE EXTERNAL INPUT COMPUTATION CLOSURE
@@ -477,6 +492,11 @@ def prepare(
         """Pure integration function."""
         state0 = config.initial_state
 
+        # Run precompute() for all couplings once before the scan.
+        # This allows parameter-dependent quantities (e.g. W_eff = W * wLRE) to
+        # be computed with gradient flow while avoiding per-step redundancy.
+        enriched = precompute_all_couplings(config)
+
         def op(state, inputs):
             """Single integration step.
 
@@ -500,7 +520,7 @@ def prepare(
             def wrapped_dynamics(t_inner, network_state, params_dynamics):
                 # Compute all coupling inputs using pre-compiled closure
                 coupling_inputs = compute_all_couplings(
-                    t_inner, network_state, state.coupling, config
+                    t_inner, network_state, state.coupling, config, enriched
                 )
                 # Compute all external inputs using pre-compiled closure
                 external_inputs = compute_all_externals(
@@ -542,7 +562,7 @@ def prepare(
 
             # Use pre-compiled closure for coupling state updates
             next_coupling_state_dict = update_all_coupling_states(
-                state.coupling, next_dynamics_state
+                state.coupling, next_dynamics_state, enriched
             )
 
             # Use pre-compiled closure for external state updates
@@ -855,7 +875,7 @@ def prepare(
     )
 
     # Add coupling params
-    for name, coupling in network.couplings.items():
+    for name, coupling in network.coupling.items():
         config.coupling[name] = coupling.params
 
     # Add external input params
@@ -873,8 +893,8 @@ def prepare(
     # Build coupling list for fast iteration (avoid dict lookups in vector field)
     coupling_list = []
     for name in network.dynamics.COUPLING_INPUTS.keys():
-        if name in network.couplings:
-            coupling = network.couplings[name]
+        if name in network.coupling:
+            coupling = network.coupling[name]
             data = coupling_data_dict[name]
             coupling_list.append((name, coupling, data))
         else:
@@ -883,15 +903,16 @@ def prepare(
     n_nodes = network.graph.n_nodes
     graph = network.graph
 
-    def compute_all_couplings(t, network_state, config):
+    def compute_all_couplings(t, network_state, config, coupling_data_dict):
         """Compute all coupling inputs (stateless - no coupling state).
 
         Args:
             config: Config containing coupling parameters to use
+            coupling_data_dict: Per-coupling data (enriched by precompute if applicable)
         """
         coupling_inputs = Bunch()
 
-        for name, coupling, data in coupling_list:
+        for name, coupling, _ in coupling_list:
             if coupling is None:
                 # Missing coupling - use zeros
                 n_dims = network.dynamics.COUPLING_INPUTS[name]
@@ -899,12 +920,25 @@ def prepare(
             else:
                 # Compute coupling (stateless - pass empty state)
                 # For stateless couplings, coupling_state should be ignored
+                data = coupling_data_dict[name]
                 empty_state = Bunch()
                 coupling_inputs[name] = coupling.compute(
                     t, network_state, data, empty_state, config.coupling[name], graph
                 )
 
         return coupling_inputs
+
+    def precompute_all_couplings(config):
+        """Call precompute() for each coupling. Runs inside JIT, once per forward pass."""
+        enriched = {}
+        for name, coupling, static_data in coupling_list:
+            if coupling is not None:
+                enriched[name] = coupling.precompute(
+                    static_data, config.coupling[name], graph
+                )
+            else:
+                enriched[name] = None
+        return enriched
 
     # =========================================================================
     # PRE-COMPILE EXTERNAL INPUT COMPUTATION CLOSURE
@@ -943,112 +977,64 @@ def prepare(
         return external_inputs
 
     # =========================================================================
-    # CREATE DIFFRAX ODETerm WRAPPER (Drift)
+    # DYNAMICS REFERENCES (captured statically for closures)
     # =========================================================================
 
     dynamics_fn = network.dynamics.dynamics
     n_states = network.dynamics.N_STATES
 
-    def vector_field(t, y, args):
-        """Diffrax-compatible vector field: f(t, y, args) -> dy/dt.
-
-        Args:
-            t: Current time
-            y: Network state [n_states, n_nodes]
-            args: Not used (params are in closure)
-
-        Returns:
-            derivatives: [n_states, n_nodes]
-        """
-        # Compute coupling inputs
-        coupling_inputs = compute_all_couplings(t, y, config)
-
-        # Compute external inputs
-        external_inputs = compute_all_externals(t, y, config)
-
-        # Call dynamics
-        result = dynamics_fn(t, y, config.dynamics, coupling_inputs, external_inputs)
-
-        # Extract derivatives (discard auxiliaries if present)
-        if isinstance(result, tuple):
-            derivatives, _ = result
-        else:
-            derivatives = result
-
-        return derivatives
-
     # =========================================================================
-    # CREATE DIFFRAX ControlTerm WRAPPER (Diffusion) if noise present
+    # DIFFUSION HELPER (outside _f — captures only static objects)
     # =========================================================================
 
-    diffusion_term = None
-    if network.noise is not None:
-        # Get noise configuration
+    has_noise = network.noise is not None
+    brownian_motion = None
+    if has_noise:
         noise_state_indices = network.noise._state_indices
         n_noise_states = len(noise_state_indices)
+        n_brownian = n_noise_states * n_nodes
 
-        def diffusion_vector_field(t, y, args):
-            """Diffusion coefficient g(t, y) for ControlTerm.
+        def compute_diffusion_matrix(t, y, noise_params):
+            """Compute diffusion matrix g(t, y) mapping Brownian motion to state space.
 
             Args:
                 t: Current time
                 y: Network state [n_states, n_nodes]
-                args: Not used (params are in closure)
+                noise_params: Noise parameters (JAX-traced, from runtime config)
 
             Returns:
                 Diffusion matrix [n_states, n_nodes, n_brownian]
                 where n_brownian = n_noise_states * n_nodes
             """
-            # Compute diffusion coefficients using noise model
-            g_raw = network.noise.diffusion(t, y, config.noise)
-
-            # Handle different return types from diffusion():
-            # - Scalar (e.g., AdditiveNoise with constant sigma)
-            # - Array [n_noise_states, n_nodes] (e.g., MultiplicativeNoise)
+            g_raw = network.noise.diffusion(t, y, noise_params)
 
             # Ensure g has shape [n_noise_states, n_nodes]
             if jnp.ndim(g_raw) == 0:
-                # Scalar - broadcast to all noise states and nodes
                 g = jnp.full((n_noise_states, n_nodes), g_raw)
             elif jnp.ndim(g_raw) == 1:
-                # 1D array - could be per-state or per-node, assume broadcasting needed
                 g = jnp.broadcast_to(g_raw[..., None], (n_noise_states, n_nodes))
             else:
-                # Already [n_noise_states, n_nodes]
                 g = g_raw
 
-            # Build full diffusion matrix that maps Brownian motion to state space
-            # Shape: [n_states, n_nodes, n_brownian]
-            # where n_brownian = n_noise_states * n_nodes
-            n_brownian = n_noise_states * n_nodes
-
-            # Initialize with zeros
+            # Build full diffusion matrix
             diffusion_matrix = jnp.zeros((n_states, n_nodes, n_brownian))
-
-            # Fill in the diagonal blocks for states that receive noise
             for i, state_idx in enumerate(noise_state_indices):
                 for j in range(n_nodes):
-                    # This Brownian dimension corresponds to state_idx, node j
                     brownian_idx = i * n_nodes + j
-                    # Set the diffusion coefficient
                     diffusion_matrix = diffusion_matrix.at[
                         state_idx, j, brownian_idx
                     ].set(g[i, j])
 
             return diffusion_matrix
 
-        # Create Brownian motion
-        n_brownian = n_noise_states * n_nodes
+        # Brownian motion is static (depends only on t0, t1, dt, key)
         brownian_motion = diffrax.VirtualBrownianTree(
             t0=t0,
             t1=t1,
-            tol=dt * 0.01,  # Brownian tree tolerance (finer than dt)
+            tol=dt * 0.01,
             shape=(n_brownian,),
             key=network.noise.key,
         )
-
-        # Create diffusion term
-        diffusion_term = diffrax.ControlTerm(diffusion_vector_field, brownian_motion)
 
     # =========================================================================
     # COMPUTE EFFECTIVE SAVE DT FROM SAVEAT
@@ -1068,12 +1054,42 @@ def prepare(
 
     def _f(config):
         """Pure integration function using Diffrax."""
+        # Run precompute() for all couplings once before the solve.
+        # This allows parameter-dependent quantities (e.g. W_eff = W * wLRE) to
+        # be computed with gradient flow while avoiding per-step redundancy.
+        enriched = precompute_all_couplings(config)
+
+        def vector_field(t, y, args):
+            """Diffrax-compatible vector field: f(t, y, args) -> dy/dt."""
+            # Compute coupling inputs using enriched (precomputed) data
+            coupling_inputs = compute_all_couplings(t, y, config, enriched)
+
+            # Compute external inputs
+            external_inputs = compute_all_externals(t, y, config)
+
+            # Call dynamics
+            result = dynamics_fn(t, y, config.dynamics, coupling_inputs, external_inputs)
+
+            # Extract derivatives (discard auxiliaries if present)
+            if isinstance(result, tuple):
+                derivatives, _ = result
+            else:
+                derivatives = result
+
+            return derivatives
+
         # Create drift term (deterministic dynamics)
         drift_term = diffrax.ODETerm(vector_field)
 
         # Combine terms
-        if diffusion_term is not None:
-            # SDE: combine drift and diffusion
+        if has_noise:
+            # SDE: build diffusion term inside _f so it uses runtime config
+            def diffusion_vector_field(t, y, args):
+                return compute_diffusion_matrix(t, y, config.noise)
+
+            diffusion_term = diffrax.ControlTerm(
+                diffusion_vector_field, brownian_motion
+            )
             terms = diffrax.MultiTerm(drift_term, diffusion_term)
         else:
             # ODE: just drift
