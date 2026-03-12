@@ -336,7 +336,6 @@ def prepare(
             coupling_list.append((name, None, None))
 
     n_nodes = network.graph.n_nodes
-    graph = network.graph  # Capture graph for closure
 
     def compute_all_couplings(t, network_state, coupling_state_dict, config, coupling_data_dict):
         """Pre-compiled closure for coupling computation.
@@ -359,7 +358,7 @@ def prepare(
                 data = coupling_data_dict[name]
                 state_data = coupling_state_dict[name]
                 coupling_inputs[name] = coupling.compute(
-                    t, network_state, data, state_data, config.coupling[name], graph
+                    t, network_state, data, state_data, config.coupling[name], config.graph
                 )
 
         return coupling_inputs
@@ -396,7 +395,7 @@ def prepare(
         for name, coupling, static_data in coupling_list:
             if coupling is not None:
                 enriched[name] = coupling.precompute(
-                    static_data, config.coupling[name], graph
+                    static_data, config.coupling[name], config.graph
                 )
             else:
                 enriched[name] = None
@@ -901,7 +900,6 @@ def prepare(
             coupling_list.append((name, None, None))
 
     n_nodes = network.graph.n_nodes
-    graph = network.graph
 
     def compute_all_couplings(t, network_state, config, coupling_data_dict):
         """Compute all coupling inputs (stateless - no coupling state).
@@ -923,7 +921,7 @@ def prepare(
                 data = coupling_data_dict[name]
                 empty_state = Bunch()
                 coupling_inputs[name] = coupling.compute(
-                    t, network_state, data, empty_state, config.coupling[name], graph
+                    t, network_state, data, empty_state, config.coupling[name], config.graph
                 )
 
         return coupling_inputs
@@ -934,7 +932,7 @@ def prepare(
         for name, coupling, static_data in coupling_list:
             if coupling is not None:
                 enriched[name] = coupling.precompute(
-                    static_data, config.coupling[name], graph
+                    static_data, config.coupling[name], config.graph
                 )
             else:
                 enriched[name] = None
