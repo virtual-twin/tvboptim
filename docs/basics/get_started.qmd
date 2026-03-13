@@ -371,7 +371,7 @@ The `model` is a pure JAX function that takes the config and runs the simulation
 
 ## Understand the State Object & Parameters
 
-The state is of type `tvbo.datamodel.tvbo_datamodel.Bunch`, which is a `dict` with convenient get and set functions. At the same time, it is also a [`jax.Pytree`](https://docs.jax.dev/en/latest/pytrees.html), making it compatible with all of JAX's transformations. You can think of it as a big tree holding all parameters and initial conditions that uniquely define a simulation:
+The state is of type `tvbo.utils.Bunch`, which is a `dict` with convenient get and set functions. At the same time, it is also a [`jax.Pytree`](https://docs.jax.dev/en/latest/pytrees.html), making it compatible with all of JAX's transformations. You can think of it as a big tree holding all parameters and initial conditions that uniquely define a simulation:
 
 ::: {.panel-tabset}
 
@@ -443,7 +443,7 @@ plt.xlabel("Time (ms)")
 plt.ylabel("Neural Activity")
 plt.title("Raw Neural Activity Across All Brain Regions");
 ```
-::: 
+:::
 
 ## Wrap the Model to create observations
 
