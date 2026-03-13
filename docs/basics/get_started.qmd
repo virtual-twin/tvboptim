@@ -140,7 +140,7 @@ from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
 from tvboptim.data import load_structural_connectivity
 
 # Import from tvbo - the brain simulation framework
-from tvbo.export.experiment import SimulationExperiment  # Main experiment class
+from tvbo import SimulationExperiment  # Main experiment class
 from tvbo.datamodel import tvbo_datamodel  # Data structures
 from tvbo.utils import numbered_print  # Utility functions
 
