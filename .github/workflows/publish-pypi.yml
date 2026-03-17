@@ -55,6 +55,6 @@ jobs:
 
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        # attestations are enabled by default; to disable add:
-        # with:
-        #   attestations: false
+        with:
+          attestations: false
+          verbose: true
