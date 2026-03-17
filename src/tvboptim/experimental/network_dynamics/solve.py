@@ -14,45 +14,48 @@ from plum import dispatch
 
 from .core.bunch import Bunch
 from .core.network import Network
+from .dynamics.base import AbstractDynamics
 from .result import DiffraxSolution, wrap_native_result
 from .solvers.diffrax import DiffraxSolver
 from .solvers.native import NativeSolver
 
 
 def solve(
-    network: Network,
-    solver: NativeSolver,
+    model,
+    solver,
     t0: float = 0.0,
     t1: float = 100.0,
     dt: float = 0.1,
+    **kwargs,
 ):
-    """Main entry point for network simulation.
+    """Main entry point for simulation.
+
+    Accepts either a Network or a bare AbstractDynamics instance.
+    Dispatches to the appropriate prepare() overload via plum.
 
     Args:
-        network: Network instance with multi-coupling support
-        solver: NativeSolver instance (Euler, Heun, etc.)
+        model: Network or AbstractDynamics instance
+        solver: NativeSolver or DiffraxSolver instance
         t0: Start time
         t1: End time
         dt: Time step
+        **kwargs: Additional arguments forwarded to prepare()
+            (e.g. n_nodes for bare dynamics)
 
     Returns:
         Simulation results wrapped in result object
 
-    Example:
-        >>> from network_dynamics import Network, solve
-        >>> from network_dynamics.solvers import Euler
-        >>> from network_dynamics.dynamics import Lorenz
-        >>> from network_dynamics.coupling import LinearCoupling
-        >>> from network_dynamics.graph import Graph
-        >>>
-        >>> dynamics = Lorenz()
-        >>> coupling = LinearCoupling(incoming_states='x', G=1.0)
-        >>> graph = Graph(weights)
-        >>> network = Network(dynamics, coupling, graph)
-        >>>
+    Examples:
+        >>> # With Network
         >>> result = solve(network, Euler(), t0=0, t1=10, dt=0.01)
+
+        >>> # With bare dynamics (single node)
+        >>> result = solve(JansenRit(), Heun(), t0=0, t1=1.0, dt=0.001)
+
+        >>> # With bare dynamics (multi-node uncoupled)
+        >>> result = solve(JansenRit(), Heun(), t0=0, t1=1.0, dt=0.001, n_nodes=3)
     """
-    solve_fn, params = prepare(network, solver, t0=t0, t1=t1, dt=dt)
+    solve_fn, params = prepare(model, solver, t0=t0, t1=t1, dt=dt, **kwargs)
     return solve_fn(params)
 
 
@@ -1111,6 +1114,400 @@ def prepare(
         # Users should filter finite values in post-processing if needed:
         #   finite_mask = jnp.isfinite(solution.ts)
         #   solution_filtered = solution.ts[finite_mask], solution.ys[finite_mask]
+
+        return DiffraxSolution(solution, dt=effective_save_dt)
+
+    return _f, config
+
+
+@dispatch
+def prepare(
+    dynamics: AbstractDynamics,
+    solver: NativeSolver,
+    t0: float = 0.0,
+    t1: float = 1.0,
+    dt: float = 0.1,
+    n_nodes: int = 1,
+    noise=None,
+    externals=None,
+) -> Tuple[Callable, Bunch]:
+    """Prepare a bare dynamics model for simulation (no network/coupling).
+
+    Lightweight alternative to the Network-based prepare() for uncoupled
+    simulations. Coupling inputs are set to zero.
+
+    Parameters
+    ----------
+    dynamics : AbstractDynamics
+        Dynamics model instance (e.g. JansenRit, ReducedWongWang)
+    solver : NativeSolver
+        Integration method (Euler, Heun)
+    t0 : float, optional
+        Start time, by default 0.0
+    t1 : float, optional
+        End time, by default 1.0
+    dt : float, optional
+        Time step, by default 0.1
+    n_nodes : int, optional
+        Number of uncoupled nodes, by default 1
+    noise : AbstractNoise, optional
+        Noise process (e.g. AdditiveNoise, MultiplicativeNoise)
+    externals : dict, optional
+        External inputs as ``{name: AbstractExternalInput}``
+
+    Returns
+    -------
+    solve_function : Callable
+        Pure JAX function: ``solve_function(config) -> results``
+    config : Bunch
+        Configuration PyTree with dynamics params and initial state
+    """
+    # Initial state [N_STATES, n_nodes]
+    state0 = dynamics.get_default_initial_state(n_nodes)
+
+    # Zero coupling (always — bare dynamics has no coupling)
+    zero_coupling = Bunch()
+    for name, n_dims in dynamics.COUPLING_INPUTS.items():
+        zero_coupling[name] = jnp.zeros((n_dims, n_nodes))
+
+    # Time array
+    time_steps = jnp.arange(t0, t1, dt)
+    n_steps = len(time_steps)
+
+    # Config
+    config = Bunch(
+        dynamics=dynamics.params,
+        initial_state=state0,
+        _internal=Bunch(time=Bunch(t0=t0, t1=t1, dt=dt)),
+    )
+
+    # ---- Noise setup ----
+    has_noise = noise is not None
+    if has_noise:
+        noise._state_indices = noise._resolve_state_indices(dynamics)
+        noise_state_indices = noise._state_indices
+        config.noise = noise.params
+        n_noise_states = len(noise_state_indices)
+        noise_shape = (n_steps, n_noise_states, n_nodes)
+        config._internal.noise_samples = noise.generate_noise_samples(noise_shape)
+        noise_diffusion = noise.diffusion
+
+    # ---- External inputs setup ----
+    has_externals = externals is not None and len(externals) > 0
+    if has_externals:
+        config.external = Bunch()
+        external_list = []
+        external_data_dict = Bunch()
+        external_state_dict_init = Bunch()
+
+        for name in dynamics.EXTERNAL_INPUTS.keys():
+            if name in externals:
+                ext_obj = externals[name]
+                config.external[name] = ext_obj.params
+                # Pass None as network — parametric externals don't use it
+                ext_data, ext_state = ext_obj.prepare(None, dt)
+                external_data_dict[name] = ext_data
+                external_state_dict_init[name] = ext_state
+                external_list.append((name, ext_obj, ext_data))
+            else:
+                external_list.append((name, None, None))
+
+        config._internal.external = external_data_dict
+        config.initial_state = Bunch(
+            dynamics=state0,
+            external=external_state_dict_init,
+        )
+
+        def compute_all_externals(t, state, external_state_dict, config):
+            external_inputs = Bunch()
+            for name, ext_obj, data in external_list:
+                if ext_obj is None:
+                    n_dims = dynamics.EXTERNAL_INPUTS[name]
+                    external_inputs[name] = jnp.zeros((n_dims, n_nodes))
+                else:
+                    state_data = external_state_dict[name]
+                    external_inputs[name] = ext_obj.compute(
+                        t, state, data, state_data, config.external[name]
+                    )
+            return external_inputs
+
+        def update_all_external_states(external_state_dict, new_state):
+            new_states = Bunch()
+            for name, ext_obj, data in external_list:
+                if ext_obj is not None:
+                    new_states[name] = ext_obj.update_state(
+                        data, external_state_dict[name], new_state
+                    )
+            return new_states
+    else:
+        # Zero external inputs
+        zero_external = Bunch()
+        for name, n_dims in dynamics.EXTERNAL_INPUTS.items():
+            zero_external[name] = jnp.zeros((n_dims, n_nodes))
+
+    # References
+    dynamics_fn = dynamics.dynamics
+    solver_step = solver.step
+    n_states = dynamics.N_STATES
+
+    # VOI filtering
+    voi_indices = dynamics.get_variables_of_interest_indices()
+    state_voi_indices = jnp.array([i for i in voi_indices if i < n_states], dtype=int)
+    aux_voi_indices = jnp.array(
+        [i - n_states for i in voi_indices if i >= n_states], dtype=int
+    )
+    record_auxiliaries = len(aux_voi_indices) > 0
+
+    def _f(config):
+        """Pure integration function for bare dynamics."""
+
+        def op(carry, scan_input):
+            t = scan_input[0]
+            step_idx = scan_input[1].astype(int)
+
+            # Unpack carry
+            if has_externals:
+                state = carry.dynamics
+                external_state_dict = carry.external
+            else:
+                state = carry
+
+            def wrapped_dynamics(t_inner, s, params):
+                if has_externals:
+                    ext_inputs = compute_all_externals(
+                        t_inner, s, external_state_dict, config
+                    )
+                else:
+                    ext_inputs = zero_external
+                return dynamics_fn(
+                    t_inner, s, params, zero_coupling, ext_inputs
+                )
+
+            # Noise
+            if has_noise:
+                noise_raw = config._internal.noise_samples[step_idx]
+                diffusion = noise_diffusion(t, state, config.noise)
+                scaled_noise = diffusion * jnp.sqrt(dt) * noise_raw
+                noise_sample = jnp.zeros_like(state)
+                noise_sample = noise_sample.at[noise_state_indices].set(scaled_noise)
+            else:
+                noise_sample = jnp.zeros_like(state)
+
+            next_state, auxiliaries = solver_step(
+                wrapped_dynamics, t, state, dt, config.dynamics, noise_sample
+            )
+
+            # VOI filtering
+            if len(state_voi_indices) > 0:
+                selected_states = next_state[state_voi_indices]
+            else:
+                selected_states = jnp.array([]).reshape(0, next_state.shape[1])
+
+            if record_auxiliaries and auxiliaries.size > 0:
+                selected_aux = auxiliaries[aux_voi_indices]
+                output = jnp.concatenate([selected_states, selected_aux], axis=0)
+            else:
+                output = selected_states
+
+            # Update carry
+            if has_externals:
+                next_external = update_all_external_states(
+                    external_state_dict, next_state
+                )
+                next_carry = Bunch(dynamics=next_state, external=next_external)
+            else:
+                next_carry = next_state
+
+            return next_carry, output
+
+        scan_inputs = jnp.stack(
+            [time_steps, jnp.arange(n_steps, dtype=time_steps.dtype)], axis=1
+        )
+        _, res = jax.lax.scan(op, config.initial_state, scan_inputs)
+        return wrap_native_result(res, t0, t1, dt)
+
+    return _f, config
+
+
+@dispatch
+def prepare(
+    dynamics: AbstractDynamics,
+    solver: DiffraxSolver,
+    t0: float = 0.0,
+    t1: float = 1.0,
+    dt: float = 0.1,
+    n_nodes: int = 1,
+    noise=None,
+    externals=None,
+) -> Tuple[Callable, Bunch]:
+    """Prepare a bare dynamics model for simulation using Diffrax.
+
+    Lightweight alternative to the Network-based prepare() for uncoupled
+    simulations with adaptive time stepping. Coupling inputs are set to zero.
+
+    Parameters
+    ----------
+    dynamics : AbstractDynamics
+        Dynamics model instance (e.g. JansenRit, ReducedWongWang)
+    solver : DiffraxSolver
+        Diffrax integration method (Tsit5, Dopri5, etc.)
+    t0 : float, optional
+        Start time, by default 0.0
+    t1 : float, optional
+        End time, by default 1.0
+    dt : float, optional
+        Initial step size (dt0) for adaptive controller, by default 0.1
+    n_nodes : int, optional
+        Number of uncoupled nodes, by default 1
+    noise : AbstractNoise, optional
+        Noise process (e.g. AdditiveNoise, MultiplicativeNoise)
+    externals : dict, optional
+        External inputs as ``{name: AbstractExternalInput}``
+
+    Returns
+    -------
+    solve_function : Callable
+        Pure JAX function: ``solve_function(config) -> results``
+    config : Bunch
+        Configuration PyTree with dynamics params and initial state
+    """
+    # Initial state [N_STATES, n_nodes]
+    state0 = dynamics.get_default_initial_state(n_nodes)
+
+    # Zero coupling (always)
+    zero_coupling = Bunch()
+    for name, n_dims in dynamics.COUPLING_INPUTS.items():
+        zero_coupling[name] = jnp.zeros((n_dims, n_nodes))
+
+    # Config
+    config = Bunch(
+        dynamics=dynamics.params,
+        initial_state=state0,
+        _internal=Bunch(time=Bunch(t0=t0, t1=t1, dt=dt)),
+    )
+
+    # References
+    dynamics_fn = dynamics.dynamics
+    n_states = dynamics.N_STATES
+
+    # ---- Noise setup ----
+    has_noise = noise is not None
+    brownian_motion = None
+    if has_noise:
+        noise._state_indices = noise._resolve_state_indices(dynamics)
+        noise_state_indices = noise._state_indices
+        config.noise = noise.params
+        n_noise_states = len(noise_state_indices)
+        n_brownian = n_noise_states * n_nodes
+
+        def compute_diffusion_matrix(t, y, noise_params):
+            g_raw = noise.diffusion(t, y, noise_params)
+            if jnp.ndim(g_raw) == 0:
+                g = jnp.full((n_noise_states, n_nodes), g_raw)
+            elif jnp.ndim(g_raw) == 1:
+                g = jnp.broadcast_to(g_raw[..., None], (n_noise_states, n_nodes))
+            else:
+                g = g_raw
+
+            diffusion_matrix = jnp.zeros((n_states, n_nodes, n_brownian))
+            for i, state_idx in enumerate(noise_state_indices):
+                for j in range(n_nodes):
+                    brownian_idx = i * n_nodes + j
+                    diffusion_matrix = diffusion_matrix.at[
+                        state_idx, j, brownian_idx
+                    ].set(g[i, j])
+            return diffusion_matrix
+
+        brownian_motion = diffrax.VirtualBrownianTree(
+            t0=t0,
+            t1=t1,
+            tol=dt * 0.01,
+            shape=(n_brownian,),
+            key=noise.key,
+        )
+
+    # ---- External inputs setup ----
+    has_externals = externals is not None and len(externals) > 0
+    if has_externals:
+        config.external = Bunch()
+        external_list = []
+        external_data_dict = Bunch()
+
+        for name in dynamics.EXTERNAL_INPUTS.keys():
+            if name in externals:
+                ext_obj = externals[name]
+                config.external[name] = ext_obj.params
+                ext_data, _ = ext_obj.prepare(None, dt)
+                external_data_dict[name] = ext_data
+                external_list.append((name, ext_obj, ext_data))
+            else:
+                external_list.append((name, None, None))
+
+        config._internal.external = external_data_dict
+
+        def compute_all_externals(t, state, config):
+            external_inputs = Bunch()
+            for name, ext_obj, data in external_list:
+                if ext_obj is None:
+                    n_dims = dynamics.EXTERNAL_INPUTS[name]
+                    external_inputs[name] = jnp.zeros((n_dims, n_nodes))
+                else:
+                    empty_state = Bunch()
+                    external_inputs[name] = ext_obj.compute(
+                        t, state, data, empty_state, config.external[name]
+                    )
+            return external_inputs
+    else:
+        zero_external = Bunch()
+        for name, n_dims in dynamics.EXTERNAL_INPUTS.items():
+            zero_external[name] = jnp.zeros((n_dims, n_nodes))
+
+    # Effective save dt from saveat
+    effective_save_dt = None
+    saveat_ts = getattr(getattr(solver.saveat, "subs", solver.saveat), "ts", None)
+    if saveat_ts is not None and len(saveat_ts) > 1:
+        effective_save_dt = float(saveat_ts[1] - saveat_ts[0])
+
+    def _f(config):
+        """Pure integration function using Diffrax for bare dynamics."""
+
+        def vector_field(t, y, args):
+            if has_externals:
+                ext_inputs = compute_all_externals(t, y, config)
+            else:
+                ext_inputs = zero_external
+            result = dynamics_fn(t, y, config.dynamics, zero_coupling, ext_inputs)
+            if isinstance(result, tuple):
+                derivatives, _ = result
+            else:
+                derivatives = result
+            return derivatives
+
+        drift_term = diffrax.ODETerm(vector_field)
+
+        if has_noise:
+            def diffusion_vector_field(t, y, args):
+                return compute_diffusion_matrix(t, y, config.noise)
+
+            diffusion_term = diffrax.ControlTerm(
+                diffusion_vector_field, brownian_motion
+            )
+            terms = diffrax.MultiTerm(drift_term, diffusion_term)
+        else:
+            terms = drift_term
+
+        solution = diffrax.diffeqsolve(
+            terms,
+            solver.solver,
+            t0=t0,
+            t1=t1,
+            dt0=dt,
+            y0=config.initial_state,
+            saveat=solver.saveat,
+            stepsize_controller=solver.stepsize_controller,
+            max_steps=solver.max_steps,
+            **solver.diffrax_kwargs,
+        )
 
         return DiffraxSolution(solution, dt=effective_save_dt)
 

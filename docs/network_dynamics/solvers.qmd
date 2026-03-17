@@ -21,7 +21,7 @@ The `solve()` function is the main entry point for running network simulations. 
 from tvboptim.experimental.network_dynamics import solve
 
 result = solve(
-    network,        # Network configuration (dynamics, coupling, graph)
+    model,          # Network or bare AbstractDynamics instance
     solver,         # Solver instance (Native or Diffrax)
     t0=0.0,         # Start time [ms]
     t1=1000.0,      # End time [ms]
@@ -31,10 +31,28 @@ result = solve(
 
 **Key parameters:**
 
-- `network`: A `Network` object containing dynamics, coupling, graph, and optionally noise
+- `model`: A `Network` object (dynamics, coupling, graph, noise) **or** a bare `AbstractDynamics` instance for uncoupled simulations
 - `solver`: A solver instance that determines the integration method
 - `t0`, `t1`: Time interval to simulate (in milliseconds)
 - `dt`: Integration time step (in milliseconds)
+
+### Bare Dynamics (No Network)
+
+For single-region exploration or uncoupled simulations, you can pass a dynamics model directly — no need to set up a `Network`, `Graph`, or coupling:
+
+```python
+from tvboptim.experimental.network_dynamics import solve
+from tvboptim.experimental.network_dynamics.dynamics.tvb import JansenRit
+from tvboptim.experimental.network_dynamics.solvers import Heun
+
+# Single node
+result = solve(JansenRit(), Heun(), t0=0.0, t1=1000.0, dt=0.01)
+
+# Multiple uncoupled nodes
+result = solve(JansenRit(), Heun(), t0=0.0, t1=1000.0, dt=0.01, n_nodes=3)
+```
+
+This works with both native and Diffrax solvers. Coupling and external inputs are set to zero.
 
 **Return value:**
 

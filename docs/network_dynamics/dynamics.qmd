@@ -239,9 +239,7 @@ fhn.verify(n_nodes=1)
 Let's demonstrate how `VARIABLES_OF_INTEREST` controls what gets saved. We'll compare simulations with and without the auxiliary variable $I_{\text{mem}}$:
 
 ```{python}
-from tvboptim.experimental.network_dynamics import Network, solve
-from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
-from tvboptim.experimental.network_dynamics.graph import DenseGraph
+from tvboptim.experimental.network_dynamics import solve
 from tvboptim.experimental.network_dynamics.solvers import Euler
 
 # Model without auxiliary in VOI (default)
@@ -252,25 +250,9 @@ fhn_with_aux = FitzHughNagumo(
     VARIABLES_OF_INTEREST=('V', 'W', 'I_mem')
 )
 
-# Create simple network
-graph = DenseGraph(jnp.eye(1))
-coupling = LinearCoupling(incoming_states="V", G=0.0)
-
-network_default = Network(
-    dynamics=fhn_default,
-    coupling={'structural': coupling},
-    graph=graph
-)
-
-network_with_aux = Network(
-    dynamics=fhn_with_aux,
-    coupling={'structural': coupling},
-    graph=graph
-)
-
-# Simulate both
-result_default = solve(network_default, Euler(), t0=0.0, t1=100.0, dt=0.1)
-result_with_aux = solve(network_with_aux, Euler(), t0=0.0, t1=100.0, dt=0.1)
+# Simulate both (bare dynamics — no network setup needed)
+result_default = solve(fhn_default, Euler(), t0=0.0, t1=100.0, dt=0.1)
+result_with_aux = solve(fhn_with_aux, Euler(), t0=0.0, t1=100.0, dt=0.1)
 
 print(f"Default output shape: {result_default.ys.shape}  # [time, 2 states, nodes]")
 print(f"With aux output shape: {result_with_aux.ys.shape}  # [time, 3 variables, nodes]")
