@@ -20,7 +20,7 @@ __all__ = ["prepare", "HAS_TVBO"]
 try:
     import jax
     import jax.numpy as jnp
-    from tvbo.export.experiment import SimulationExperiment
+    from tvbo import SimulationExperiment
 
     @dispatch
     def prepare(
@@ -44,7 +44,7 @@ try:
 
         Parameters
         ----------
-        experiment : tvbo.export.experiment.SimulationExperiment
+        experiment : tvbo.classes.SimulationExperiment
             TVBO SimulationExperiment containing model, connectivity, coupling,
             integration, and monitor specifications.
         t0 : float, optional
@@ -92,7 +92,7 @@ try:
 
         Examples
         --------
-        >>> from tvbo.export.experiment import SimulationExperiment
+        >>> from tvbo import SimulationExperiment
         >>> from tvboptim import prepare
         >>>
         >>> # Create TVBO experiment
