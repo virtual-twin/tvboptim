@@ -1,8 +1,9 @@
 import jax
 import jax.numpy as jnp
-from ..solvers import Heun
-from ..core.bunch import Bunch
+
 from .. import prepare
+from ..core.bunch import Bunch
+from ..solvers import Heun
 
 
 def lyapunov(network, solver=None, t=1000.0, n=10, d0=1e-9, dt=0.1, t0=0.0):

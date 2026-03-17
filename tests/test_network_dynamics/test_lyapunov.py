@@ -19,7 +19,6 @@ from tvboptim.experimental.network_dynamics.dynamics.base import AbstractDynamic
 from tvboptim.experimental.network_dynamics.graph import DenseGraph
 from tvboptim.experimental.network_dynamics.solvers import Heun
 
-
 # ---------------------------------------------------------------------------
 # Test dynamics: linear diagonal ODE with known Lyapunov exponents
 # ---------------------------------------------------------------------------

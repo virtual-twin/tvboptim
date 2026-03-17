@@ -11,10 +11,10 @@ jax.config.update("jax_enable_x64", True)
 
 from tvboptim.experimental.network_dynamics import solve
 from tvboptim.experimental.network_dynamics.dynamics.tvb import (
-    JansenRit,
-    ReducedWongWang,
     Generic2dOscillator,
+    JansenRit,
     Kuramoto,
+    ReducedWongWang,
 )
 from tvboptim.experimental.network_dynamics.external_input.parametric import SineInput
 from tvboptim.experimental.network_dynamics.noise.gaussian import AdditiveNoise
