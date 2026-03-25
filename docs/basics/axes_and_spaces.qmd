@@ -582,6 +582,41 @@ plt.tight_layout()
 plt.show()
 ```
 
+## Grouped Axes: Mixing Combination Modes
+
+In many real-world scenarios, you need **both** zip and product behavior in the same space. For example, you might have matched experimental settings that must move in lockstep, combined with a parameter grid you want to explore exhaustively.
+
+The `group` parameter on axes solves this. Axes sharing the same `group` label are **zipped together** into a single composite axis, regardless of where they sit in the state tree. Then all groups and ungrouped axes combine using the Space's mode (typically product).
+
+### Basic Example
+
+```{python}
+# Three matched settings that must stay together
+setting_values_a = jnp.array([1.0, 2.0, 3.0])
+setting_values_b = jnp.array([10.0, 20.0, 30.0])
+
+grouped_state = {
+    'setting_a': DataAxis(setting_values_a, group='settings'),
+    'setting_b': DataAxis(setting_values_b, group='settings'),
+    'param_x': GridAxis(0.0, 1.0, 4),
+}
+
+space = Space(grouped_state, mode='product', key=jax.random.key(42))
+print(f"Total combinations: {len(space)}")
+print(f"  = 3 settings x 4 param_x = {3 * 4}")
+print(f"  (NOT 3 x 3 x 4 = {3 * 3 * 4})")
+
+print("\nAll combinations:")
+for i, params in enumerate(space):
+    print(f"  {i}: setting_a={params['setting_a']:.0f}, "
+          f"setting_b={params['setting_b']:.0f}, "
+          f"param_x={params['param_x']:.2f}")
+```
+
+Notice that `setting_a` and `setting_b` always move together (1 with 10, 2 with 20, 3 with 30) while `param_x` varies independently across its full grid.
+
+Groups work across subtrees -- grouped axes don't need to be co-located in the state tree. You can also use multiple independent groups (each with its own label), and they each zip internally before being combined via the Space's mode. The `group` label can be any hashable value (strings, ints, tuples, etc.).
+
 ## Iteration & Access Patterns
 
 Space provides flexible ways to access parameter combinations:

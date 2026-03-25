@@ -479,5 +479,169 @@ class TestSpaceEdgeCases(unittest.TestCase):
         self.assertIn("axes=2", repr_str)
 
 
+class TestSpaceGroups(unittest.TestCase):
+    """Test group-based axis combination in Space."""
+
+    def test_basic_group_product_mode(self):
+        """Grouped axes zip, ungrouped axes product."""
+        state = {
+            "setting_a": DataAxis(jnp.array([10.0, 20.0, 30.0]), group="settings"),
+            "setting_b": DataAxis(jnp.array([1.0, 2.0, 3.0]), group="settings"),
+            "param_x": GridAxis(0.0, 1.0, 2),
+        }
+        space = Space(state, mode="product")
+        # settings group → 3, param_x → 2, total = 3 × 2 = 6
+        self.assertEqual(len(space), 6)
+
+    def test_grouped_axes_covary(self):
+        """Grouped axes should always move in lockstep."""
+        state = {
+            "a": DataAxis(jnp.array([10.0, 20.0, 30.0]), group="g"),
+            "b": DataAxis(jnp.array([1.0, 2.0, 3.0]), group="g"),
+            "x": GridAxis(0.0, 1.0, 2),
+        }
+        space = Space(state, mode="product")
+
+        for params in space:
+            a_val = float(params["a"])
+            b_val = float(params["b"])
+            # a and b are locked: a=10↔b=1, a=20↔b=2, a=30↔b=3
+            self.assertAlmostEqual(a_val / 10.0, b_val, places=5)
+
+    def test_ungrouped_axes_vary_independently(self):
+        """Ungrouped axes should form full product."""
+        state = {
+            "a": DataAxis(jnp.array([10.0, 20.0]), group="g"),
+            "b": DataAxis(jnp.array([1.0, 2.0]), group="g"),
+            "x": GridAxis(0.0, 1.0, 3),
+        }
+        space = Space(state, mode="product")
+        # 2 (group) × 3 (x) = 6
+        self.assertEqual(len(space), 6)
+
+        # x should take all 3 values for each setting
+        x_vals_per_setting = {}
+        for params in space:
+            a_key = float(params["a"])
+            x_val = float(params["x"])
+            x_vals_per_setting.setdefault(a_key, set()).add(round(x_val, 4))
+
+        for a_key, x_vals in x_vals_per_setting.items():
+            self.assertEqual(len(x_vals), 3)
+
+    def test_multiple_groups(self):
+        """Multiple independent groups in product mode."""
+        state = {
+            "s1": DataAxis(jnp.array([1.0, 2.0]), group="settings"),
+            "s2": DataAxis(jnp.array([10.0, 20.0]), group="settings"),
+            "c1": DataAxis(jnp.array([100.0, 200.0, 300.0]), group="config"),
+            "c2": DataAxis(jnp.array([0.1, 0.2, 0.3]), group="config"),
+            "free": GridAxis(0.0, 1.0, 4),
+        }
+        space = Space(state, mode="product")
+        # settings=2, config=3, free=4 → 2 × 3 × 4 = 24
+        self.assertEqual(len(space), 24)
+
+    def test_group_size_mismatch_truncates(self):
+        """Axes with different sizes in same group truncate to min."""
+        state = {
+            "a": DataAxis(jnp.array([1.0, 2.0, 3.0]), group="g"),
+            "b": DataAxis(jnp.array([10.0, 20.0]), group="g"),  # shorter
+        }
+        space = Space(state, mode="product")
+        self.assertEqual(len(space), 2)
+
+    def test_group_in_zip_mode(self):
+        """Groups in zip mode: group zips internally, then zips with rest."""
+        state = {
+            "a": DataAxis(jnp.array([1.0, 2.0, 3.0]), group="g"),
+            "b": DataAxis(jnp.array([10.0, 20.0, 30.0]), group="g"),
+            "x": GridAxis(0.0, 1.0, 3),
+        }
+        space = Space(state, mode="zip")
+        # zip: min(3, 3) = 3
+        self.assertEqual(len(space), 3)
+
+        # Grouped axes should still covary
+        for params in space:
+            self.assertAlmostEqual(float(params["a"]) * 10, float(params["b"]), places=5)
+
+    def test_backward_compat_no_groups(self):
+        """No groups → identical to current behavior."""
+        state = {
+            "a": GridAxis(0.0, 1.0, 3),
+            "b": GridAxis(0.0, 2.0, 4),
+        }
+        space_product = Space(state, mode="product")
+        self.assertEqual(len(space_product), 12)
+
+        space_zip = Space(state, mode="zip")
+        self.assertEqual(len(space_zip), 3)
+
+    def test_slicing_preserves_groups(self):
+        """Sliced space should preserve group behavior."""
+        state = {
+            "a": DataAxis(jnp.array([1.0, 2.0, 3.0]), group="g"),
+            "b": DataAxis(jnp.array([10.0, 20.0, 30.0]), group="g"),
+            "x": GridAxis(0.0, 1.0, 2),
+        }
+        space = Space(state, mode="product")
+        self.assertEqual(len(space), 6)
+
+        # Slice and verify groups still hold
+        sub = space[0:3]
+        for params in sub:
+            self.assertAlmostEqual(float(params["a"]) * 10, float(params["b"]), places=5)
+
+    def test_nested_state_with_groups(self):
+        """Groups work when axes are in different subtrees."""
+        state = {
+            "set1": {
+                "setting_a": DataAxis(jnp.array([1.0, 2.0]), group="settings"),
+                "param_x": GridAxis(0.0, 1.0, 3),
+            },
+            "set2": {
+                "setting_b": DataAxis(jnp.array([10.0, 20.0]), group="settings"),
+                "param_y": GridAxis(0.0, 2.0, 4),
+            },
+        }
+        space = Space(state, mode="product")
+        # settings=2, param_x=3, param_y=4 → 2 × 3 × 4 = 24
+        self.assertEqual(len(space), 24)
+
+        # Verify grouped axes covary
+        for params in space:
+            a_val = float(params["set1"]["setting_a"])
+            b_val = float(params["set2"]["setting_b"])
+            self.assertAlmostEqual(a_val * 10, b_val, places=5)
+
+    def test_repr_with_groups(self):
+        """Repr shows group count."""
+        state = {
+            "a": DataAxis(jnp.array([1.0, 2.0]), group="g"),
+            "b": DataAxis(jnp.array([1.0, 2.0]), group="g"),
+            "x": GridAxis(0.0, 1.0, 3),
+        }
+        space = Space(state, mode="product")
+        repr_str = repr(space)
+        self.assertIn("groups=1", repr_str)
+
+    def test_collect_with_groups(self):
+        """collect() works correctly with grouped axes."""
+        state = {
+            "a": DataAxis(jnp.array([1.0, 2.0, 3.0, 4.0]), group="g"),
+            "b": DataAxis(jnp.array([10.0, 20.0, 30.0, 40.0]), group="g"),
+            "x": GridAxis(0.0, 1.0, 2),
+        }
+        space = Space(state, mode="product")
+        # 4 × 2 = 8
+        self.assertEqual(len(space), 8)
+
+        collected = space.collect(n_vmap=4, n_pmap=1)
+        # Should have proper batch dimensions
+        self.assertEqual(collected["a"].shape[0], 1)  # n_pmap
+        self.assertEqual(collected["a"].shape[1], 4)  # n_vmap
+
+
 if __name__ == "__main__":
     unittest.main()

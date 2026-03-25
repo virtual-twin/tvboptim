@@ -411,5 +411,42 @@ class TestAbstractAxisBehavior(unittest.TestCase):
             self.assertEqual(values.shape[0], axis.size)
 
 
+class TestAxisGroup(unittest.TestCase):
+    """Test group parameter on all axis types."""
+
+    def test_grid_axis_group(self):
+        axis = GridAxis(0.0, 1.0, 5, group="my_group")
+        self.assertEqual(axis.group, "my_group")
+
+    def test_grid_axis_group_default_none(self):
+        axis = GridAxis(0.0, 1.0, 5)
+        self.assertIsNone(axis.group)
+
+    def test_uniform_axis_group(self):
+        axis = UniformAxis(0.0, 1.0, 5, group="test")
+        self.assertEqual(axis.group, "test")
+
+    def test_data_axis_group(self):
+        axis = DataAxis([1.0, 2.0, 3.0], group=0)
+        self.assertEqual(axis.group, 0)
+
+    def test_data_axis_group_default_none(self):
+        axis = DataAxis([1.0, 2.0])
+        self.assertIsNone(axis.group)
+
+    @unittest.skipUnless(NUMPYRO_AVAILABLE, "NumPyro not installed")
+    def test_numpyro_axis_group(self):
+        axis = NumPyroAxis(dist.Normal(0.0, 1.0), n=5, group="dist")
+        self.assertEqual(axis.group, "dist")
+
+    def test_group_with_int_label(self):
+        axis = GridAxis(0.0, 1.0, 3, group=42)
+        self.assertEqual(axis.group, 42)
+
+    def test_group_with_tuple_label(self):
+        axis = GridAxis(0.0, 1.0, 3, group=("a", 1))
+        self.assertEqual(axis.group, ("a", 1))
+
+
 if __name__ == "__main__":
     unittest.main()
