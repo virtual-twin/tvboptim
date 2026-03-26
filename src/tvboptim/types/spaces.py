@@ -40,7 +40,6 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
-
 import pandas as pd
 
 from tvboptim.utils import safe_reshape
