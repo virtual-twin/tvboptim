@@ -258,7 +258,9 @@ class ParallelExecution(Execution):
         res = jax.block_until_ready(
             jax.pmap(self.map_model, in_axes=0)(self.diff_state)
         )
-        return ParallelResult(res, self.space.N, self.n_vmap, self.n_pmap, space=self.space)
+        return ParallelResult(
+            res, self.space.N, self.n_vmap, self.n_pmap, space=self.space
+        )
 
 
 class ParallelResult(Result):

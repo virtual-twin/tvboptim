@@ -49,9 +49,7 @@ class TestBareDynamics(unittest.TestCase):
                     )
 
                     self.assertEqual(result.ts.shape, (self.n_timesteps,))
-                    self.assertEqual(
-                        result.ys.shape, (self.n_timesteps, n_states, 1)
-                    )
+                    self.assertEqual(result.ys.shape, (self.n_timesteps, n_states, 1))
                     self.assertFalse(jnp.isnan(result.ys).any())
                     self.assertFalse(jnp.isinf(result.ys).any())
 
@@ -69,9 +67,7 @@ class TestBareDynamics(unittest.TestCase):
                     n_nodes=n_nodes,
                 )
 
-                self.assertEqual(
-                    result.ys.shape, (self.n_timesteps, n_states, n_nodes)
-                )
+                self.assertEqual(result.ys.shape, (self.n_timesteps, n_states, n_nodes))
                 self.assertFalse(jnp.isnan(result.ys).any())
 
     def test_diffrax_solver_single_node(self):
@@ -86,9 +82,7 @@ class TestBareDynamics(unittest.TestCase):
                 )
 
                 self.assertEqual(result.ts.shape, (self.n_timesteps,))
-                self.assertEqual(
-                    result.ys.shape, (self.n_timesteps, n_states, 1)
-                )
+                self.assertEqual(result.ys.shape, (self.n_timesteps, n_states, 1))
                 self.assertFalse(jnp.isnan(result.ys).any())
                 self.assertFalse(jnp.isinf(result.ys).any())
 
@@ -153,13 +147,18 @@ class TestBareDynamicsWithNoise(unittest.TestCase):
             with self.subTest(model=model_cls.__name__):
                 det = solve(model_cls(), Heun(), t0=self.t0, t1=self.t1, dt=self.dt)
                 stoch = solve(
-                    model_cls(), Heun(), t0=self.t0, t1=self.t1, dt=self.dt,
+                    model_cls(),
+                    Heun(),
+                    t0=self.t0,
+                    t1=self.t1,
+                    dt=self.dt,
                     noise=self.noise,
                 )
                 self.assertEqual(det.ys.shape, stoch.ys.shape)
                 self.assertFalse(jnp.isnan(stoch.ys).any())
                 self.assertGreater(
-                    jnp.abs(det.ys - stoch.ys).max(), 0.0,
+                    jnp.abs(det.ys - stoch.ys).max(),
+                    0.0,
                     msg=f"Noise had no effect on {model_cls.__name__}",
                 )
 
@@ -167,12 +166,17 @@ class TestBareDynamicsWithNoise(unittest.TestCase):
         """Noise works with Diffrax solver."""
         saveat = diffrax.SaveAt(ts=jnp.arange(self.t0, self.t1, self.dt))
         solver = DiffraxSolver(
-            diffrax.Euler(), saveat=saveat,
+            diffrax.Euler(),
+            saveat=saveat,
             stepsize_controller=diffrax.ConstantStepSize(),
         )
         det = solve(JansenRit(), solver, t0=self.t0, t1=self.t1, dt=self.dt)
         stoch = solve(
-            JansenRit(), solver, t0=self.t0, t1=self.t1, dt=self.dt,
+            JansenRit(),
+            solver,
+            t0=self.t0,
+            t1=self.t1,
+            dt=self.dt,
             noise=self.noise,
         )
         self.assertEqual(det.ys.shape, stoch.ys.shape)
@@ -182,8 +186,13 @@ class TestBareDynamicsWithNoise(unittest.TestCase):
     def test_noise_multi_node(self):
         """Noise works with multiple uncoupled nodes."""
         result = solve(
-            JansenRit(), Heun(), t0=self.t0, t1=self.t1, dt=self.dt,
-            noise=self.noise, n_nodes=3,
+            JansenRit(),
+            Heun(),
+            t0=self.t0,
+            t1=self.t1,
+            dt=self.dt,
+            noise=self.noise,
+            n_nodes=3,
         )
         self.assertEqual(result.ys.shape, (self.n_timesteps, 6, 3))
         self.assertFalse(jnp.isnan(result.ys).any())
@@ -193,7 +202,11 @@ class TestBareDynamicsWithNoise(unittest.TestCase):
         noise_subset = AdditiveNoise(sigma=1.0, apply_to=[0])
         det = solve(JansenRit(), Heun(), t0=self.t0, t1=self.t1, dt=self.dt)
         stoch = solve(
-            JansenRit(), Heun(), t0=self.t0, t1=self.t1, dt=self.dt,
+            JansenRit(),
+            Heun(),
+            t0=self.t0,
+            t1=self.t1,
+            dt=self.dt,
             noise=noise_subset,
         )
         # First state should differ
@@ -213,16 +226,25 @@ class TestBareDynamicsWithExternals(unittest.TestCase):
         """External input affects trajectory (Generic2dOscillator has stimulus)."""
         ext = SineInput(amplitude=1.0, frequency=0.1)
         det = solve(
-            Generic2dOscillator(), Heun(), t0=self.t0, t1=self.t1, dt=self.dt,
+            Generic2dOscillator(),
+            Heun(),
+            t0=self.t0,
+            t1=self.t1,
+            dt=self.dt,
         )
         driven = solve(
-            Generic2dOscillator(), Heun(), t0=self.t0, t1=self.t1, dt=self.dt,
+            Generic2dOscillator(),
+            Heun(),
+            t0=self.t0,
+            t1=self.t1,
+            dt=self.dt,
             externals={"stimulus": ext},
         )
         self.assertEqual(det.ys.shape, driven.ys.shape)
         self.assertFalse(jnp.isnan(driven.ys).any())
         self.assertGreater(
-            jnp.abs(det.ys - driven.ys).max(), 0.0,
+            jnp.abs(det.ys - driven.ys).max(),
+            0.0,
             msg="External input had no effect",
         )
 
@@ -234,7 +256,11 @@ class TestBareDynamicsWithExternals(unittest.TestCase):
 
         det = solve(Generic2dOscillator(), solver, t0=self.t0, t1=self.t1, dt=self.dt)
         driven = solve(
-            Generic2dOscillator(), solver, t0=self.t0, t1=self.t1, dt=self.dt,
+            Generic2dOscillator(),
+            solver,
+            t0=self.t0,
+            t1=self.t1,
+            dt=self.dt,
             externals={"stimulus": ext},
         )
         self.assertFalse(jnp.isnan(driven.ys).any())
@@ -245,8 +271,13 @@ class TestBareDynamicsWithExternals(unittest.TestCase):
         noise = AdditiveNoise(sigma=0.01)
         ext = SineInput(amplitude=0.5, frequency=0.1)
         result = solve(
-            Generic2dOscillator(), Heun(), t0=self.t0, t1=self.t1, dt=self.dt,
-            noise=noise, externals={"stimulus": ext},
+            Generic2dOscillator(),
+            Heun(),
+            t0=self.t0,
+            t1=self.t1,
+            dt=self.dt,
+            noise=noise,
+            externals={"stimulus": ext},
         )
         self.assertEqual(result.ys.shape, (self.n_timesteps, 2, 1))
         self.assertFalse(jnp.isnan(result.ys).any())

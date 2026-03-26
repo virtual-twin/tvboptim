@@ -43,13 +43,13 @@ def lyapunov(network, solver=None, t=1000.0, n=10, d0=1e-9, dt=0.1, t0=0.0):
 
 def _lyapunov(solve_fn, config, t, n=10, d0=1e-9):
     """Low-level MLE estimation using a pre-built solve_fn / config."""
-    u_init = config.initial_state.dynamics     # [n_states, n_nodes]
+    u_init = config.initial_state.dynamics  # [n_states, n_nodes]
     D = u_init.size
     u2_init = u_init + d0 / jnp.sqrt(D)
 
     def _solve_from(u):
-        new_is = Bunch({**config.initial_state, 'dynamics': u})
-        new_cfg = Bunch({**config, 'initial_state': new_is})
+        new_is = Bunch({**config.initial_state, "dynamics": u})
+        new_cfg = Bunch({**config, "initial_state": new_is})
         return solve_fn(new_cfg).ys[-1]
 
     @jax.jit
@@ -71,8 +71,9 @@ def _lyapunov(solve_fn, config, t, n=10, d0=1e-9):
     return float(log_sum / (n * t))
 
 
-def lyapunov_spectrum(network, solver=None, t=1000.0, n=10, k=None,
-                      dt=0.1, t0=0.0, mode="jvp", d0=1e-9):
+def lyapunov_spectrum(
+    network, solver=None, t=1000.0, n=10, k=None, dt=0.1, t0=0.0, mode="jvp", d0=1e-9
+):
     """
     Estimate the Lyapunov spectrum of a network.
 
@@ -117,8 +118,8 @@ def _lyapunov_spectrum_sim(solve_fn, config, t, n=10, k=None, d0=1e-9):
 
     def _solve_flat(u_flat):
         u = u_flat.reshape(shape)
-        new_is = Bunch({**config.initial_state, 'dynamics': u})
-        new_cfg = Bunch({**config, 'initial_state': new_is})
+        new_is = Bunch({**config.initial_state, "dynamics": u})
+        new_cfg = Bunch({**config, "initial_state": new_is})
         return solve_fn(new_cfg).ys[-1].flatten()
 
     @jax.jit
@@ -126,10 +127,10 @@ def _lyapunov_spectrum_sim(solve_fn, config, t, n=10, k=None, d0=1e-9):
         def _step(carry, _):
             u_flat, Q, log_sum = carry
             new_u = _solve_flat(u_flat)
-            perturbed = u_flat + d0 * Q.T                   # [k, D]
-            new_perturbed = jax.vmap(_solve_flat)(perturbed) # [k, D]
-            delta = (new_perturbed - new_u) / d0            # [k, D]
-            Q_new, R = jnp.linalg.qr(delta.T)              # [D, k], [k, k]
+            perturbed = u_flat + d0 * Q.T  # [k, D]
+            new_perturbed = jax.vmap(_solve_flat)(perturbed)  # [k, D]
+            delta = (new_perturbed - new_u) / d0  # [k, D]
+            Q_new, R = jnp.linalg.qr(delta.T)  # [D, k], [k, k]
             log_sum = log_sum + jnp.log(jnp.abs(jnp.diag(R)))
             return (new_u, Q_new, log_sum), None
 
@@ -152,8 +153,8 @@ def _lyapunov_spectrum_jvp(solve_fn, config, t, n=10, k=None):
 
     def _solve_flat(u_flat):
         u = u_flat.reshape(shape)
-        new_is = Bunch({**config.initial_state, 'dynamics': u})
-        new_cfg = Bunch({**config, 'initial_state': new_is})
+        new_is = Bunch({**config.initial_state, "dynamics": u})
+        new_cfg = Bunch({**config, "initial_state": new_is})
         return solve_fn(new_cfg).ys[-1].flatten()
 
     @jax.jit
@@ -161,8 +162,8 @@ def _lyapunov_spectrum_jvp(solve_fn, config, t, n=10, k=None):
         def _step(carry, _):
             u_flat, Q, log_sum = carry
             new_u, jvp_fn = jax.linearize(_solve_flat, u_flat)
-            tangents = jax.vmap(jvp_fn)(Q.T)       # [k, D]
-            Q_new, R = jnp.linalg.qr(tangents.T)   # [D, k], [k, k]
+            tangents = jax.vmap(jvp_fn)(Q.T)  # [k, D]
+            Q_new, R = jnp.linalg.qr(tangents.T)  # [D, k], [k, k]
             log_sum = log_sum + jnp.log(jnp.abs(jnp.diag(R)))
             return (new_u, Q_new, log_sum), None
 

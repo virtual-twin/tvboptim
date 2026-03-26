@@ -340,7 +340,9 @@ def prepare(
 
     n_nodes = network.graph.n_nodes
 
-    def compute_all_couplings(t, network_state, coupling_state_dict, config, coupling_data_dict):
+    def compute_all_couplings(
+        t, network_state, coupling_state_dict, config, coupling_data_dict
+    ):
         """Pre-compiled closure for coupling computation.
 
         Avoids method calls and dict iterations in scan loop.
@@ -361,7 +363,12 @@ def prepare(
                 data = coupling_data_dict[name]
                 state_data = coupling_state_dict[name]
                 coupling_inputs[name] = coupling.compute(
-                    t, network_state, data, state_data, config.coupling[name], config.graph
+                    t,
+                    network_state,
+                    data,
+                    state_data,
+                    config.coupling[name],
+                    config.graph,
                 )
 
         return coupling_inputs
@@ -375,7 +382,9 @@ def prepare(
         for name in network.coupling.keys()
     ]
 
-    def update_all_coupling_states(coupling_state_dict, new_network_state, coupling_data_dict):
+    def update_all_coupling_states(
+        coupling_state_dict, new_network_state, coupling_data_dict
+    ):
         """Pre-compiled closure for coupling state updates.
 
         Avoids method calls and dict iterations in scan loop.
@@ -924,7 +933,12 @@ def prepare(
                 data = coupling_data_dict[name]
                 empty_state = Bunch()
                 coupling_inputs[name] = coupling.compute(
-                    t, network_state, data, empty_state, config.coupling[name], config.graph
+                    t,
+                    network_state,
+                    data,
+                    empty_state,
+                    config.coupling[name],
+                    config.graph,
                 )
 
         return coupling_inputs
@@ -1069,7 +1083,9 @@ def prepare(
             external_inputs = compute_all_externals(t, y, config)
 
             # Call dynamics
-            result = dynamics_fn(t, y, config.dynamics, coupling_inputs, external_inputs)
+            result = dynamics_fn(
+                t, y, config.dynamics, coupling_inputs, external_inputs
+            )
 
             # Extract derivatives (discard auxiliaries if present)
             if isinstance(result, tuple):
@@ -1279,9 +1295,7 @@ def prepare(
                     )
                 else:
                     ext_inputs = zero_external
-                return dynamics_fn(
-                    t_inner, s, params, zero_coupling, ext_inputs
-                )
+                return dynamics_fn(t_inner, s, params, zero_coupling, ext_inputs)
 
             # Noise
             if has_noise:
@@ -1486,6 +1500,7 @@ def prepare(
         drift_term = diffrax.ODETerm(vector_field)
 
         if has_noise:
+
             def diffusion_vector_field(t, y, args):
                 return compute_diffusion_matrix(t, y, config.noise)
 

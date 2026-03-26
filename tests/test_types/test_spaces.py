@@ -620,7 +620,9 @@ class TestSpaceGroups(unittest.TestCase):
 
         # Grouped axes should still covary
         for params in space:
-            self.assertAlmostEqual(float(params["a"]) * 10, float(params["b"]), places=5)
+            self.assertAlmostEqual(
+                float(params["a"]) * 10, float(params["b"]), places=5
+            )
 
     def test_backward_compat_no_groups(self):
         """No groups → identical to current behavior."""
@@ -647,7 +649,9 @@ class TestSpaceGroups(unittest.TestCase):
         # Slice and verify groups still hold
         sub = space[0:3]
         for params in sub:
-            self.assertAlmostEqual(float(params["a"]) * 10, float(params["b"]), places=5)
+            self.assertAlmostEqual(
+                float(params["a"]) * 10, float(params["b"]), places=5
+            )
 
     def test_nested_state_with_groups(self):
         """Groups work when axes are in different subtrees."""

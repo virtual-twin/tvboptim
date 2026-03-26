@@ -69,6 +69,7 @@ def _keypath_to_name(keypath):
     name = "".join(parts).lstrip(".")
     return name if name else "value"
 
+
 try:
     import numpyro.distributions  # noqa: F401
 
@@ -845,9 +846,7 @@ class Space:
             max_size = max(effective_sizes)
 
             if min_size != max_size:
-                lost_combinations = sum(
-                    size - min_size for size in effective_sizes
-                )
+                lost_combinations = sum(size - min_size for size in effective_sizes)
                 print(
                     f"WARNING: In zip mode, effective axes have different sizes "
                     f"{effective_sizes}. Using minimum size {min_size}, "
@@ -964,9 +963,7 @@ class Space:
         # Expand back to original flat ordering
         result = [None] * len(axis_values_list)
 
-        for eff_idx, (meta, combined) in enumerate(
-            zip(effective_meta, flat_effective)
-        ):
+        for eff_idx, (meta, combined) in enumerate(zip(effective_meta, flat_effective)):
             kind, payload = meta
             if kind == "group":
                 index_array = combined.astype(jnp.int32)

@@ -23,6 +23,7 @@ from tvboptim.experimental.network_dynamics.solvers import Heun
 # Test dynamics: linear diagonal ODE with known Lyapunov exponents
 # ---------------------------------------------------------------------------
 
+
 class LinearDiagonal(AbstractDynamics):
     """dx_i/dt = a_i * x_i.  Lyapunov exponents equal the rates a_i."""
 
@@ -47,6 +48,7 @@ def _make_network(rates):
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestMaxExponent(unittest.TestCase):
     """Test maximum Lyapunov exponent (single-trajectory method)."""
 
@@ -69,9 +71,7 @@ class TestMaxExponent(unittest.TestCase):
         this limitation.
         """
         network = _make_network(jnp.array([0.5, -1.0, -2.0]))
-        spectrum = lyapunov_spectrum(
-            network, self.solver, k=1, mode="jvp", **self.kw
-        )
+        spectrum = lyapunov_spectrum(network, self.solver, k=1, mode="jvp", **self.kw)
         self.assertGreater(float(spectrum[0]), 0.0)
         np.testing.assert_allclose(float(spectrum[0]), 0.5, atol=0.01)
 
@@ -94,16 +94,12 @@ class TestSpectrum(unittest.TestCase):
 
     def test_jvp_matches_eigenvalues(self):
         """JVP spectrum matches analytic eigenvalues."""
-        spectrum = lyapunov_spectrum(
-            self.network, self.solver, mode="jvp", **self.kw
-        )
+        spectrum = lyapunov_spectrum(self.network, self.solver, mode="jvp", **self.kw)
         np.testing.assert_allclose(spectrum, self.expected, atol=0.01)
 
     def test_sim_matches_eigenvalues(self):
         """Sim spectrum matches analytic eigenvalues."""
-        spectrum = lyapunov_spectrum(
-            self.network, self.solver, mode="sim", **self.kw
-        )
+        spectrum = lyapunov_spectrum(self.network, self.solver, mode="sim", **self.kw)
         np.testing.assert_allclose(spectrum, self.expected, atol=0.01)
 
     def test_jvp_sim_consistency(self):
@@ -118,9 +114,7 @@ class TestSpectrum(unittest.TestCase):
 
     def test_partial_spectrum_k2(self):
         """k=2 returns the top 2 exponents matching the full spectrum."""
-        full = lyapunov_spectrum(
-            self.network, self.solver, mode="jvp", **self.kw
-        )
+        full = lyapunov_spectrum(self.network, self.solver, mode="jvp", **self.kw)
         partial = lyapunov_spectrum(
             self.network, self.solver, k=2, mode="jvp", **self.kw
         )
@@ -137,9 +131,7 @@ class TestSpectrum(unittest.TestCase):
 
     def test_spectrum_sum_equals_trace(self):
         """Sum of all exponents equals the trace of the system matrix."""
-        spectrum = lyapunov_spectrum(
-            self.network, self.solver, mode="jvp", **self.kw
-        )
+        spectrum = lyapunov_spectrum(self.network, self.solver, mode="jvp", **self.kw)
         np.testing.assert_allclose(
             float(spectrum.sum()), float(self.rates.sum()), atol=0.01
         )
@@ -148,9 +140,7 @@ class TestSpectrum(unittest.TestCase):
         """Spectrum correctly identifies positive and negative exponents."""
         rates = jnp.array([0.3, -0.1, -1.5])
         network = _make_network(rates)
-        spectrum = lyapunov_spectrum(
-            network, self.solver, mode="jvp", **self.kw
-        )
+        spectrum = lyapunov_spectrum(network, self.solver, mode="jvp", **self.kw)
         expected = jnp.sort(rates)[::-1]
         np.testing.assert_allclose(spectrum, expected, atol=0.01)
         self.assertGreater(float(spectrum[0]), 0.0)
@@ -159,9 +149,7 @@ class TestSpectrum(unittest.TestCase):
     def test_invalid_mode_raises(self):
         """Invalid mode keyword raises ValueError."""
         with self.assertRaises(ValueError):
-            lyapunov_spectrum(
-                self.network, self.solver, mode="invalid", dt=0.01
-            )
+            lyapunov_spectrum(self.network, self.solver, mode="invalid", dt=0.01)
 
 
 if __name__ == "__main__":

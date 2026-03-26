@@ -267,9 +267,9 @@ class BoundedSolver(NativeSolver):
         high: float | jnp.ndarray = jnp.inf,
     ):
         self.base_solver = base_solver
-        low  = jnp.asarray(low)
+        low = jnp.asarray(low)
         high = jnp.asarray(high)
-        self.low  = low[:, None]  if low.ndim  == 1 else low
+        self.low = low[:, None] if low.ndim == 1 else low
         self.high = high[:, None] if high.ndim == 1 else high
 
     def step(
