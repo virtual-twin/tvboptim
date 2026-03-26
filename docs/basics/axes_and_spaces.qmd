@@ -675,6 +675,54 @@ for i, params in enumerate(every_other):
     print(f"  Index {i}: coupling={params['coupling']:.3f}")
 ```
 
+### Converting to DataFrames
+
+Both spaces and execution results can be converted to pandas DataFrames for easy analysis and plotting. Column names are derived automatically from the pytree structure of your state.
+
+```{python}
+# Parameter space as a DataFrame
+df_params = demo_space.to_dataframe()
+print(df_params.head())
+```
+
+After running a computation, `Result.to_dataframe()` combines parameters and results into a single DataFrame, keeping them correctly aligned:
+
+```{python}
+from tvboptim.execution import SequentialExecution
+
+def compute_metric(state):
+    return {'activity': state['coupling'] * 2 + state['noise'],
+            'ratio': state['coupling'] / (state['noise'] + 1e-6)}
+
+result = SequentialExecution(compute_metric, demo_space).run()
+df = result.to_dataframe()
+print(df.head())
+```
+
+```{python}
+#| code-fold: true
+#| code-summary: "Show plotting example"
+
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.1, 4))
+
+ax1.scatter(df['coupling'], df['activity'])
+ax1.set_xlabel('Coupling')
+ax1.set_ylabel('Activity')
+ax1.set_title('Coupling vs Activity')
+ax1.grid(True, alpha=0.3)
+
+ax2.scatter(df['noise'], df['ratio'], c=df['coupling'], cmap='viridis')
+ax2.set_xlabel('Noise')
+ax2.set_ylabel('Ratio')
+ax2.set_title('Noise vs Ratio (colored by Coupling)')
+ax2.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+```
+
+Nested state structures produce dot-separated column names (e.g. `model.G`, `noise.sigma`), and non-scalar results like arrays or matrices are stored as object cells in the DataFrame.
+
 # Execution: Running Functions Over Spaces
 
 Now that we understand how to create and manipulate parameter spaces, let's see how to actually execute functions over them. TVB-Optim provides two execution strategies through `SequentialExecution` and `ParallelExecution` classes.

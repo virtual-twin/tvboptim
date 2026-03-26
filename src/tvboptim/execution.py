@@ -2,8 +2,11 @@ from abc import ABC
 
 import jax
 import jax.numpy as jnp
+import numpy as np
+import pandas as pd
 from tqdm import tqdm
 
+from tvboptim.types.spaces import _keypath_to_name
 from tvboptim.types.stateutils import combine_state
 
 
@@ -16,7 +19,46 @@ class Result(ABC):
     Result type to provide unified indexing
     """
 
-    pass
+    space = None
+
+    def to_dataframe(self) -> pd.DataFrame:
+        """Convert results (and parameters) to a pandas DataFrame.
+
+        Each row corresponds to one parameter combination. If a space
+        reference is stored, parameter columns are included. Result
+        column names are derived from the pytree key paths of the
+        result structure.
+
+        Returns
+        -------
+        pd.DataFrame
+        """
+        # Parameter columns
+        if self.space is not None:
+            df = self.space.to_dataframe()
+        else:
+            df = pd.DataFrame()
+
+        # Result columns
+        sample = self[0]
+        paths_and_leaves, treedef = jax.tree_util.tree_flatten_with_path(sample)
+        col_names = [_keypath_to_name(p) for p, _ in paths_and_leaves]
+
+        # Handle name collisions with param columns
+        for i, name in enumerate(col_names):
+            if name in df.columns:
+                col_names[i] = f"result.{name}"
+
+        result_data = {name: [] for name in col_names}
+        for result in self:
+            leaves = jax.tree.leaves(result)
+            for name, leaf in zip(col_names, leaves):
+                result_data[name].append(np.asarray(leaf))
+
+        for name, values in result_data.items():
+            df[name] = values
+
+        return df
 
 
 class SequentialExecution(Execution):
@@ -95,12 +137,13 @@ class SequentialExecution(Execution):
                 jax.block_until_ready(self.model(state, *self.args, **self.kwargs))
             )
             # results.append(jax.block_until_ready(self.model(state, *self.args, **self.kwargs)))
-        return SequentialResult(results)
+        return SequentialResult(results, space=self.statespace)
 
 
 class SequentialResult(Result):
-    def __init__(self, results):
+    def __init__(self, results, space=None):
         self.results = results
+        self.space = space
 
     def __iter__(self):
         return iter(self.results)
@@ -215,13 +258,14 @@ class ParallelExecution(Execution):
         res = jax.block_until_ready(
             jax.pmap(self.map_model, in_axes=0)(self.diff_state)
         )
-        return ParallelResult(res, self.space.N, self.n_vmap, self.n_pmap)
+        return ParallelResult(res, self.space.N, self.n_vmap, self.n_pmap, space=self.space)
 
 
 class ParallelResult(Result):
-    def __init__(self, results, N, n_vmap, n_pmap):
+    def __init__(self, results, N, n_vmap, n_pmap, space=None):
         self.results = results
         self.N = N
+        self.space = space
         self.n_vmap = n_vmap
         self.n_pmap = n_pmap
 

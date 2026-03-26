@@ -185,5 +185,124 @@ class TestExecution(unittest.TestCase):
             )
 
 
+class TestResultToDataFrame(unittest.TestCase):
+    """Test Result.to_dataframe() functionality."""
+
+    def setUp(self):
+        self.state = {
+            "a": DataAxis(jnp.linspace(1.0, 5.0, 5)),
+            "b": DataAxis(jnp.linspace(10.0, 50.0, 5)),
+        }
+        self.space = Space(self.state)
+
+    def test_sequential_result_has_space(self):
+        """SequentialResult stores space reference."""
+
+        def f(state):
+            return {"sum": state["a"] + state["b"]}
+
+        result = SequentialExecution(f, self.space).run()
+        self.assertIs(result.space, self.space)
+
+    def test_sequential_dict_result_columns(self):
+        """Dict results produce named columns."""
+
+        def f(state):
+            return {"sum": state["a"] + state["b"], "product": state["a"] * state["b"]}
+
+        result = SequentialExecution(f, self.space).run()
+        df = result.to_dataframe()
+
+        self.assertEqual(len(df), 5)
+        # Param columns
+        self.assertIn("a", df.columns)
+        self.assertIn("b", df.columns)
+        # Result columns
+        self.assertIn("sum", df.columns)
+        self.assertIn("product", df.columns)
+
+    def test_sequential_list_result_columns(self):
+        """List results produce bracketed column names."""
+
+        def f(state):
+            return [state["a"], state["b"]]
+
+        result = SequentialExecution(f, self.space).run()
+        df = result.to_dataframe()
+
+        self.assertIn("[0]", df.columns)
+        self.assertIn("[1]", df.columns)
+
+    def test_sequential_single_array_result(self):
+        """Single array result produces 'value' column."""
+
+        def f(state):
+            return state["a"] + state["b"]
+
+        result = SequentialExecution(f, self.space).run()
+        df = result.to_dataframe()
+
+        self.assertIn("value", df.columns)
+
+    def test_name_collision_prefixed(self):
+        """Result column colliding with param name gets 'result.' prefix."""
+
+        def f(state):
+            return {"a": state["a"] * 2}  # 'a' collides with param 'a'
+
+        result = SequentialExecution(f, self.space).run()
+        df = result.to_dataframe()
+
+        self.assertIn("a", df.columns)  # param
+        self.assertIn("result.a", df.columns)  # result, prefixed
+
+    def test_parallel_result_has_space(self):
+        """ParallelResult stores space reference."""
+
+        def f(state):
+            return {"sum": state["a"] + state["b"]}
+
+        result = ParallelExecution(f, self.space, n_pmap=1).run()
+        self.assertIs(result.space, self.space)
+
+    def test_parallel_result_to_dataframe(self):
+        """ParallelResult.to_dataframe works like sequential."""
+
+        def f(state):
+            return {"sum": state["a"] + state["b"]}
+
+        result = ParallelExecution(f, self.space, n_pmap=1).run()
+        df = result.to_dataframe()
+
+        self.assertEqual(len(df), 5)
+        self.assertIn("a", df.columns)
+        self.assertIn("sum", df.columns)
+
+    def test_array_result_in_cell(self):
+        """Non-scalar results stored as array objects in cells."""
+        import numpy as np
+
+        def f(state):
+            return {"timeseries": jnp.ones(10) * state["a"]}
+
+        result = SequentialExecution(f, self.space).run()
+        df = result.to_dataframe()
+
+        self.assertIn("timeseries", df.columns)
+        self.assertEqual(np.asarray(df["timeseries"].iloc[0]).shape, (10,))
+
+    def test_nested_dict_result(self):
+        """Nested dict results produce dot-separated names."""
+
+        def f(state):
+            return {"metrics": {"mean": state["a"], "std": state["b"]}}
+
+        result = SequentialExecution(f, self.space).run()
+        df = result.to_dataframe()
+
+        self.assertIn("metrics.mean", df.columns)
+        self.assertIn("metrics.std", df.columns)
+
+
 if __name__ == "__main__":
     unittest.main()

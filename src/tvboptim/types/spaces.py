@@ -41,7 +41,34 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+import pandas as pd
+
 from tvboptim.utils import safe_reshape
+
+
+def _keypath_to_name(keypath):
+    """Convert a JAX KeyPath to a readable dot-separated column name.
+
+    Examples
+    --------
+    >>> # DictKey / GetAttrKey use dot notation
+    >>> # (DictKey('model'), DictKey('G'))  → 'model.G'
+    >>> # SequenceKey uses bracket notation
+    >>> # (DictKey('results'), SequenceKey(0))  → 'results[0]'
+    >>> # (SequenceKey(0), DictKey('amplitude'))  → '[0].amplitude'
+    """
+    parts = []
+    for key in keypath:
+        if hasattr(key, "key"):  # DictKey
+            parts.append(f".{key.key}")
+        elif hasattr(key, "idx"):  # SequenceKey
+            parts.append(f"[{key.idx}]")
+        elif hasattr(key, "name"):  # GetAttrKey (namedtuple)
+            parts.append(f".{key.name}")
+        else:
+            parts.append(f".{key}")
+    name = "".join(parts).lstrip(".")
+    return name if name else "value"
 
 try:
     import numpyro.distributions  # noqa: F401
@@ -1172,6 +1199,31 @@ class Space:
             return eqx.combine(batched_axis_tree, self.static_state)
         else:
             return batched_axis_tree, self.static_state
+
+    def to_dataframe(self) -> pd.DataFrame:
+        """Convert parameter space to a pandas DataFrame.
+
+        Each row is one parameter combination. Column names are derived
+        from the pytree key paths (e.g. ``'coupling.G'``, ``'noise.sigma'``).
+        Scalar leaves become scalar cells; array leaves become object cells
+        containing numpy arrays.
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with one row per combination and one column per leaf.
+        """
+        sample = self[0]
+        paths_and_leaves, treedef = jax.tree_util.tree_flatten_with_path(sample)
+        col_names = [_keypath_to_name(p) for p, _ in paths_and_leaves]
+
+        columns = {name: [] for name in col_names}
+        for params in self:
+            leaves = jax.tree.leaves(params)
+            for name, leaf in zip(col_names, leaves):
+                columns[name].append(np.asarray(leaf))
+
+        return pd.DataFrame(columns)
 
     def __repr__(self):
         axes = jax.tree.leaves(

@@ -479,6 +479,62 @@ class TestSpaceEdgeCases(unittest.TestCase):
         self.assertIn("axes=2", repr_str)
 
 
+class TestSpaceToDataFrame(unittest.TestCase):
+    """Test Space.to_dataframe() functionality."""
+
+    def test_basic_params_as_columns(self):
+        """Scalar params become columns with correct values."""
+        state = {"a": GridAxis(0.0, 1.0, 3), "b": GridAxis(0.0, 2.0, 2)}
+        space = Space(state, mode="product")
+        df = space.to_dataframe()
+
+        self.assertEqual(len(df), 6)
+        self.assertIn("a", df.columns)
+        self.assertIn("b", df.columns)
+
+    def test_nested_state_dot_names(self):
+        """Nested dicts produce dot-separated column names."""
+        state = {
+            "model": {"G": GridAxis(0.0, 1.0, 3)},
+            "noise": {"sigma": GridAxis(0.01, 0.1, 2)},
+        }
+        space = Space(state, mode="product")
+        df = space.to_dataframe()
+
+        self.assertIn("model.G", df.columns)
+        self.assertIn("noise.sigma", df.columns)
+
+    def test_fixed_values_included(self):
+        """Fixed (non-axis) values appear as columns."""
+        state = {
+            "x": GridAxis(0.0, 1.0, 3),
+            "fixed": 42.0,
+        }
+        space = Space(state, mode="zip")
+        df = space.to_dataframe()
+
+        self.assertIn("fixed", df.columns)
+        self.assertTrue(all(df["fixed"] == 42.0))
+
+    def test_correct_row_count(self):
+        """Number of rows equals len(space)."""
+        state = {"a": GridAxis(0.0, 1.0, 5), "b": GridAxis(0.0, 1.0, 4)}
+        space = Space(state, mode="product")
+        df = space.to_dataframe()
+        self.assertEqual(len(df), 20)
+
+    def test_array_valued_params(self):
+        """Array-valued params stored as object cells."""
+        import numpy as np
+
+        state = {"a": GridAxis(0.0, 1.0, 3, shape=(4,))}
+        space = Space(state, mode="zip")
+        df = space.to_dataframe()
+
+        self.assertEqual(len(df), 3)
+        self.assertEqual(np.asarray(df["a"].iloc[0]).shape, (4,))
+
+
 class TestSpaceGroups(unittest.TestCase):
     """Test group-based axis combination in Space."""
 
