@@ -21,43 +21,21 @@ class Result(ABC):
 
     space = None
 
-    def to_dataframe(self) -> pd.DataFrame:
-        """Convert results (and parameters) to a pandas DataFrame.
-
-        Each row corresponds to one parameter combination. If a space
-        reference is stored, parameter columns are included. Result
-        column names are derived from the pytree key paths of the
-        result structure.
-
-        Returns
-        -------
-        pd.DataFrame
-        """
-        # Parameter columns
-        if self.space is not None:
-            df = self.space.to_dataframe()
-        else:
-            df = pd.DataFrame()
-
-        # Result columns
+    def _result_col_names(self, param_cols) -> list:
+        """Derive result column names from the first result, handling collisions."""
         sample = self[0]
-        paths_and_leaves, treedef = jax.tree_util.tree_flatten_with_path(sample)
+        paths_and_leaves, _ = jax.tree_util.tree_flatten_with_path(sample)
         col_names = [_keypath_to_name(p) for p, _ in paths_and_leaves]
-
-        # Handle name collisions with param columns
         for i, name in enumerate(col_names):
-            if name in df.columns:
+            if name in param_cols:
                 col_names[i] = f"result.{name}"
+        return col_names
 
-        result_data = {name: [] for name in col_names}
-        for result in self:
-            leaves = jax.tree.leaves(result)
-            for name, leaf in zip(col_names, leaves):
-                result_data[name].append(np.asarray(leaf))
-
-        for name, values in result_data.items():
-            df[name] = values
-
+    @staticmethod
+    def _assign_leaves(df, col_names, leaves):
+        """Assign (N, ...) numpy leaves to DataFrame columns."""
+        for name, leaf in zip(col_names, leaves):
+            df[name] = leaf if leaf.ndim == 1 else list(leaf)
         return df
 
 
@@ -153,6 +131,15 @@ class SequentialResult(Result):
 
     def __len__(self):
         return len(self.results)
+
+    def to_dataframe(self) -> pd.DataFrame:
+        df = self.space.to_dataframe() if self.space is not None else pd.DataFrame()
+        col_names = self._result_col_names(df.columns)
+
+        # Stack N individual results into a single pytree of (N, ...) arrays
+        stacked = jax.tree.map(lambda *xs: np.stack(xs), *self.results)
+        leaves = jax.tree.leaves(stacked)
+        return self._assign_leaves(df, col_names, leaves)
 
 
 class ParallelExecution(Execution):
@@ -312,3 +299,17 @@ class ParallelResult(Result):
                 return leaf[pmap_idx, second_dim_idx]
 
         return jax.tree.map(extract_at_indices, self.results)
+
+    def to_dataframe(self) -> pd.DataFrame:
+        df = self.space.to_dataframe() if self.space is not None else pd.DataFrame()
+        col_names = self._result_col_names(df.columns)
+
+        def unbatch(leaf):
+            if self.n_pmap is not None:
+                # (n_pmap, n_map, ...) → (n_pmap * n_map, ...)
+                leaf = leaf.reshape((-1,) + leaf.shape[2:])
+            # trim padding to N
+            return np.asarray(leaf[: self.N])
+
+        leaves = jax.tree.leaves(jax.tree.map(unbatch, self.results))
+        return self._assign_leaves(df, col_names, leaves)

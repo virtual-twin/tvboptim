@@ -1220,10 +1220,12 @@ class Space:
 
         flattened_arrays, _ = self._generate_all_combinations()
 
-        columns = {name: [] for name in col_names}
-        for i in range(self.N):
-            for name, arr in zip(col_names, flattened_arrays):
-                columns[name].append(np.asarray(arr[i]))
+        columns = {}
+        for name, arr in zip(col_names, flattened_arrays):
+            arr_np = np.asarray(arr)
+            # tolist() converts 0-dim slices to plain Python scalars (hashable),
+            # needed for pandas pivot/groupby. Multi-dim axes stay as arrays.
+            columns[name] = arr_np.tolist() if arr_np.ndim == 1 else list(arr_np)
 
         return pd.DataFrame(columns)
 
