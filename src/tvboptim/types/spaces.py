@@ -1215,7 +1215,9 @@ class Space:
         paths_and_leaves, _ = jax.tree_util.tree_flatten_with_path(
             self.axis_state, is_leaf=lambda x: isinstance(x, AbstractAxis)
         )
-        axis_paths = [p for p, leaf in paths_and_leaves if isinstance(leaf, AbstractAxis)]
+        axis_paths = [
+            p for p, leaf in paths_and_leaves if isinstance(leaf, AbstractAxis)
+        ]
         col_names = [_keypath_to_name(p) for p in axis_paths]
 
         flattened_arrays, _ = self._generate_all_combinations()

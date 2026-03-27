@@ -53,7 +53,9 @@ class Bunch(dict):
 # Register Bunch as a JAX PyTree with named keys so that
 # jax.tree_util.tree_flatten_with_path produces DictKey paths instead of
 # FlattenedIndexKey positional indices.
-def _bunch_tree_flatten_with_keys(bunch: Bunch) -> Tuple[Tuple[Any, ...], Tuple[str, ...]]:
+def _bunch_tree_flatten_with_keys(
+    bunch: Bunch,
+) -> Tuple[Tuple[Any, ...], Tuple[str, ...]]:
     """Flatten Bunch into (key, value) pairs and aux keys for JAX PyTree."""
     keys = tuple(sorted(bunch.keys()))  # Sort for deterministic order
     children_with_keys = [(jax.tree_util.DictKey(k), bunch[k]) for k in keys]
