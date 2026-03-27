@@ -1209,15 +1209,21 @@ class Space:
         pd.DataFrame
             DataFrame with one row per combination and one column per leaf.
         """
-        sample = self[0]
-        paths_and_leaves, treedef = jax.tree_util.tree_flatten_with_path(sample)
-        col_names = [_keypath_to_name(p) for p, _ in paths_and_leaves]
+        # Derive column names from axis positions in axis_state only,
+        # not from the full combined state (which includes all equinox module
+        # leaves and would produce numeric/garbage column names).
+        paths_and_leaves, _ = jax.tree_util.tree_flatten_with_path(
+            self.axis_state, is_leaf=lambda x: isinstance(x, AbstractAxis)
+        )
+        axis_paths = [p for p, leaf in paths_and_leaves if isinstance(leaf, AbstractAxis)]
+        col_names = [_keypath_to_name(p) for p in axis_paths]
+
+        flattened_arrays, _ = self._generate_all_combinations()
 
         columns = {name: [] for name in col_names}
-        for params in self:
-            leaves = jax.tree.leaves(params)
-            for name, leaf in zip(col_names, leaves):
-                columns[name].append(np.asarray(leaf))
+        for i in range(self.N):
+            for name, arr in zip(col_names, flattened_arrays):
+                columns[name].append(np.asarray(arr[i]))
 
         return pd.DataFrame(columns)
 

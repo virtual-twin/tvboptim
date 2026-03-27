@@ -50,12 +50,14 @@ class Bunch(dict):
         return Bunch(super().copy())
 
 
-# Register Bunch as a JAX PyTree
-def _bunch_tree_flatten(bunch: Bunch) -> Tuple[Tuple[Any, ...], Tuple[str, ...]]:
-    """Flatten Bunch into values and keys for JAX PyTree."""
+# Register Bunch as a JAX PyTree with named keys so that
+# jax.tree_util.tree_flatten_with_path produces DictKey paths instead of
+# FlattenedIndexKey positional indices.
+def _bunch_tree_flatten_with_keys(bunch: Bunch) -> Tuple[Tuple[Any, ...], Tuple[str, ...]]:
+    """Flatten Bunch into (key, value) pairs and aux keys for JAX PyTree."""
     keys = tuple(sorted(bunch.keys()))  # Sort for deterministic order
-    values = tuple(bunch[key] for key in keys)
-    return values, keys
+    children_with_keys = [(jax.tree_util.DictKey(k), bunch[k]) for k in keys]
+    return children_with_keys, keys
 
 
 def _bunch_tree_unflatten(keys: Tuple[str, ...], values: Tuple[Any, ...]) -> Bunch:
@@ -63,5 +65,7 @@ def _bunch_tree_unflatten(keys: Tuple[str, ...], values: Tuple[Any, ...]) -> Bun
     return Bunch(zip(keys, values))
 
 
-# Register the PyTree
-jax.tree_util.register_pytree_node(Bunch, _bunch_tree_flatten, _bunch_tree_unflatten)
+# register_pytree_with_keys provides both regular and key-aware flattening
+jax.tree_util.register_pytree_with_keys(
+    Bunch, _bunch_tree_flatten_with_keys, _bunch_tree_unflatten
+)

@@ -504,8 +504,8 @@ class TestSpaceToDataFrame(unittest.TestCase):
         self.assertIn("model.G", df.columns)
         self.assertIn("noise.sigma", df.columns)
 
-    def test_fixed_values_included(self):
-        """Fixed (non-axis) values appear as columns."""
+    def test_fixed_values_not_included(self):
+        """Fixed (non-axis) values do not appear as columns — only axis params do."""
         state = {
             "x": GridAxis(0.0, 1.0, 3),
             "fixed": 42.0,
@@ -513,8 +513,8 @@ class TestSpaceToDataFrame(unittest.TestCase):
         space = Space(state, mode="zip")
         df = space.to_dataframe()
 
-        self.assertIn("fixed", df.columns)
-        self.assertTrue(all(df["fixed"] == 42.0))
+        self.assertIn("x", df.columns)
+        self.assertNotIn("fixed", df.columns)
 
     def test_correct_row_count(self):
         """Number of rows equals len(space)."""
