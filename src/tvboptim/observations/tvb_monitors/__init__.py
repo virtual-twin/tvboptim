@@ -1,11 +1,20 @@
-from .bold import Bold, HRFKernel, LotkaVolterraHRFKernel
+from .bold import (
+    BalloonWindkesselBold,
+    Bold,
+    HRFBold,
+    HRFKernel,
+    LotkaVolterraHRFKernel,
+)
 from .downsampling import AbstractMonitor, SubSampling, TemporalAverage
 
 __all__ = [
     "AbstractMonitor",
     "SubSampling",
     "TemporalAverage",
-    "Bold",
+    "HRFBold",
+    "BalloonWindkesselBold",
     "LotkaVolterraHRFKernel",
     "HRFKernel",
+    # Deprecated aliases
+    "Bold",
 ]

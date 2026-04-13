@@ -1,4 +1,5 @@
 import math
+import warnings
 
 import equinox as eqx
 import jax
@@ -122,7 +123,7 @@ class LotkaVolterraHRFKernel(HRFKernel):
         )
 
 
-class Bold(AbstractMonitor):
+class HRFBold(AbstractMonitor):
     """BOLD signal monitor using hemodynamic response function convolution.
 
     This monitor simulates the Blood Oxygen Level Dependent (BOLD) signal by:
@@ -195,7 +196,7 @@ class Bold(AbstractMonitor):
             self.downsample = downsample
             # Sync downsample_period with the actual monitor's period
             # so kernel sampling and final BOLD subsampling use the correct grid
-            if hasattr(downsample, 'period'):
+            if hasattr(downsample, "period"):
                 self.downsample_period = downsample.period
 
         # Process history buffer
@@ -292,3 +293,186 @@ class Bold(AbstractMonitor):
         bold_signal = bold_signal[:min_len]
 
         return NativeSolution(ts=bold_time, ys=bold_signal, dt=self.period)
+
+
+class BalloonWindkesselBold(AbstractMonitor):
+    """BOLD signal monitor using Balloon-Windkessel hemodynamic ODE.
+
+    Integrates a four-variable ODE system (vasodilatory signal, blood flow,
+    blood volume, deoxyhemoglobin) driven by neural firing rates, then
+    computes BOLD signal from the hemodynamic state.
+
+    The user-facing interface uses milliseconds for time parameters (period,
+    dt_bw). Internally the BW ODE is integrated in seconds, matching the
+    standard reference implementation (Friston 2000, Deco 2014).
+
+    Parameters (user-facing, in ms)
+    --------------------------------
+    period : float
+        BOLD sampling period (TR) in ms (default: 2000.0)
+    dt_bw : float
+        Integration time step for BW equations in ms (default: 1.0)
+
+    Parameters (hemodynamic, in seconds)
+    -------------------------------------
+    taus : float
+        Vasodilatory signal decay time constant in s (default: 0.65)
+    tauf : float
+        Autoregulatory feedback time constant in s (default: 0.41)
+    tauo : float
+        Transit time in s (default: 0.98)
+    alpha : float
+        Grubb's vessel stiffness exponent (default: 0.32)
+    Eo : float
+        Resting oxygen extraction fraction (default: 0.4)
+    vo : float
+        Resting blood volume fraction (default: 0.04)
+    TE : float
+        Echo time in s (default: 0.04)
+
+    References
+    ----------
+    - Friston et al. (2000). Nonlinear Responses in fMRI: The Balloon Model,
+      Volterra Kernels, and Other Hemodynamics. NeuroImage, 12(4), 466-477.
+    - Deco et al. (2014). How Local Excitation-Inhibition Ratio Impacts the
+      Whole Brain Dynamics. Journal of Neuroscience, 34(23), 7886-7898.
+    """
+
+    period: float = eqx.field(static=True)
+    dt_bw: float = eqx.field(static=True)
+
+    # Hemodynamic parameters (in seconds)
+    taus: float
+    tauf: float
+    tauo: float
+    alpha: float
+    Eo: float
+    vo: float
+
+    # BOLD signal parameters
+    k1: float
+    k2: float
+    k3: float
+
+    # Optional downsampling before BW integration
+    downsample: eqx.Module = eqx.field(static=True)
+
+    def __init__(
+        self,
+        period=2000.0,
+        dt_bw=1.0,
+        taus=0.65,
+        tauf=0.41,
+        tauo=0.98,
+        alpha=0.32,
+        Eo=0.4,
+        vo=0.04,
+        TE=0.04,
+        voi=None,
+        downsample=None,
+    ):
+        self.voi = self._normalize_voi(voi)
+        self.period = period
+        self.dt_bw = dt_bw
+
+        self.taus = taus
+        self.tauf = tauf
+        self.tauo = tauo
+        self.alpha = alpha
+        self.Eo = Eo
+        self.vo = vo
+
+        self.k1 = 4.3 * 40.3 * Eo * TE
+        self.k2 = 25.0 * Eo * TE
+        self.k3 = 1.0
+
+        self.downsample = downsample
+
+    def __call__(self, sol, t_offset=0.0):
+        """Apply Balloon-Windkessel BOLD model to simulation results.
+
+        Parameters
+        ----------
+        sol : NativeSolution
+            Simulation result with .ys [T, n_voi, N], .ts (ms), .dt (ms).
+            The selected variable of interest should contain firing rates
+            in Hz.
+        t_offset : float
+            Time offset added to output timestamps in ms (default: 0.0)
+
+        Returns
+        -------
+        NativeSolution
+            BOLD signal with shape [T_bold, 1, N], timestamps in ms.
+        """
+        if self.downsample is not None:
+            sol = self.downsample(sol)
+
+        ys = sol.ys[:, self.voi, :]
+        ys = ys.squeeze(axis=1)  # [T, N]
+        input_dt = sol.dt
+
+        steps_per_input = int(round(input_dt / self.dt_bw))
+        if steps_per_input > 1:
+            ys = jnp.repeat(ys, steps_per_input, axis=0)
+        elif steps_per_input < 1:
+            step = int(round(self.dt_bw / input_dt))
+            ys = ys[::step]
+
+        T, N = ys.shape
+        save_every = int(round(self.period / self.dt_bw))
+
+        dt_s = self.dt_bw / 1000.0
+
+        itaus = 1.0 / self.taus
+        itauf = 1.0 / self.tauf
+        itauo = 1.0 / self.tauo
+        ialpha = 1.0 / self.alpha
+        Eo = self.Eo
+        k1, k2, k3, vo = self.k1, self.k2, self.k3, self.vo
+
+        def bw_step(state, r):
+            s, f, v, q = state
+
+            ds = r - itaus * s - itauf * (f - 1.0)
+            df = s
+            dv = itauo * (f - v**ialpha)
+            dq = itauo * (
+                f * (1.0 - (1.0 - Eo) ** (1.0 / f)) / Eo - v ** (ialpha - 1.0) * q
+            )
+
+            s = s + dt_s * ds
+            f = f + dt_s * df
+            v = v + dt_s * dv
+            q = q + dt_s * dq
+
+            bold = vo * (k1 * (1.0 - q) + k2 * (1.0 - q / v) + k3 * (1.0 - v))
+            return (s, f, v, q), bold
+
+        init = (
+            jnp.zeros(N),  # s: vasodilatory signal
+            jnp.ones(N),  # f: blood flow
+            jnp.ones(N),  # v: blood volume
+            jnp.ones(N),  # q: deoxyhemoglobin
+        )
+
+        _, bold_all = jax.lax.scan(bw_step, init, ys)  # [T, N]
+
+        bold_signal = bold_all[save_every - 1 :: save_every]  # [T_bold, N]
+        bold_signal = bold_signal[:, jnp.newaxis, :]  # [T_bold, 1, N]
+
+        n_bold = bold_signal.shape[0]
+        bold_ts = jnp.arange(n_bold) * self.period + self.period + t_offset
+
+        return NativeSolution(ts=bold_ts, ys=bold_signal, dt=self.period)
+
+
+def Bold(*args, **kwargs):
+    """Deprecated: use HRFBold or BalloonWindkesselBold explicitly."""
+    warnings.warn(
+        "Bold is deprecated and will be removed in a future version. "
+        "Use HRFBold (HRF convolution) or BalloonWindkesselBold (ODE integration) explicitly.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return HRFBold(*args, **kwargs)
