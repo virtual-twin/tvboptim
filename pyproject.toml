@@ -30,7 +30,7 @@ dependencies = [
     "matplotlib",
     "numpy",
     "pandas",
-    "jax<0.8",
+    "jax",
     "equinox",
     "dill",
     "tqdm",
