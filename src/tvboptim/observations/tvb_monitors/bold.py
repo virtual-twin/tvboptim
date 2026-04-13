@@ -193,6 +193,10 @@ class Bold(AbstractMonitor):
             self.downsample = TemporalAverage(voi=self.voi, period=downsample_period)
         else:
             self.downsample = downsample
+            # Sync downsample_period with the actual monitor's period
+            # so kernel sampling and final BOLD subsampling use the correct grid
+            if hasattr(downsample, 'period'):
+                self.downsample_period = downsample.period
 
         # Process history buffer
         self.history = self._process_history(history)
