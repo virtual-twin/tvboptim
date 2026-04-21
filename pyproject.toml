@@ -30,7 +30,7 @@ dependencies = [
     "matplotlib",
     "numpy",
     "pandas",
-    "jax",
+    "jax<0.10",  # numpyro<=0.20.1 imports jax.extend.core.primitives.xla_pmap_p, removed in jax 0.10. Drop cap once numpyro releases a fix.
     "equinox",
     "dill",
     "tqdm",
