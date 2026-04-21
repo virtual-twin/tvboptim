@@ -362,7 +362,13 @@ class TestTVBComparison(unittest.TestCase):
         # Set initial conditions from TVB (already in correct order)
         t_max = tvb_conn.horizon
         ts_tvb = jnp.arange(0.0, t_max * self.DT, self.DT)
-        network.update_history(NativeSolution(ts_tvb, tvb_initial_conditions))
+        network.update_history(
+            NativeSolution(
+                ts_tvb,
+                tvb_initial_conditions,
+                variable_names=tuple(dynamics.STATE_NAMES),
+            )
+        )
 
         # Prepare and solve
         model_fn, state = prepare(
