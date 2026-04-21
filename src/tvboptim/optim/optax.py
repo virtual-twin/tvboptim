@@ -1,4 +1,5 @@
 import jax
+import jax.numpy as jnp
 import optax
 
 from tvboptim.types.stateutils import combine_state, partition_state
@@ -114,7 +115,7 @@ class OptaxOptimizer:
         self.callback = callback
         self.has_aux = has_aux
 
-    def run(self, state, max_steps=1, mode="rev"):
+    def run(self, state, max_steps=1, mode="rev", chunk_size=None):
         """
         Execute parameter optimization for the specified number of steps.
 
@@ -132,6 +133,16 @@ class OptaxOptimizer:
         mode : {"rev", "fwd"}, optional
             Automatic differentiation mode. "rev" for reverse-mode (default),
             "fwd" for forward-mode. Default is "rev".
+        chunk_size : int, optional
+            If set, fuse this many optimization steps into a single
+            ``jax.lax.scan`` call, surfacing to Python for callbacks only
+            between chunks.  This avoids per-step Python↔XLA round-trips and
+            lets XLA fuse operations across steps, giving large speed-ups for
+            lightweight models.  Callbacks are invoked once per chunk with the
+            step index and loss value of the *last* step in that chunk.
+            ``chunk_size=max_steps`` compiles the entire loop as one XLA
+            program (no intermediate callbacks).
+            Default is ``None`` (original per-step Python loop).
 
         Returns
         -------
@@ -156,9 +167,7 @@ class OptaxOptimizer:
         def __loss(diff_state, static_state):
             state = combine_state(diff_state, static_state)
             return self.loss(state)
-            # return (self.loss(state), (None, None))
 
-        # _loss = jax.jit(__loss, static_argnums=(1,))
         _loss = jax.jit(__loss)
 
         if mode == "rev":
@@ -184,51 +193,110 @@ class OptaxOptimizer:
             raise ValueError(f"Unknown mode: {mode}")
 
         v_g_fun = value_and_grad(_loss, argnums=0, has_aux=self.has_aux)
-        # v_g_fun = jax.jit(value_and_grad(_loss, argnums=0, has_aux=self.has_aux), static_argnums=(1,))
 
-        def step(diff_state, static_state, opt_state):
-            # out = value_and_grad(_loss, argnums=0, has_aux=self.has_aux)(diff_state, static_state)
-            out = v_g_fun(diff_state, static_state)
-            (loss_value, aux_data), grads = out
+        def optim_step(diff_state, static_state, opt_state):
+            """One optimizer step. Returns updated (diff_state, opt_state) plus
+            the loss, aux, and grads observed at the pre-update parameters."""
+            (loss_value, aux_data), grads = v_g_fun(diff_state, static_state)
 
-            # if self.has_aux:
-            #     (loss_value, aux_data), grads = out
-            # else:
-            #     loss_value, grads = out
-            #     aux_data = None
-            def f(p):
-                return _loss(diff_state, static_state)
+            # value_fn must evaluate the loss at the trial params `p` passed in
+            # by line-search optimizers, not at the current diff_state.
+            def value_fn(p):
+                return _loss(p, static_state)
 
             updates, opt_state = self.optimizer.update(
-                grads, opt_state, diff_state, value=loss_value, grad=grads, value_fn=f
+                grads,
+                opt_state,
+                diff_state,
+                value=loss_value,
+                grad=grads,
+                value_fn=value_fn,
             )
-
             diff_state = optax.apply_updates(diff_state, updates)
-            return diff_state, grads, opt_state, loss_value, aux_data
+            return diff_state, opt_state, loss_value, aux_data, grads
 
         opt_state = self.optimizer.init(diff_state)
+        fitting_data = dict()
 
-        fitting_data = dict()  # store data during fitting
-        for i in range(max_steps):
-            diff_state, grads, opt_state, loss_value, aux_data = step(
-                diff_state, static_state, opt_state
-            )
-            # print(format_pytree_as_string(diff_state, hide_none=True, name="FreeState", show_array_values=True))
-            # print(format_pytree_as_string(diff_state, hide_none=True, name="FreeState", show_array_values=True))
-            # fitting_data.append(diff_state)
-            if self.callback is not None:
-                stop, diff_state, static_state = self.callback(
-                    i,
-                    diff_state,
-                    static_state,
-                    fitting_data,
-                    aux_data,
-                    loss_value,
-                    grads,
+        if chunk_size is not None:
+            # Chunked mode: fuse `chunk_size` steps into one jax.lax.scan, then
+            # surface to Python for the callback. Only the *last* step's
+            # loss/aux/grads is reported, so we keep them in the carry and emit
+            # no per-step output — memory stays O(1) in chunk_size.
+            def scan_body(carry, _):
+                diff_state, opt_state, _, _, _ = carry
+                diff_state, opt_state, loss_value, aux_data, grads = optim_step(
+                    diff_state, static_state, opt_state
                 )
-                if stop:
-                    print("Stopping due to callback")
-                    break
+                return (diff_state, opt_state, loss_value, aux_data, grads), None
+
+            # Placeholder carry slots for loss/aux/grads must match the
+            # pytree structure + dtypes returned by v_g_fun, or lax.scan
+            # rejects the carry. eval_shape traces without computing.
+            (loss_shape, aux_shape), grads_shape = jax.eval_shape(
+                v_g_fun, diff_state, static_state
+            )
+
+            def _zeros_like_shape(s):
+                return jnp.zeros(s.shape, s.dtype)
+
+            init_loss = _zeros_like_shape(loss_shape)
+            init_aux = jax.tree.map(_zeros_like_shape, aux_shape)
+            init_grads = jax.tree.map(_zeros_like_shape, grads_shape)
+
+            steps_done = 0
+            while steps_done < max_steps:
+                current_chunk = min(chunk_size, max_steps - steps_done)
+                (
+                    (
+                        diff_state,
+                        opt_state,
+                        last_loss,
+                        last_aux,
+                        last_grads,
+                    ),
+                    _,
+                ) = jax.lax.scan(
+                    scan_body,
+                    (diff_state, opt_state, init_loss, init_aux, init_grads),
+                    None,
+                    length=current_chunk,
+                )
+                steps_done += current_chunk
+
+                if self.callback is not None:
+                    stop, diff_state, static_state = self.callback(
+                        steps_done - 1,
+                        diff_state,
+                        static_state,
+                        fitting_data,
+                        last_aux,
+                        last_loss,
+                        last_grads,
+                    )
+                    if stop:
+                        print("Stopping due to callback")
+                        break
+        else:
+            # Per-step Python loop: callback sees every step.
+            for i in range(max_steps):
+                diff_state, opt_state, loss_value, aux_data, grads = optim_step(
+                    diff_state, static_state, opt_state
+                )
+                if self.callback is not None:
+                    stop, diff_state, static_state = self.callback(
+                        i,
+                        diff_state,
+                        static_state,
+                        fitting_data,
+                        aux_data,
+                        loss_value,
+                        grads,
+                    )
+                    if stop:
+                        print("Stopping due to callback")
+                        break
+
         return combine_state(diff_state, static_state), fitting_data
 
 
