@@ -4,6 +4,8 @@ This module provides Diffrax-like solution objects for native  Network Dynamics 
 ensuring consistent API across solver types.
 """
 
+from typing import Optional, Tuple
+
 import jax.numpy as jnp
 from jax import tree_util
 
@@ -17,21 +19,34 @@ class NativeSolution:
 
     Attributes:
         ts: Time points, shape [n_time]
-        ys: Trajectory data, shape [n_time, n_states, n_nodes]
+        ys: Trajectory data, shape [n_time, n_variables, n_nodes]
         dt: Time step (optional), stored as static auxiliary data
+        variable_names: Names of the variables along axis 1 of ys, in order.
+            Contains state variables and/or auxiliary variables, depending on
+            the dynamics' VARIABLES_OF_INTEREST. None if unknown.
     """
 
-    def __init__(self, ts: jnp.ndarray, ys: jnp.ndarray, dt: float = None):
+    def __init__(
+        self,
+        ts: jnp.ndarray,
+        ys: jnp.ndarray,
+        dt: float = None,
+        variable_names: Optional[Tuple[str, ...]] = None,
+    ):
         """Initialize native solution.
 
         Args:
             ts: Time points, shape [n_time]
-            ys: Trajectory array, shape [n_time, n_states, n_nodes]
+            ys: Trajectory array, shape [n_time, n_variables, n_nodes]
             dt: Time step (optional), stored as static auxiliary data for JIT compatibility
+            variable_names: Names of the variables along axis 1 of ys, in order.
         """
         self.ts = ts
         self.ys = ys
         self.dt = dt
+        self.variable_names = (
+            tuple(variable_names) if variable_names is not None else None
+        )
 
     @property
     def time(self):
@@ -44,7 +59,7 @@ class NativeSolution:
     def tree_flatten(self):
         """JAX PyTree flatten for transformations."""
         children = (self.ts, self.ys)
-        aux_data = {"dt": self.dt}
+        aux_data = {"dt": self.dt, "variable_names": self.variable_names}
         return children, aux_data
 
     @classmethod
@@ -52,11 +67,16 @@ class NativeSolution:
         """JAX PyTree unflatten for transformations."""
         ts, ys = children
         dt = aux_data.get("dt") if aux_data else None
-        return cls(ts, ys, dt=dt)
+        variable_names = aux_data.get("variable_names") if aux_data else None
+        return cls(ts, ys, dt=dt, variable_names=variable_names)
 
     def __repr__(self):
         """String representation."""
-        return f"NativeSolution(shape={self.ys.shape}, t=[{self.ts[0]:.2f}, {self.ts[-1]:.2f}])"
+        return (
+            f"NativeSolution(shape={self.ys.shape}, "
+            f"t=[{self.ts[0]:.2f}, {self.ts[-1]:.2f}], "
+            f"variable_names={self.variable_names})"
+        )
 
 
 @tree_util.register_pytree_node_class
@@ -70,11 +90,20 @@ class DiffraxSolution(NativeSolution):
         _solution: The underlying diffrax Solution object
         dt: Effective save time step inferred from saveat.ts at prepare time,
             or None if saveat was not ts-based
+        variable_names: Names of the variables along axis 1 of ys, in order.
     """
 
-    def __init__(self, solution, dt=None):
+    def __init__(
+        self,
+        solution,
+        dt=None,
+        variable_names: Optional[Tuple[str, ...]] = None,
+    ):
         self._solution = solution
         self.dt = dt
+        self.variable_names = (
+            tuple(variable_names) if variable_names is not None else None
+        )
 
     @property
     def ts(self):
@@ -94,34 +123,44 @@ class DiffraxSolution(NativeSolution):
 
     def tree_flatten(self):
         children = (self._solution,)
-        aux_data = {"dt": self.dt}
+        aux_data = {"dt": self.dt, "variable_names": self.variable_names}
         return children, aux_data
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
-        return cls(children[0], dt=aux_data.get("dt"))
+        return cls(
+            children[0],
+            dt=aux_data.get("dt"),
+            variable_names=aux_data.get("variable_names"),
+        )
 
     def __repr__(self):
         return (
             f"DiffraxSolution(shape={self.ys.shape}, "
-            f"t=[{self.ts[0]:.2f}, {self.ts[-1]:.2f}], dt={self.dt})"
+            f"t=[{self.ts[0]:.2f}, {self.ts[-1]:.2f}], dt={self.dt}, "
+            f"variable_names={self.variable_names})"
         )
 
 
 def wrap_native_result(
-    trajectory: jnp.ndarray, t0: float, t1: float, dt: float
+    trajectory: jnp.ndarray,
+    t0: float,
+    t1: float,
+    dt: float,
+    variable_names: Optional[Tuple[str, ...]] = None,
 ) -> NativeSolution:
     """Wrap native solver trajectory in solution object.
 
     Args:
-        trajectory: Trajectory array from native solver, shape [n_time, n_states, n_nodes]
+        trajectory: Trajectory array from native solver, shape [n_time, n_variables, n_nodes]
         t0: Start time
         t1: End time
         dt: Time step
+        variable_names: Names of the variables along axis 1 of trajectory, in order.
 
     Returns:
-        NativeSolution with .ys and .ts attributes like Diffrax
+        NativeSolution with .ys, .ts, and .variable_names attributes like Diffrax
     """
     n_steps = trajectory.shape[0]
     ts = jnp.linspace(t0, t1, n_steps)
-    return NativeSolution(ts=ts, ys=trajectory, dt=dt)
+    return NativeSolution(ts=ts, ys=trajectory, dt=dt, variable_names=variable_names)

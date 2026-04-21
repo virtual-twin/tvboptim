@@ -178,6 +178,30 @@ class AbstractDynamics(ABC):
         else:
             return jnp.broadcast_to(initial[:, None], (self.N_STATES, n_nodes))
 
+    def set_variables_of_interest(
+        self, variables_of_interest: Tuple[Union[str, int], ...]
+    ) -> None:
+        """Update which variables are recorded in the trajectory output.
+
+        Validates the new selection against STATE_NAMES + AUXILIARY_NAMES and
+        assigns it. Any previously prepared model captured the old selection
+        and must be rebuilt by calling ``prepare()`` again.
+
+        Args:
+            variables_of_interest: Tuple of variable names or indices to record.
+                Empty tuple means "record all state variables" (default behavior).
+
+        Raises:
+            ValueError: If any entry is not a valid name or in-range index.
+        """
+        previous = self.VARIABLES_OF_INTEREST
+        self.VARIABLES_OF_INTEREST = tuple(variables_of_interest)
+        try:
+            self.get_variables_of_interest_indices()
+        except ValueError as e:
+            self.VARIABLES_OF_INTEREST = previous
+            raise ValueError(f"Invalid VARIABLES_OF_INTEREST: {e}")
+
     def get_variables_of_interest_indices(self) -> Tuple[int, ...]:
         """Get indices of variables to record.
 

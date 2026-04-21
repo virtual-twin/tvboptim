@@ -499,6 +499,13 @@ def prepare(
     # Flag: do we need to record any auxiliaries?
     record_auxiliaries = len(aux_voi_indices) > 0
 
+    # Variable names that label axis 1 of the output trajectory.
+    # Ordering mirrors the concatenation below: selected states, then selected auxiliaries.
+    _all_variable_names = network.dynamics.all_variable_names
+    variable_names = tuple(
+        _all_variable_names[i] for i in voi_indices if i < n_states
+    ) + tuple(_all_variable_names[i] for i in voi_indices if i >= n_states)
+
     def _f(config):
         """Pure integration function."""
         state0 = config.initial_state
@@ -618,7 +625,7 @@ def prepare(
         _, res = jax.lax.scan(op, state0, scan_inputs)
 
         # Wrap result for consistency
-        return wrap_native_result(res, t0, t1, dt)
+        return wrap_native_result(res, t0, t1, dt, variable_names=variable_names)
 
     return _f, config
 
@@ -1131,7 +1138,11 @@ def prepare(
         #   finite_mask = jnp.isfinite(solution.ts)
         #   solution_filtered = solution.ts[finite_mask], solution.ys[finite_mask]
 
-        return DiffraxSolution(solution, dt=effective_save_dt)
+        return DiffraxSolution(
+            solution,
+            dt=effective_save_dt,
+            variable_names=tuple(network.dynamics.STATE_NAMES),
+        )
 
     return _f, config
 
@@ -1274,6 +1285,12 @@ def prepare(
     )
     record_auxiliaries = len(aux_voi_indices) > 0
 
+    # Variable names matching the output layout: selected states, then selected auxiliaries.
+    _all_variable_names = dynamics.all_variable_names
+    variable_names = tuple(
+        _all_variable_names[i] for i in voi_indices if i < n_states
+    ) + tuple(_all_variable_names[i] for i in voi_indices if i >= n_states)
+
     def _f(config):
         """Pure integration function for bare dynamics."""
 
@@ -1338,7 +1355,7 @@ def prepare(
             [time_steps, jnp.arange(n_steps, dtype=time_steps.dtype)], axis=1
         )
         _, res = jax.lax.scan(op, config.initial_state, scan_inputs)
-        return wrap_native_result(res, t0, t1, dt)
+        return wrap_native_result(res, t0, t1, dt, variable_names=variable_names)
 
     return _f, config
 
@@ -1524,6 +1541,10 @@ def prepare(
             **solver.diffrax_kwargs,
         )
 
-        return DiffraxSolution(solution, dt=effective_save_dt)
+        return DiffraxSolution(
+            solution,
+            dt=effective_save_dt,
+            variable_names=tuple(dynamics.STATE_NAMES),
+        )
 
     return _f, config
