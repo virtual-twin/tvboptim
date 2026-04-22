@@ -84,12 +84,20 @@ class DiffraxSolution(NativeSolution):
     """Solution wrapper for Diffrax solvers, compatible with NativeSolution interface.
 
     Wraps a diffrax Solution object and exposes the NativeSolution interface
-    (.ts, .ys, .dt), while preserving access to the full diffrax solution.
+    (.ts, .ys, .dt), while preserving access to the full diffrax solution via
+    ``_solution`` (use this to reach ``.stats``, ``.result``, etc.).
+
+    Note: the Diffrax prepare path does not apply ``VARIABLES_OF_INTEREST``
+    filtering and discards auxiliaries, so ``ys`` always has shape
+    ``[n_time, N_STATES, n_nodes]`` and ``variable_names`` always equals
+    ``STATE_NAMES``. Use a native solver if you need VOI filtering or
+    auxiliary outputs.
 
     Attributes:
         _solution: The underlying diffrax Solution object
         dt: Effective save time step inferred from saveat.ts at prepare time,
-            or None if saveat was not ts-based
+            or None if saveat was not ts-based. Only meaningful for uniformly
+            spaced ``SaveAt(ts=...)``.
         variable_names: Names of the variables along axis 1 of ys, in order.
     """
 
@@ -162,5 +170,9 @@ def wrap_native_result(
         NativeSolution with .ys, .ts, and .variable_names attributes like Diffrax
     """
     n_steps = trajectory.shape[0]
-    ts = jnp.linspace(t0, t1, n_steps)
+    # Native solvers scan over time_steps = arange(t0, t1, dt) and emit the
+    # post-step state on each iteration. Trajectory[i] is therefore the state
+    # at time t0 + (i + 1) * dt, so the save grid runs (t0, t1] with the
+    # endpoint t1 included and the initial state t0 excluded.
+    ts = t0 + (jnp.arange(n_steps) + 1) * dt
     return NativeSolution(ts=ts, ys=trajectory, dt=dt, variable_names=variable_names)

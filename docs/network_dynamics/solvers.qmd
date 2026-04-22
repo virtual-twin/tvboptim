@@ -123,6 +123,15 @@ print(f"Result shape: {result.ys.shape}")  # [n_time, n_states, n_nodes]
 print(f"Time range: [{result.ts[0]:.1f}, {result.ts[-1]:.1f}] ms")
 ```
 
+::: {.callout-note title="Time grid convention (Native solvers)"}
+Native solvers scan over `arange(t0, t1, dt)` and save the **post-step** state,
+so `result.ts = [t0 + dt, t0 + 2*dt, ..., t1]` — the half-open grid `(t0, t1]`
+with `(t1 - t0) / dt` samples. The initial state at `t0` is excluded, the
+endpoint `t1` is included. Pick `t0`, `t1`, and `dt` so that `(t1 - t0) / dt`
+is an integer, otherwise the grid won't land exactly on `t1`.
+`DiffraxSolver` uses its own `saveat` grid instead.
+:::
+
 ### Variables of Interest and Auxiliary Variables
 
 You can control which variables to save in the output using `VARIABLES_OF_INTEREST`. This is useful for:
@@ -232,7 +241,9 @@ For advanced use cases, TVB-Optim supports [Diffrax](https://docs.kidger.site/di
 **Limitations:**
 
 - **No stateful couplings** (no delayed connections, no history buffers)
-- **No auxiliary variable tracking**
+- **No auxiliary variable tracking** — auxiliaries returned by the dynamics function are discarded
+- **`VARIABLES_OF_INTEREST` is ignored** — output `ys` always has shape `[n_time, N_STATES, n_nodes]` and `variable_names` always equals `STATE_NAMES`. Use a native solver if you need VOI filtering.
+- **`result.dt` assumes a uniform `saveat`** — it is inferred as `saveat.ts[1] - saveat.ts[0]` at prepare time and is only meaningful for evenly spaced `SaveAt(ts=...)`. Downstream monitors that rely on a scalar `dt` will be wrong for non-uniform save grids.
 - Solution arrays may be padded with `inf` when using `max_steps`
 
 ::: {.callout-important}
@@ -356,7 +367,7 @@ result = solve(network, solver, t0=0.0, t1=1000.0, dt=0.1)
 |---------|---------------|-----------------|
 | **Stateful coupling** (delays) | ✓ Yes | ✗ No |
 | **Auxiliary variables** | ✓ Yes | ✗ No |
-| **Variables of Interest** | ✓ Yes | - |
+| **Variables of Interest** | ✓ Yes | ✗ Ignored |
 | **ODE support** | ✓ Yes | ✓ Yes |
 | **SDE support** | ✓ Yes | ✓ Yes |
 | **Implicit methods** | ✗ No | ✓ Yes |

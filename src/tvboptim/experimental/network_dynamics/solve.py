@@ -20,6 +20,204 @@ from .solvers.diffrax import DiffraxSolver
 from .solvers.native import NativeSolver
 
 
+def _make_diffusion_matrix_fn(diffusion_fn, state_indices, n_states, n_nodes):
+    """Build a vectorized diffusion-matrix closure for Diffrax SDE integration.
+
+    Returns ``compute_diffusion_matrix(t, y, noise_params) -> [n_states, n_nodes, n_brownian]``
+    where ``n_brownian = len(state_indices) * n_nodes``. The Brownian vector is laid
+    out so that index ``i * n_nodes + j`` drives state ``state_indices[i]`` on node ``j``.
+
+    Accepts a diffusion callable returning either a scalar, a per-noise-state 1-D
+    array, or a full ``[n_noise_states, n_nodes]`` array; broadcasts accordingly.
+    """
+    state_indices_arr = jnp.asarray(state_indices)
+    n_noise_states = len(state_indices)
+    n_brownian = n_noise_states * n_nodes
+    i_idx = jnp.arange(n_noise_states)[:, None]
+    j_idx = jnp.arange(n_nodes)[None, :]
+    brownian_idx = i_idx * n_nodes + j_idx
+    state_idx_b = state_indices_arr[:, None]
+
+    def compute_diffusion_matrix(t, y, noise_params):
+        g_raw = diffusion_fn(t, y, noise_params)
+        if jnp.ndim(g_raw) == 0:
+            g = jnp.full((n_noise_states, n_nodes), g_raw)
+        elif jnp.ndim(g_raw) == 1:
+            g = jnp.broadcast_to(g_raw[..., None], (n_noise_states, n_nodes))
+        else:
+            g = g_raw
+        diffusion_matrix = jnp.zeros((n_states, n_nodes, n_brownian))
+        return diffusion_matrix.at[state_idx_b, j_idx, brownian_idx].set(g)
+
+    return compute_diffusion_matrix
+
+
+_PREPARE_DOC = """Prepare a dynamics model for simulation.
+
+Transforms a model into a JAX-compiled simulation function and a corresponding
+configuration PyTree. Dispatches on the first two arguments via ``plum``:
+
+==========================  ================  ======================================
+model                       solver            supports
+==========================  ================  ======================================
+``Network``                 ``NativeSolver``  full feature set: delays, noise,
+                                              external inputs, auxiliaries, VOI
+``Network``                 ``DiffraxSolver`` stateless couplings only; no delays,
+                                              no auxiliaries, no VOI filtering
+``AbstractDynamics``        ``NativeSolver``  uncoupled multi-node with optional
+                                              noise and external inputs
+``AbstractDynamics``        ``DiffraxSolver`` uncoupled multi-node with optional
+                                              noise and external inputs, no VOI
+==========================  ================  ======================================
+
+Parameters
+----------
+model : Network or AbstractDynamics
+    Either a full ``Network`` (dynamics + couplings + graph + optional noise/
+    externals) or a bare ``AbstractDynamics`` for uncoupled simulation.
+solver : NativeSolver or DiffraxSolver
+    Integration method. ``NativeSolver`` (Euler, Heun) uses fixed-step
+    ``jax.lax.scan`` and supports every feature. ``DiffraxSolver`` wraps
+    ``diffrax.diffeqsolve`` for adaptive stepping but is restricted to
+    stateless couplings (see Diffrax limitations below).
+t0 : float, optional
+    Start time. Default ``0.0``.
+t1 : float, optional
+    End time. Default ``1.0``. For native solvers ``t1`` is included in the
+    save grid; for Diffrax the save grid is governed by ``solver.saveat``.
+dt : float, optional
+    Time step. Default ``0.1``. Fixed step for ``NativeSolver``; initial step
+    ``dt0`` for ``DiffraxSolver``'s adaptive controller.
+n_nodes : int, optional
+    **Bare-dynamics dispatch only.** Number of uncoupled nodes. Default ``1``.
+    Passing this with a ``Network`` raises a dispatch error.
+noise : AbstractNoise, optional
+    **Bare-dynamics dispatch only.** Stochastic process. For ``Network``,
+    noise is attached to the network itself.
+externals : dict, optional
+    **Bare-dynamics dispatch only.** Mapping ``{name: AbstractExternalInput}``.
+    For ``Network``, externals live on the network.
+
+Returns
+-------
+solve_function : Callable
+    Pure JAX function ``solve_function(config) -> result``. JIT-safe and
+    compatible with ``jax.grad``, ``jax.vmap``, and ``jax.pmap``.
+config : Bunch
+    Configuration PyTree. Keys depend on dispatch but always include
+    ``dynamics`` (params), ``initial_state``, and ``_internal`` (precomputed
+    static data). Network dispatches additionally carry ``coupling``,
+    ``external``, ``graph``, and — if stochastic — ``noise`` with pre-generated
+    noise samples under ``_internal.noise_samples`` (native path only).
+
+    The returned ``result`` is a ``NativeSolution`` (native solvers) or a
+    ``DiffraxSolution`` (Diffrax). Both expose ``.ts``, ``.ys``,
+    ``.variable_names``, and ``.dt``.
+
+Raises
+------
+ValueError
+    If ``DiffraxSolver`` is used with a network whose ``max_delay > 0``.
+    Diffrax cannot maintain history buffers across its internal loop.
+
+Notes
+-----
+**Native solver time grid.** Native solvers scan over
+``arange(t0, t1, dt)`` and emit the post-step state on each iteration, so
+the returned ``result.ts`` is the half-open grid ``(t0, t1]``:
+``[t0 + dt, t0 + 2*dt, ..., t1]`` with ``(t1 - t0) / dt`` samples. The
+initial state at ``t0`` is *not* included; ``t1`` *is*. ``t1 - t0`` must be
+an integer multiple of ``dt`` for the grid to land exactly on ``t1``.
+Diffrax uses ``solver.saveat`` instead.
+
+**Diffrax limitations.** The Diffrax dispatches are experimental and
+intentionally narrower than the native ones:
+
+- Delayed couplings are rejected (``max_delay > 0`` raises ``ValueError``).
+- Auxiliary outputs from ``dynamics_fn`` are discarded — Diffrax vector
+  fields must be pure ``dy/dt``.
+- ``VARIABLES_OF_INTEREST`` is **ignored**. The returned ``ys`` always has
+  shape ``[n_time, N_STATES, n_nodes]`` and ``variable_names`` always equals
+  ``STATE_NAMES``. Use ``NativeSolver`` if you need VOI filtering or
+  auxiliaries.
+- ``effective_save_dt`` is inferred as ``saveat.ts[1] - saveat.ts[0]`` and
+  is only meaningful for uniform ``SaveAt(ts=...)``. Downstream monitors
+  that rely on a scalar ``dt`` will be wrong for non-uniform save grids.
+
+**Noise sample caching (native path).** Noise increments are pre-generated
+at prepare time using ``network.noise.key``. Reassigning the key on the
+noise object after ``prepare`` does *not* change the samples used by
+``solve_function``; re-run ``prepare`` to reseed.
+
+**Preparation steps (native).**
+
+1. Prepare all couplings, building history buffers for delays if needed.
+2. Prepare external inputs.
+3. Pre-generate noise samples if stochastic (one per timestep).
+4. Pre-compile coupling/external compute and state-update closures to
+   avoid dict iteration inside the scan.
+5. Return a pure function wrapping ``jax.lax.scan``.
+
+**Preparation steps (Diffrax).**
+
+1. Validate no delays.
+2. Build stateless coupling/external data.
+3. Construct the ``diffrax.ODETerm`` drift and, if stochastic, a
+   ``ControlTerm`` over a ``VirtualBrownianTree``.
+4. Return a pure function wrapping ``diffrax.diffeqsolve``.
+
+**Solver selection.** Use ``NativeSolver`` for anything with delays, noise
+interacting with history, VOI filtering, or auxiliary recording. Use
+``DiffraxSolver`` for stiff stateless systems where adaptive stepping pays
+off.
+
+Examples
+--------
+Network with native solver (all features):
+
+>>> from tvboptim.experimental.network_dynamics import Network, prepare
+>>> from tvboptim.experimental.network_dynamics.dynamics import ReducedWongWang
+>>> from tvboptim.experimental.network_dynamics.solvers import Euler
+>>> from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
+>>> from tvboptim.experimental.network_dynamics.graph import DenseGraph
+>>> import jax.numpy as jnp
+>>> network = Network(ReducedWongWang(),
+...                   LinearCoupling(incoming_states='S', G=1.0),
+...                   DenseGraph(jnp.ones((68, 68))))
+>>> model_fn, config = prepare(network, Euler(), t0=0, t1=100, dt=0.1)
+>>> result = model_fn(config)
+
+Network with Diffrax (no delays, no VOI, no auxiliaries):
+
+>>> import diffrax
+>>> from tvboptim.experimental.network_dynamics.solvers import DiffraxSolver
+>>> solver = DiffraxSolver(diffrax.Tsit5(),
+...                        saveat=diffrax.SaveAt(ts=jnp.arange(0, 100, 0.1)))
+>>> model_fn, config = prepare(network, solver, t0=0, t1=100, dt=0.1)
+
+Bare dynamics, uncoupled multi-node:
+
+>>> from tvboptim.experimental.network_dynamics.dynamics import JansenRit
+>>> from tvboptim.experimental.network_dynamics.solvers import Heun
+>>> model_fn, config = prepare(JansenRit(), Heun(), t0=0, t1=1.0, dt=1e-3,
+...                            n_nodes=3)
+
+Modifying parameters between runs (config is a PyTree):
+
+>>> import copy
+>>> cfg2 = copy.deepcopy(config)
+>>> cfg2.dynamics.G = 2.5
+>>> result2 = model_fn(cfg2)
+
+See Also
+--------
+solve : Thin wrapper that calls ``prepare`` and executes immediately.
+Network : Network dynamics container.
+NativeSolver : Fixed-step integrators (Euler, Heun).
+DiffraxSolver : Adaptive-step integrators via Diffrax.
+"""
+
+
 def solve(
     model,
     solver,
@@ -37,13 +235,21 @@ def solve(
         model: Network or AbstractDynamics instance
         solver: NativeSolver or DiffraxSolver instance
         t0: Start time
-        t1: End time
+        t1: End time (inclusive for native solvers — see note on time grid)
         dt: Time step
         **kwargs: Additional arguments forwarded to prepare()
             (e.g. n_nodes for bare dynamics)
 
     Returns:
         Simulation results wrapped in result object
+
+    Notes:
+        Native solvers use the half-open scan grid ``arange(t0, t1, dt)`` and
+        emit the post-step state on each iteration, so the returned save grid
+        is ``(t0, t1]``: ``result.ts = [t0 + dt, t0 + 2*dt, ..., t1]``, with the
+        initial state at ``t0`` excluded and the endpoint ``t1`` included.
+        The number of saved samples is ``(t1 - t0) / dt``. ``t1 - t0`` must be
+        an integer multiple of ``dt`` for the grid to land exactly on ``t1``.
 
     Examples:
         >>> # With Network
@@ -67,211 +273,29 @@ def prepare(
     t1: float = 1.0,
     dt: float = 0.1,
 ) -> Tuple[Callable, Bunch]:
-    """Prepare network dynamics model for simulation.
+    """Compile a model into a pure JAX solve function and a config PyTree.
 
-    Transforms a network dynamics model into a JAX-compiled simulation function
-    and corresponding configuration object. Supports both native solvers (Euler, Heun)
-    and Diffrax solvers with different feature sets and performance characteristics.
-
-    The preparation process optimizes the model for efficient execution by pre-compiling
-    closures, pre-allocating buffers, and structuring data for JAX transformations.
+    Builds per-dispatch data (coupling buffers, noise samples, external
+    inputs) and returns ``(solve_fn, config)`` where ``solve_fn(config)``
+    runs the integration. Dispatches on the first two arguments via
+    ``plum``: ``Network``/``AbstractDynamics`` paired with
+    ``NativeSolver``/``DiffraxSolver``.
 
     Parameters
     ----------
-    network : Network
-        Network dynamics model containing:
-
-        - **dynamics** : Neural mass/population model (e.g., ReducedWongWang, JansenRit)
-        - **couplings** : Inter-region coupling functions (can be delayed or instantaneous)
-        - **graph** : Connectivity structure (weights, delays, distances)
-        - **noise** : Optional stochastic process (additive/multiplicative)
-        - **externals** : Optional external inputs (e.g., stimulation)
-
-    solver : NativeSolver or DiffraxSolver
-        Integration method. Two solver families available:
-
-        **NativeSolver** (Euler, Heun):
-            - Fixed time step integration
-            - Supports **all features**: delays, noise, stateful operations
-            - Optimized for jax.lax.scan
-            - Best for most brain network simulations
-
-        **DiffraxSolver** (Tsit5, Dopri5, etc.):
-            - Adaptive time stepping
-            - **Stateless only**: no delayed coupling, no history buffers
-            - Useful for stiff ODEs or when adaptive stepping is required
-            - Raises ValueError if network has delays
-
-    t0 : float, optional
-        Simulation start time, by default 0.0
-    t1 : float, optional
-        Simulation end time, by default 1.0
-    dt : float, optional
-        Integration time step, by default 0.1
-
-        - For NativeSolver: Fixed step size used throughout simulation
-        - For DiffraxSolver: Initial step size (dt0) for adaptive controller
+    t0, t1, dt : float
+        Integration interval and step size. ``dt`` is the fixed step for
+        native solvers and the initial step for Diffrax.
 
     Returns
     -------
-    solve_function : Callable
-        Pure JAX function for running simulation.
+    (Callable, Bunch)
+        Pure solve function and its runtime configuration PyTree.
 
-        Signature: ``solve_function(config) -> results``
-
-        The function is JIT-compiled and supports:
-
-        - Automatic differentiation (jax.grad, jax.jacobian)
-        - Vectorization (jax.vmap)
-        - Parallel execution (jax.pmap)
-
-    config : Bunch
-        Configuration PyTree containing:
-
-        - **dynamics** : Dynamics model parameters
-        - **coupling** : Coupling parameters (one entry per coupling)
-        - **external** : External input parameters (one entry per input)
-        - **noise** : Noise parameters (if stochastic)
-        - **graph** : Graph structure (weights, delays)
-        - **initial_state** : Initial conditions [n_states, n_nodes]
-        - **_internal** : Precomputed data (coupling indices, noise samples, etc.)
-
-    Raises
-    ------
-    ValueError
-        If using DiffraxSolver with delayed coupling (network.max_delay > 0).
-        Diffrax solvers cannot maintain history buffers due to internal loop control.
-
-    Examples
-    --------
-    **Basic Usage with Native Solver**
-
-    >>> from tvboptim.experimental.network_dynamics import Network, prepare
-    >>> from tvboptim.experimental.network_dynamics.dynamics import ReducedWongWang
-    >>> from tvboptim.experimental.network_dynamics.solvers import Euler
-    >>> from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
-    >>> from tvboptim.experimental.network_dynamics.graph import DenseGraph
-    >>> import jax.numpy as jnp
-    >>>
-    >>> # Create network components
-    >>> dynamics = ReducedWongWang()
-    >>> coupling = LinearCoupling(incoming_states='S', G=1.0)
-    >>> weights = jnp.ones((68, 68))  # 68 brain regions
-    >>> graph = DenseGraph(weights)
-    >>>
-    >>> # Build network
-    >>> network = Network(dynamics, coupling, graph)
-    >>>
-    >>> # Prepare for simulation
-    >>> model_fn, config = prepare(network, Euler(), t0=0, t1=100, dt=0.1)
-    >>>
-    >>> # Run simulation
-    >>> results = model_fn(config)
-    >>> print(results.data.shape)  # [n_timesteps, n_voi, n_nodes]
-
-    **With Delayed Coupling (Native Solver Only)**
-
-    >>> from tvboptim.experimental.network_dynamics.coupling import DelayedLinearCoupling
-    >>> from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph
-    >>>
-    >>> # Create graph with heterogeneous delays
-    >>> delays = jnp.array([...])  # [n_nodes, n_nodes] delay matrix in ms
-    >>> graph = DenseDelayGraph(weights, delays)
-    >>>
-    >>> # Delayed coupling requires history buffer
-    >>> coupling = DelayedLinearCoupling(incoming_states='S', G=2.0)
-    >>> network = Network(dynamics, coupling, graph)
-    >>>
-    >>> # Only NativeSolver supports delays
-    >>> model_fn, config = prepare(network, Euler(), t0=0, t1=100, dt=0.1)
-
-    **With Adaptive Stepping (Diffrax Solver)**
-
-    >>> from tvboptim.experimental.network_dynamics.solvers import DiffraxSolver
-    >>> import diffrax
-    >>>
-    >>> # Diffrax solver with adaptive time stepping
-    >>> solver = DiffraxSolver(
-    ...     diffrax.Tsit5(),
-    ...     saveat=diffrax.SaveAt(ts=jnp.arange(0, 100, 0.1))
-    ... )
-    >>>
-    >>> # Network must NOT have delays for Diffrax
-    >>> network = Network(dynamics, LinearCoupling(...), graph)
-    >>> model_fn, config = prepare(network, solver, t0=0, t1=100, dt=0.1)
-    >>> solution = model_fn(config)  # Returns diffrax.Solution object
-
-    **With Stochastic Dynamics**
-
-    >>> from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
-    >>> import jax
-    >>>
-    >>> # Add noise to network
-    >>> noise = AdditiveNoise(state_indices=[0], sigma=0.01, key=jax.random.PRNGKey(0))
-    >>> network = Network(dynamics, coupling, graph, noise=noise)
-    >>>
-    >>> # Prepare with noise (pre-generates noise samples)
-    >>> model_fn, config = prepare(network, Euler(), t0=0, t1=100, dt=0.1)
-
-    **Modifying Parameters**
-
-    >>> # Config is a PyTree - parameters can be modified
-    >>> import copy
-    >>> config_modified = copy.deepcopy(config)
-    >>> config_modified.dynamics.G = 2.5  # Change global coupling
-    >>> config_modified.coupling.default.G = 1.5  # Change coupling strength
-    >>>
-    >>> # Run with modified parameters
-    >>> results_modified = model_fn(config_modified)
-
-    Notes
-    -----
-    **Preparation Steps (NativeSolver):**
-
-    1. Prepare all couplings (create history buffers for delays if needed)
-    2. Build config structure with flattened parameters and graph
-    3. Pre-generate noise samples if stochastic (one sample per timestep)
-    4. Pre-compile coupling computation closures (avoid dict lookups in scan)
-    5. Pre-compile state update closures (for history buffer management)
-    6. Return pure function optimized for jax.lax.scan
-
-    **Preparation Steps (DiffraxSolver):**
-
-    1. Validate network has no delays (raises ValueError if found)
-    2. Prepare stateless coupling/external input data
-    3. Build config with parameters and precomputed data
-    4. Create Diffrax vector field and control term (for SDEs)
-    5. Return pure function wrapping diffrax.diffeqsolve
-
-    **Solver Selection Guidelines:**
-
-    Use **NativeSolver** (Euler, Heun) when:
-
-    - Network has delayed coupling
-    - Need full control over integration loop
-    - Want optimal performance with jax.lax.scan
-    - Standard brain network simulation
-
-    Use **DiffraxSolver** when:
-
-    - Network has no delays (stateless)
-    - Need adaptive time stepping for stiff systems
-    - Want access to advanced Diffrax features
-    - Require error control and step size adaptation
-
-    **Performance Notes:**
-
-    - Native solvers use jax.lax.scan for optimal compile-time optimization
-    - Pre-compilation of closures eliminates runtime overhead
-    - History buffers for delays use efficient circular indexing
-    - Noise samples are pre-generated to avoid per-step RNG calls
-
-    See Also
-    --------
-    solve : High-level interface that calls prepare() and executes immediately
-    Network : Network dynamics model container
-    NativeSolver : Fixed-step integration methods (Euler, Heun)
-    DiffraxSolver : Adaptive-step integration using Diffrax library
+    See ``help(prepare)`` or ``prepare.__doc__`` for the full reference,
+    including per-dispatch parameters (``n_nodes``, ``noise``, ``externals``
+    for bare dynamics) and Diffrax limitations (no delays, no auxiliaries,
+    no VOI filtering).
     """
     # Prepare all couplings (creates history buffers, computes indices, etc.)
     coupling_data_dict, coupling_state_dict_init = network.prepare(dt, t0, t1)
@@ -638,211 +662,29 @@ def prepare(
     t1: float = 1.0,
     dt: float = 0.1,
 ) -> Tuple[Callable, Bunch]:
-    """Prepare network dynamics model for simulation.
+    """Compile a model into a pure JAX solve function and a config PyTree.
 
-    Transforms a network dynamics model into a JAX-compiled simulation function
-    and corresponding configuration object. Supports both native solvers (Euler, Heun)
-    and Diffrax solvers with different feature sets and performance characteristics.
-
-    The preparation process optimizes the model for efficient execution by pre-compiling
-    closures, pre-allocating buffers, and structuring data for JAX transformations.
+    Builds per-dispatch data (coupling buffers, noise samples, external
+    inputs) and returns ``(solve_fn, config)`` where ``solve_fn(config)``
+    runs the integration. Dispatches on the first two arguments via
+    ``plum``: ``Network``/``AbstractDynamics`` paired with
+    ``NativeSolver``/``DiffraxSolver``.
 
     Parameters
     ----------
-    network : Network
-        Network dynamics model containing:
-
-        - **dynamics** : Neural mass/population model (e.g., ReducedWongWang, JansenRit)
-        - **couplings** : Inter-region coupling functions (can be delayed or instantaneous)
-        - **graph** : Connectivity structure (weights, delays, distances)
-        - **noise** : Optional stochastic process (additive/multiplicative)
-        - **externals** : Optional external inputs (e.g., stimulation)
-
-    solver : NativeSolver or DiffraxSolver
-        Integration method. Two solver families available:
-
-        **NativeSolver** (Euler, Heun):
-            - Fixed time step integration
-            - Supports **all features**: delays, noise, stateful operations
-            - Optimized for jax.lax.scan
-            - Best for most brain network simulations
-
-        **DiffraxSolver** (Tsit5, Dopri5, etc.):
-            - Adaptive time stepping
-            - **Stateless only**: no delayed coupling, no history buffers
-            - Useful for stiff ODEs or when adaptive stepping is required
-            - Raises ValueError if network has delays
-
-    t0 : float, optional
-        Simulation start time, by default 0.0
-    t1 : float, optional
-        Simulation end time, by default 1.0
-    dt : float, optional
-        Integration time step, by default 0.1
-
-        - For NativeSolver: Fixed step size used throughout simulation
-        - For DiffraxSolver: Initial step size (dt0) for adaptive controller
+    t0, t1, dt : float
+        Integration interval and step size. ``dt`` is the fixed step for
+        native solvers and the initial step for Diffrax.
 
     Returns
     -------
-    solve_function : Callable
-        Pure JAX function for running simulation.
+    (Callable, Bunch)
+        Pure solve function and its runtime configuration PyTree.
 
-        Signature: ``solve_function(config) -> results``
-
-        The function is JIT-compiled and supports:
-
-        - Automatic differentiation (jax.grad, jax.jacobian)
-        - Vectorization (jax.vmap)
-        - Parallel execution (jax.pmap)
-
-    config : Bunch
-        Configuration PyTree containing:
-
-        - **dynamics** : Dynamics model parameters
-        - **coupling** : Coupling parameters (one entry per coupling)
-        - **external** : External input parameters (one entry per input)
-        - **noise** : Noise parameters (if stochastic)
-        - **graph** : Graph structure (weights, delays)
-        - **initial_state** : Initial conditions [n_states, n_nodes]
-        - **_internal** : Precomputed data (coupling indices, noise samples, etc.)
-
-    Raises
-    ------
-    ValueError
-        If using DiffraxSolver with delayed coupling (network.max_delay > 0).
-        Diffrax solvers cannot maintain history buffers due to internal loop control.
-
-    Examples
-    --------
-    **Basic Usage with Native Solver**
-
-    >>> from tvboptim.experimental.network_dynamics import Network, prepare
-    >>> from tvboptim.experimental.network_dynamics.dynamics import ReducedWongWang
-    >>> from tvboptim.experimental.network_dynamics.solvers import Euler
-    >>> from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
-    >>> from tvboptim.experimental.network_dynamics.graph import DenseGraph
-    >>> import jax.numpy as jnp
-    >>>
-    >>> # Create network components
-    >>> dynamics = ReducedWongWang()
-    >>> coupling = LinearCoupling(incoming_states='S', G=1.0)
-    >>> weights = jnp.ones((68, 68))  # 68 brain regions
-    >>> graph = DenseGraph(weights)
-    >>>
-    >>> # Build network
-    >>> network = Network(dynamics, coupling, graph)
-    >>>
-    >>> # Prepare for simulation
-    >>> model_fn, config = prepare(network, Euler(), t0=0, t1=100, dt=0.1)
-    >>>
-    >>> # Run simulation
-    >>> results = model_fn(config)
-    >>> print(results.data.shape)  # [n_timesteps, n_voi, n_nodes]
-
-    **With Delayed Coupling (Native Solver Only)**
-
-    >>> from tvboptim.experimental.network_dynamics.coupling import DelayedLinearCoupling
-    >>> from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph
-    >>>
-    >>> # Create graph with heterogeneous delays
-    >>> delays = jnp.array([...])  # [n_nodes, n_nodes] delay matrix in ms
-    >>> graph = DenseDelayGraph(weights, delays)
-    >>>
-    >>> # Delayed coupling requires history buffer
-    >>> coupling = DelayedLinearCoupling(incoming_states='S', G=2.0)
-    >>> network = Network(dynamics, coupling, graph)
-    >>>
-    >>> # Only NativeSolver supports delays
-    >>> model_fn, config = prepare(network, Euler(), t0=0, t1=100, dt=0.1)
-
-    **With Adaptive Stepping (Diffrax Solver)**
-
-    >>> from tvboptim.experimental.network_dynamics.solvers import DiffraxSolver
-    >>> import diffrax
-    >>>
-    >>> # Diffrax solver with adaptive time stepping
-    >>> solver = DiffraxSolver(
-    ...     diffrax.Tsit5(),
-    ...     saveat=diffrax.SaveAt(ts=jnp.arange(0, 100, 0.1))
-    ... )
-    >>>
-    >>> # Network must NOT have delays for Diffrax
-    >>> network = Network(dynamics, LinearCoupling(...), graph)
-    >>> model_fn, config = prepare(network, solver, t0=0, t1=100, dt=0.1)
-    >>> solution = model_fn(config)  # Returns diffrax.Solution object
-
-    **With Stochastic Dynamics**
-
-    >>> from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
-    >>> import jax
-    >>>
-    >>> # Add noise to network
-    >>> noise = AdditiveNoise(state_indices=[0], sigma=0.01, key=jax.random.PRNGKey(0))
-    >>> network = Network(dynamics, coupling, graph, noise=noise)
-    >>>
-    >>> # Prepare with noise (pre-generates noise samples)
-    >>> model_fn, config = prepare(network, Euler(), t0=0, t1=100, dt=0.1)
-
-    **Modifying Parameters**
-
-    >>> # Config is a PyTree - parameters can be modified
-    >>> import copy
-    >>> config_modified = copy.deepcopy(config)
-    >>> config_modified.dynamics.G = 2.5  # Change global coupling
-    >>> config_modified.coupling.default.G = 1.5  # Change coupling strength
-    >>>
-    >>> # Run with modified parameters
-    >>> results_modified = model_fn(config_modified)
-
-    Notes
-    -----
-    **Preparation Steps (NativeSolver):**
-
-    1. Prepare all couplings (create history buffers for delays if needed)
-    2. Build config structure with flattened parameters and graph
-    3. Pre-generate noise samples if stochastic (one sample per timestep)
-    4. Pre-compile coupling computation closures (avoid dict lookups in scan)
-    5. Pre-compile state update closures (for history buffer management)
-    6. Return pure function optimized for jax.lax.scan
-
-    **Preparation Steps (DiffraxSolver):**
-
-    1. Validate network has no delays (raises ValueError if found)
-    2. Prepare stateless coupling/external input data
-    3. Build config with parameters and precomputed data
-    4. Create Diffrax vector field and control term (for SDEs)
-    5. Return pure function wrapping diffrax.diffeqsolve
-
-    **Solver Selection Guidelines:**
-
-    Use **NativeSolver** (Euler, Heun) when:
-
-    - Network has delayed coupling
-    - Need full control over integration loop
-    - Want optimal performance with jax.lax.scan
-    - Standard brain network simulation
-
-    Use **DiffraxSolver** when:
-
-    - Network has no delays (stateless)
-    - Need adaptive time stepping for stiff systems
-    - Want access to advanced Diffrax features
-    - Require error control and step size adaptation
-
-    **Performance Notes:**
-
-    - Native solvers use jax.lax.scan for optimal compile-time optimization
-    - Pre-compilation of closures eliminates runtime overhead
-    - History buffers for delays use efficient circular indexing
-    - Noise samples are pre-generated to avoid per-step RNG calls
-
-    See Also
-    --------
-    solve : High-level interface that calls prepare() and executes immediately
-    Network : Network dynamics model container
-    NativeSolver : Fixed-step integration methods (Euler, Heun)
-    DiffraxSolver : Adaptive-step integration using Diffrax library
+    See ``help(prepare)`` or ``prepare.__doc__`` for the full reference,
+    including per-dispatch parameters (``n_nodes``, ``noise``, ``externals``
+    for bare dynamics) and Diffrax limitations (no delays, no auxiliaries,
+    no VOI filtering).
     """
     # =========================================================================
     # VALIDATION: Check for unsupported features
@@ -1016,38 +858,9 @@ def prepare(
         n_noise_states = len(noise_state_indices)
         n_brownian = n_noise_states * n_nodes
 
-        def compute_diffusion_matrix(t, y, noise_params):
-            """Compute diffusion matrix g(t, y) mapping Brownian motion to state space.
-
-            Args:
-                t: Current time
-                y: Network state [n_states, n_nodes]
-                noise_params: Noise parameters (JAX-traced, from runtime config)
-
-            Returns:
-                Diffusion matrix [n_states, n_nodes, n_brownian]
-                where n_brownian = n_noise_states * n_nodes
-            """
-            g_raw = network.noise.diffusion(t, y, noise_params)
-
-            # Ensure g has shape [n_noise_states, n_nodes]
-            if jnp.ndim(g_raw) == 0:
-                g = jnp.full((n_noise_states, n_nodes), g_raw)
-            elif jnp.ndim(g_raw) == 1:
-                g = jnp.broadcast_to(g_raw[..., None], (n_noise_states, n_nodes))
-            else:
-                g = g_raw
-
-            # Build full diffusion matrix
-            diffusion_matrix = jnp.zeros((n_states, n_nodes, n_brownian))
-            for i, state_idx in enumerate(noise_state_indices):
-                for j in range(n_nodes):
-                    brownian_idx = i * n_nodes + j
-                    diffusion_matrix = diffusion_matrix.at[
-                        state_idx, j, brownian_idx
-                    ].set(g[i, j])
-
-            return diffusion_matrix
+        compute_diffusion_matrix = _make_diffusion_matrix_fn(
+            network.noise.diffusion, noise_state_indices, n_states, n_nodes
+        )
 
         # Brownian motion is static (depends only on t0, t1, dt, key)
         brownian_motion = diffrax.VirtualBrownianTree(
@@ -1158,36 +971,29 @@ def prepare(
     noise=None,
     externals=None,
 ) -> Tuple[Callable, Bunch]:
-    """Prepare a bare dynamics model for simulation (no network/coupling).
+    """Compile a model into a pure JAX solve function and a config PyTree.
 
-    Lightweight alternative to the Network-based prepare() for uncoupled
-    simulations. Coupling inputs are set to zero.
+    Builds per-dispatch data (coupling buffers, noise samples, external
+    inputs) and returns ``(solve_fn, config)`` where ``solve_fn(config)``
+    runs the integration. Dispatches on the first two arguments via
+    ``plum``: ``Network``/``AbstractDynamics`` paired with
+    ``NativeSolver``/``DiffraxSolver``.
 
     Parameters
     ----------
-    dynamics : AbstractDynamics
-        Dynamics model instance (e.g. JansenRit, ReducedWongWang)
-    solver : NativeSolver
-        Integration method (Euler, Heun)
-    t0 : float, optional
-        Start time, by default 0.0
-    t1 : float, optional
-        End time, by default 1.0
-    dt : float, optional
-        Time step, by default 0.1
-    n_nodes : int, optional
-        Number of uncoupled nodes, by default 1
-    noise : AbstractNoise, optional
-        Noise process (e.g. AdditiveNoise, MultiplicativeNoise)
-    externals : dict, optional
-        External inputs as ``{name: AbstractExternalInput}``
+    t0, t1, dt : float
+        Integration interval and step size. ``dt`` is the fixed step for
+        native solvers and the initial step for Diffrax.
 
     Returns
     -------
-    solve_function : Callable
-        Pure JAX function: ``solve_function(config) -> results``
-    config : Bunch
-        Configuration PyTree with dynamics params and initial state
+    (Callable, Bunch)
+        Pure solve function and its runtime configuration PyTree.
+
+    See ``help(prepare)`` or ``prepare.__doc__`` for the full reference,
+    including per-dispatch parameters (``n_nodes``, ``noise``, ``externals``
+    for bare dynamics) and Diffrax limitations (no delays, no auxiliaries,
+    no VOI filtering).
     """
     # Initial state [N_STATES, n_nodes]
     state0 = dynamics.get_default_initial_state(n_nodes)
@@ -1371,36 +1177,29 @@ def prepare(
     noise=None,
     externals=None,
 ) -> Tuple[Callable, Bunch]:
-    """Prepare a bare dynamics model for simulation using Diffrax.
+    """Compile a model into a pure JAX solve function and a config PyTree.
 
-    Lightweight alternative to the Network-based prepare() for uncoupled
-    simulations with adaptive time stepping. Coupling inputs are set to zero.
+    Builds per-dispatch data (coupling buffers, noise samples, external
+    inputs) and returns ``(solve_fn, config)`` where ``solve_fn(config)``
+    runs the integration. Dispatches on the first two arguments via
+    ``plum``: ``Network``/``AbstractDynamics`` paired with
+    ``NativeSolver``/``DiffraxSolver``.
 
     Parameters
     ----------
-    dynamics : AbstractDynamics
-        Dynamics model instance (e.g. JansenRit, ReducedWongWang)
-    solver : DiffraxSolver
-        Diffrax integration method (Tsit5, Dopri5, etc.)
-    t0 : float, optional
-        Start time, by default 0.0
-    t1 : float, optional
-        End time, by default 1.0
-    dt : float, optional
-        Initial step size (dt0) for adaptive controller, by default 0.1
-    n_nodes : int, optional
-        Number of uncoupled nodes, by default 1
-    noise : AbstractNoise, optional
-        Noise process (e.g. AdditiveNoise, MultiplicativeNoise)
-    externals : dict, optional
-        External inputs as ``{name: AbstractExternalInput}``
+    t0, t1, dt : float
+        Integration interval and step size. ``dt`` is the fixed step for
+        native solvers and the initial step for Diffrax.
 
     Returns
     -------
-    solve_function : Callable
-        Pure JAX function: ``solve_function(config) -> results``
-    config : Bunch
-        Configuration PyTree with dynamics params and initial state
+    (Callable, Bunch)
+        Pure solve function and its runtime configuration PyTree.
+
+    See ``help(prepare)`` or ``prepare.__doc__`` for the full reference,
+    including per-dispatch parameters (``n_nodes``, ``noise``, ``externals``
+    for bare dynamics) and Diffrax limitations (no delays, no auxiliaries,
+    no VOI filtering).
     """
     # Initial state [N_STATES, n_nodes]
     state0 = dynamics.get_default_initial_state(n_nodes)
@@ -1431,23 +1230,9 @@ def prepare(
         n_noise_states = len(noise_state_indices)
         n_brownian = n_noise_states * n_nodes
 
-        def compute_diffusion_matrix(t, y, noise_params):
-            g_raw = noise.diffusion(t, y, noise_params)
-            if jnp.ndim(g_raw) == 0:
-                g = jnp.full((n_noise_states, n_nodes), g_raw)
-            elif jnp.ndim(g_raw) == 1:
-                g = jnp.broadcast_to(g_raw[..., None], (n_noise_states, n_nodes))
-            else:
-                g = g_raw
-
-            diffusion_matrix = jnp.zeros((n_states, n_nodes, n_brownian))
-            for i, state_idx in enumerate(noise_state_indices):
-                for j in range(n_nodes):
-                    brownian_idx = i * n_nodes + j
-                    diffusion_matrix = diffusion_matrix.at[
-                        state_idx, j, brownian_idx
-                    ].set(g[i, j])
-            return diffusion_matrix
+        compute_diffusion_matrix = _make_diffusion_matrix_fn(
+            noise.diffusion, noise_state_indices, n_states, n_nodes
+        )
 
         brownian_motion = diffrax.VirtualBrownianTree(
             t0=t0,
@@ -1548,3 +1333,6 @@ def prepare(
         )
 
     return _f, config
+
+
+prepare.__doc__ = _PREPARE_DOC

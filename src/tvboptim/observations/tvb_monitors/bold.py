@@ -9,7 +9,22 @@ import matplotlib.pyplot as plt
 
 from tvboptim.experimental.network_dynamics.result import NativeSolution
 
-from .downsampling import AbstractMonitor, TemporalAverage
+from .downsampling import AbstractMonitor, TemporalAverage, _slice_variable_names
+
+
+def _bold_variable_names(sol, voi=None):
+    """Build BOLD output variable names by wrapping source names as 'BOLD(<name>)'.
+
+    If `voi` is provided, source names are sliced by it first (used when the
+    monitor does its own voi selection instead of delegating to a downsampler).
+    Returns None if the source has no variable_names.
+    """
+    names = _slice_variable_names(sol, voi) if voi is not None else getattr(
+        sol, "variable_names", None
+    )
+    if names is None:
+        return None
+    return tuple(f"BOLD({n})" for n in names)
 
 
 class HRFKernel(eqx.Module):
@@ -221,8 +236,17 @@ class HRFBold(AbstractMonitor):
             n_samples = int(math.ceil(self.kernel.duration / self.downsample_period))
             # Downsample the history first
             downsampled_history = self.downsample(history)
-            # Take the last n_samples
-            return downsampled_history.ys[-n_samples:]
+            hist = downsampled_history.ys
+            # Pad with zeros at the front when history is shorter than the
+            # kernel support — otherwise 'valid' convolution loses output samples.
+            if hist.shape[0] < n_samples:
+                pad = jnp.zeros(
+                    (n_samples - hist.shape[0], *hist.shape[1:]), dtype=hist.dtype
+                )
+                hist = jnp.vstack([pad, hist])
+            else:
+                hist = hist[-n_samples:]
+            return hist
         else:
             # Assume it's already a jax.Array
             return history
@@ -240,6 +264,10 @@ class HRFBold(AbstractMonitor):
         """
         ts = sol.ts
         dt = self._resolve_dt(sol)
+        # sol.ts follows the native-solver convention where ts[0] = t0 + dt
+        # (post-step state); recover the simulation start t0 to anchor BOLD
+        # samples at clean period-multiples.
+        t0 = ts[0] - dt
 
         # --- Downsample neural activity ---
         downsampled = self.downsample(sol)
@@ -280,19 +308,22 @@ class HRFBold(AbstractMonitor):
         final_samples_per_period = self.period / self.downsample_period
         final_idx_step = int(round(final_samples_per_period))
 
-        # Sample at the specified period
-        bold_indices = jnp.arange(0, bold.shape[0], final_idx_step)
+        # Sample at the end of each TR, matching BalloonWindkesselBold's
+        # "at end of each period" convention. Index 0 of the valid-conv output
+        # corresponds to simulation time t=ts[0] (only the zero-padded warmup
+        # has been integrated), so we skip it and take [period, 2*period, ...].
+        bold_indices = jnp.arange(final_idx_step, bold.shape[0], final_idx_step)
         bold_signal = bold[bold_indices, ...]
 
-        # Create time points for BOLD signal using Python int() and round()
-        bold_time = ts[:: int(round(self.period / dt))] + t_offset
+        n_bold = bold_signal.shape[0]
+        bold_time = t0 + (jnp.arange(n_bold) + 1) * self.period + t_offset
 
-        # Ensure time and signal arrays match in length
-        min_len = min(len(bold_time), len(bold_signal))
-        bold_time = bold_time[:min_len]
-        bold_signal = bold_signal[:min_len]
-
-        return NativeSolution(ts=bold_time, ys=bold_signal, dt=self.period)
+        return NativeSolution(
+            ts=bold_time,
+            ys=bold_signal,
+            dt=self.period,
+            variable_names=_bold_variable_names(downsampled),
+        )
 
 
 class BalloonWindkesselBold(AbstractMonitor):
@@ -464,7 +495,12 @@ class BalloonWindkesselBold(AbstractMonitor):
         n_bold = bold_signal.shape[0]
         bold_ts = jnp.arange(n_bold) * self.period + self.period + t_offset
 
-        return NativeSolution(ts=bold_ts, ys=bold_signal, dt=self.period)
+        return NativeSolution(
+            ts=bold_ts,
+            ys=bold_signal,
+            dt=self.period,
+            variable_names=_bold_variable_names(sol, voi=self.voi),
+        )
 
 
 def Bold(*args, **kwargs):

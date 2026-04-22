@@ -429,8 +429,16 @@ initial_state_adaptive = network_adaptive.initial_state.at[:, 1].set(jnp.array([
 
 # Update network history to use custom initial states
 from tvboptim.experimental.network_dynamics.result import NativeSolution
-network_fixed.update_history(NativeSolution(ts=jnp.array([0.0]), ys=initial_state_fixed[None, :, :]))
-network_adaptive.update_history(NativeSolution(ts=jnp.array([0.0]), ys=initial_state_adaptive[None, :, :]))
+network_fixed.update_history(NativeSolution(
+    ts=jnp.array([0.0]),
+    ys=initial_state_fixed[None, :, :],
+    variable_names=tuple(network_fixed.dynamics.STATE_NAMES),
+))
+network_adaptive.update_history(NativeSolution(
+    ts=jnp.array([0.0]),
+    ys=initial_state_adaptive[None, :, :],
+    variable_names=tuple(network_adaptive.dynamics.STATE_NAMES),
+))
 
 # Simulate both
 result_fixed = solve(

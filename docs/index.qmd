@@ -239,4 +239,4 @@ We welcome contributions and questions from the community!
 - **Contribute Code**: Interested in contributing? Open a [pull request](https://github.com/virtual-twin/tvboptim/pulls) on GitHub
 
 
-Copyright © 2025 Charité Universitätsmedizin Berlin
+Copyright © 2026 Charité Universitätsmedizin Berlin

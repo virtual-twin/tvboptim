@@ -164,18 +164,53 @@ class TestBasicNetworks(unittest.TestCase):
                     msg=f"Inf values found in output for {model_name}/{coupling_name}/{noise_name}",
                 )
 
-                # 7. CHECK TIME ARRAY - just basic sanity checks
+                # 7. CHECK TIME ARRAY
+                # Native solvers emit post-step state, so the save grid is
+                # (t0, t1] with ts[0] == t0 + dt and ts[-1] == t1.
                 self.assertAlmostEqual(
                     result.ts[0],
-                    self.t0,
+                    self.t0 + self.dt,
                     places=10,
                     msg=f"Start time incorrect for {model_name}/{coupling_name}/{noise_name}",
                 )
-                self.assertGreaterEqual(
+                self.assertAlmostEqual(
                     result.ts[-1],
-                    self.t1 - self.dt,
-                    msg=f"End time too early for {model_name}/{coupling_name}/{noise_name}",
+                    self.t1,
+                    places=10,
+                    msg=f"End time incorrect for {model_name}/{coupling_name}/{noise_name}",
                 )
+
+    def test_native_solver_time_grid(self):
+        """Native solvers save on the half-open grid (t0, t1]."""
+        # Simple network with no delays / no noise
+        weights = jnp.ones((2, 2)) - jnp.eye(2)
+        graph = DenseGraph(weights)
+        network = Network(
+            dynamics=ReducedWongWang(),
+            coupling={"instant": LinearCoupling(incoming_states="S", G=0.0)},
+            graph=graph,
+        )
+
+        t0, t1, dt = 0.0, 12.0, 2.0
+        result = solve(network, Heun(), t0=t0, t1=t1, dt=dt)
+
+        expected_n = int(round((t1 - t0) / dt))
+        self.assertEqual(result.ts.shape[0], expected_n)
+        self.assertEqual(result.ys.shape[0], expected_n)
+
+        # Endpoint included; initial t0 excluded.
+        self.assertAlmostEqual(float(result.ts[0]), t0 + dt, places=10)
+        self.assertAlmostEqual(float(result.ts[-1]), t1, places=10)
+
+        # Exact dt spacing (no drift from linspace-style endpoint distribution).
+        diffs = jnp.diff(result.ts)
+        self.assertTrue(jnp.allclose(diffs, dt, atol=1e-10))
+
+        # Nonzero t0 offset also lands on t1 exactly.
+        t0b = 5.0
+        result_b = solve(network, Heun(), t0=t0b, t1=t0b + 10.0, dt=dt)
+        self.assertAlmostEqual(float(result_b.ts[0]), t0b + dt, places=10)
+        self.assertAlmostEqual(float(result_b.ts[-1]), t0b + 10.0, places=10)
 
     def test_gradient_computation(self):
         """Test that gradients can be computed through the model."""

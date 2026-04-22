@@ -11,6 +11,17 @@ import jax.numpy as jnp
 from tvboptim.experimental.network_dynamics.result import NativeSolution
 
 
+def _slice_variable_names(sol, voi):
+    """Apply voi slicing to a solution's variable_names, if available."""
+    names = getattr(sol, "variable_names", None)
+    if names is None:
+        return None
+    try:
+        return tuple(names)[voi]
+    except (TypeError, IndexError):
+        return None
+
+
 class AbstractMonitor(eqx.Module):
     """Base class for monitoring and downsampling strategies.
 
@@ -127,6 +138,7 @@ class SubSampling(AbstractMonitor):
             ts=ts[sample_indices] + t_offset,
             ys=ys[sample_indices, self.voi, ...],
             dt=self.period,
+            variable_names=_slice_variable_names(sol, self.voi),
         )
 
 
@@ -205,4 +217,5 @@ class TemporalAverage(AbstractMonitor):
             ts=ts[centered_indices],
             ys=averaged_trace[: centered_indices.shape[0], ...],
             dt=self.period,
+            variable_names=_slice_variable_names(sol, self.voi),
         )
