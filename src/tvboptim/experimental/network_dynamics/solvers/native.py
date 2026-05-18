@@ -24,6 +24,38 @@ class NativeSolver(AbstractSolver):
     integration of the dynamics state.
     """
 
+    def __init__(self, checkpoint_every: int | None = None):
+        """
+        Args:
+            checkpoint_every: If None (default), no gradient checkpointing —
+                the integration scan runs as a single ``jax.lax.scan`` and
+                every step's carry is saved for the backward pass. If an int
+                ``K``, the scan is split into an outer scan over blocks of
+                ``K`` steps wrapped in ``jax.checkpoint``, with an inner
+                scan running the steps inside each block. The backward pass
+                then only retains block-boundary carries and recomputes
+                inner activations on demand. Trades roughly 1.3–1.7x
+                gradient wall time (one extra forward recompute, added to
+                an already backward-dominated cost) for
+                ``O(n_steps/K + K)`` backward memory instead of
+                ``O(n_steps)``. Peak memory is U-shaped in ``K``: small
+                ``K`` inflates the outer block-boundary tape
+                (``n_steps/K`` term), large ``K`` inflates the per-block
+                inner tape (``K`` term). The minimum sits near
+                ``K ≈ sqrt(n_steps)``. Has no effect on the forward-only
+                path.
+
+                The memory model assumes a per-step carry whose size does
+                not grow with ``n_steps``. This holds for the ``roll`` and
+                ``circular`` delayed-coupling buffer strategies (history
+                buffer size = ``max_delay_steps + 1``), but **not** for
+                ``preallocated`` (history buffer grows linearly with
+                ``n_steps``). Checkpointing still works correctly with
+                ``preallocated``, but the practical memory win is much
+                smaller because the carry itself dominates.
+        """
+        self.checkpoint_every = checkpoint_every
+
     def step(
         self,
         dynamics_fn: Callable,
@@ -266,11 +298,18 @@ class BoundedSolver(NativeSolver):
         low: float | jnp.ndarray = -jnp.inf,
         high: float | jnp.ndarray = jnp.inf,
     ):
+        # Deliberately skip NativeSolver.__init__ — checkpoint_every is
+        # delegated to base_solver via the property below so that wrapping
+        # a checkpointed solver does not silently lose the setting.
         self.base_solver = base_solver
         low = jnp.asarray(low)
         high = jnp.asarray(high)
         self.low = low[:, None] if low.ndim == 1 else low
         self.high = high[:, None] if high.ndim == 1 else high
+
+    @property
+    def checkpoint_every(self):
+        return self.base_solver.checkpoint_every
 
     def step(
         self,

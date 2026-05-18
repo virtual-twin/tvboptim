@@ -434,5 +434,122 @@ class TestBasicNetworks(unittest.TestCase):
                     self.fail(f"Gradient check failed for {model_name}: {str(e)}")
 
 
+class TestCheckpointedScan(unittest.TestCase):
+    """Verify that the block-checkpointed scan path matches the unchecked
+    single-scan path bit-exactly on forward and to numerical precision on
+    backward, for both divisor and non-divisor block sizes.
+    """
+
+    def _build_dde_network(self):
+        key = jax.random.PRNGKey(7)
+        weights_key, delay_key = jax.random.split(key)
+        n_nodes = 4
+        weights = jax.random.uniform(weights_key, (n_nodes, n_nodes)) * 0.5
+        delays = jax.random.uniform(delay_key, (n_nodes, n_nodes)) * 5.0
+        graph = DenseDelayGraph(weights=weights, delays=delays)
+        coupling = DelayedLinearCoupling(incoming_states="S", G=0.1)
+        return Network(
+            dynamics=ReducedWongWang(),
+            coupling={"delayed": coupling},
+            graph=graph,
+            noise=AdditiveNoise(sigma=1e-4, key=jax.random.key(0)),
+        )
+
+    def _run(self, checkpoint_every, t1=20.0, dt=0.1):
+        network = self._build_dde_network()
+        solve_fn, cfg = prepare(
+            network,
+            Heun(checkpoint_every=checkpoint_every),
+            t0=0.0,
+            t1=t1,
+            dt=dt,
+        )
+        return solve_fn, cfg
+
+    def test_forward_bitexact_divisor(self):
+        """Block size that divides n_steps must reproduce the single-scan
+        output exactly — the scan body is identical, only the loop nesting
+        changes."""
+        solve_none, cfg = self._run(None)
+        solve_ckpt, _ = self._run(20)  # 200 steps / 20 = 10 blocks
+        r_none = solve_none(cfg)
+        r_ckpt = solve_ckpt(cfg)
+        self.assertTrue(jnp.array_equal(r_none.ys, r_ckpt.ys))
+        self.assertTrue(jnp.array_equal(r_none.ts, r_ckpt.ts))
+
+    def test_forward_bitexact_with_tail(self):
+        """Non-divisor block size exercises the main+tail split. Still
+        bit-exact: tail is a plain scan over the remainder."""
+        solve_none, cfg = self._run(None)
+        solve_ckpt, _ = self._run(13)  # 200 % 13 == 5
+        r_none = solve_none(cfg)
+        r_ckpt = solve_ckpt(cfg)
+        self.assertTrue(jnp.array_equal(r_none.ys, r_ckpt.ys))
+
+    def test_gradient_matches_baseline(self):
+        """Gradient through the checkpointed scan must match the
+        unckecpointed gradient to numerical precision, for both divisor and
+        non-divisor block sizes."""
+
+        def make_loss(checkpoint_every):
+            solve_fn, cfg = self._run(checkpoint_every)
+
+            def loss(G):
+                import equinox as eqx
+
+                cfg2 = eqx.tree_at(lambda c: c.coupling.delayed.G, cfg, G)
+                return jnp.mean(solve_fn(cfg2).ys[:, 0, :])
+
+            return jax.value_and_grad(loss)
+
+        G = jnp.asarray(0.1)
+        v_none, g_none = make_loss(None)(G)
+        v_div, g_div = make_loss(20)(G)
+        v_tail, g_tail = make_loss(13)(G)
+
+        # Forward path is bit-exact, so the scalar loss must agree exactly.
+        self.assertTrue(jnp.array_equal(v_none, v_div))
+        self.assertTrue(jnp.array_equal(v_none, v_tail))
+
+        # Gradient is computed via different traces (rematerialised vs.
+        # saved activations) so floating-point rounding can differ very
+        # slightly. Tight tolerance covers this.
+        self.assertTrue(
+            jnp.allclose(g_none, g_div, rtol=1e-10, atol=1e-12),
+            f"divisor grad mismatch: none={g_none}, ckpt={g_div}",
+        )
+        self.assertTrue(
+            jnp.allclose(g_none, g_tail, rtol=1e-10, atol=1e-12),
+            f"tail grad mismatch: none={g_none}, ckpt={g_tail}",
+        )
+
+    def test_default_is_none(self):
+        """Sentinel: the default constructor must not enable checkpointing.
+        Guards the no-perf-regression contract for existing call sites."""
+        self.assertIsNone(Heun().checkpoint_every)
+
+    def test_bare_dynamics_dispatch(self):
+        """Bare-dynamics+native path also branches on checkpoint_every."""
+        from tvboptim.experimental.network_dynamics.dynamics.tvb import (
+            ReducedWongWang,
+        )
+
+        dyn = ReducedWongWang()
+        solve_none, cfg = prepare(
+            dyn, Heun(), t0=0.0, t1=10.0, dt=0.1, n_nodes=3
+        )
+        solve_ckpt, _ = prepare(
+            dyn,
+            Heun(checkpoint_every=11),  # non-divisor of 100 steps
+            t0=0.0,
+            t1=10.0,
+            dt=0.1,
+            n_nodes=3,
+        )
+        r_none = solve_none(cfg)
+        r_ckpt = solve_ckpt(cfg)
+        self.assertTrue(jnp.array_equal(r_none.ys, r_ckpt.ys))
+
+
 if __name__ == "__main__":
     unittest.main()

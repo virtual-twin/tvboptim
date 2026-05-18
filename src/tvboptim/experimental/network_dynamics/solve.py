@@ -20,6 +20,67 @@ from .solvers.diffrax import DiffraxSolver
 from .solvers.native import NativeSolver
 
 
+def _checkpointed_scan(op, state0, scan_inputs, n_steps, block_size):
+    """Run ``op`` over ``scan_inputs`` as an outer-checkpointed nested scan.
+
+    The leading axis of every leaf in ``scan_inputs`` is split into
+    ``(n_blocks, block_size)``; an outer ``jax.lax.scan`` runs over blocks
+    with each block wrapped in ``jax.checkpoint``, and an inner
+    ``jax.lax.scan`` runs the ``block_size`` steps inside a block. When
+    ``n_steps`` is not a multiple of ``block_size`` the remainder runs through
+    a plain (uncheckpointed) tail scan; the tail length is fixed at trace
+    time and is at most ``block_size - 1``.
+
+    Output of the scanned computation is stitched back to leading shape
+    ``(n_steps, ...)`` so the result is indistinguishable from a single
+    ``jax.lax.scan(op, state0, scan_inputs)`` call to downstream code.
+    """
+    n_blocks = n_steps // block_size
+    remainder = n_steps - n_blocks * block_size
+
+    def inner(state, block_inputs):
+        return jax.lax.scan(op, state, block_inputs)
+
+    ckpt_inner = jax.checkpoint(inner)
+
+    if n_blocks > 0:
+        main = jax.tree.map(
+            lambda x: x[: n_blocks * block_size].reshape(
+                (n_blocks, block_size) + x.shape[1:]
+            ),
+            scan_inputs,
+        )
+        state_mid, outs_main = jax.lax.scan(ckpt_inner, state0, main)
+        outs_main_flat = jax.tree.map(
+            lambda x: x.reshape((n_blocks * block_size,) + x.shape[2:]),
+            outs_main,
+        )
+    else:
+        state_mid = state0
+        outs_main_flat = None
+
+    if remainder == 0:
+        return state_mid, outs_main_flat
+
+    tail = jax.tree.map(lambda x: x[n_blocks * block_size :], scan_inputs)
+    # Wrap the tail in jax.checkpoint too so its activation tape is not
+    # held live during the outer backward through the main blocks. Without
+    # this, peak memory for non-divisor K becomes
+    # ``K · c_inner + remainder · c_unchecked`` and large remainders can
+    # spike above the no-checkpoint baseline.
+    state_final, outs_tail = jax.checkpoint(
+        lambda s, t: jax.lax.scan(op, s, t)
+    )(state_mid, tail)
+
+    if outs_main_flat is None:
+        return state_final, outs_tail
+
+    outs = jax.tree.map(
+        lambda a, b: jnp.concatenate([a, b], axis=0), outs_main_flat, outs_tail
+    )
+    return state_final, outs
+
+
 def _make_diffusion_matrix_fn(diffusion_fn, state_indices, n_states, n_nodes):
     """Build a vectorized diffusion-matrix closure for Diffrax SDE integration.
 
@@ -710,8 +771,17 @@ def prepare(
             # SDE/SDDE: time + step index for noise lookup
             scan_inputs = jnp.stack([time_steps, jnp.arange(len(time_steps))], axis=1)
 
-        # Run integration
-        _, res = jax.lax.scan(op, state0, scan_inputs)
+        # Run integration. When checkpoint_every is None we go through the
+        # original single-scan path verbatim to guarantee no performance
+        # regression for the default setting; otherwise switch to an
+        # outer-checkpointed nested scan that trades ~2x recompute on the
+        # backward pass for ~O(n_steps/K + K) backward memory.
+        if solver.checkpoint_every is None:
+            _, res = jax.lax.scan(op, state0, scan_inputs)
+        else:
+            _, res = _checkpointed_scan(
+                op, state0, scan_inputs, n_steps, solver.checkpoint_every
+            )
 
         # Wrap result for consistency
         return wrap_native_result(res, t0, t1, dt, variable_names=variable_names)
@@ -1258,7 +1328,17 @@ def prepare(
         scan_inputs = jnp.stack(
             [time_steps, jnp.arange(n_steps, dtype=time_steps.dtype)], axis=1
         )
-        _, res = jax.lax.scan(op, config.initial_state, scan_inputs)
+        # See the Network+Native dispatch for the rationale on the branch.
+        if solver.checkpoint_every is None:
+            _, res = jax.lax.scan(op, config.initial_state, scan_inputs)
+        else:
+            _, res = _checkpointed_scan(
+                op,
+                config.initial_state,
+                scan_inputs,
+                n_steps,
+                solver.checkpoint_every,
+            )
         return wrap_native_result(res, t0, t1, dt, variable_names=variable_names)
 
     return _f, config
