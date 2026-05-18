@@ -107,8 +107,18 @@ config : Bunch
     Configuration PyTree. Keys depend on dispatch but always include
     ``dynamics`` (params), ``initial_state``, and ``_internal`` (precomputed
     static data). Network dispatches additionally carry ``coupling``,
-    ``external``, ``graph``, and — if stochastic — ``noise`` with pre-generated
-    noise samples under ``_internal.noise_samples`` (native path only).
+    ``external``, ``graph``, and — if stochastic — ``noise`` (params plus
+    a ``key`` field driving in-scan noise generation on the native path),
+    with an optional ``_internal.noise_samples`` slot for injecting a
+    pre-sampled trajectory.
+
+    For stochastic networks on the native path, ``config.noise`` carries
+    both the parameter Bunch (e.g. ``sigma``) and ``config.noise.key`` —
+    the PRNG key consumed by the in-scan noise generator. The optional
+    slot ``config._internal.noise_samples`` defaults to ``None`` and can
+    be set to a pre-sampled trajectory of shape ``[n_steps,
+    n_noise_states, n_nodes]`` to override generation (used by NumPyro
+    workflows that treat the Brownian increments as latents).
 
     The returned ``result`` is a ``NativeSolution`` (native solvers) or a
     ``DiffraxSolution`` (Diffrax). Both expose ``.ts``, ``.ys``,
@@ -144,10 +154,40 @@ intentionally narrower than the native ones:
   is only meaningful for uniform ``SaveAt(ts=...)``. Downstream monitors
   that rely on a scalar ``dt`` will be wrong for non-uniform save grids.
 
-**Noise sample caching (native path).** Noise increments are pre-generated
-at prepare time using ``network.noise.key``. Reassigning the key on the
-noise object after ``prepare`` does *not* change the samples used by
-``solve_function``; re-run ``prepare`` to reseed.
+**Noise generation (native path).** The full Brownian-increment tensor
+of shape ``[n_steps, n_noise_states, n_nodes]`` is materialised inside
+``solve_function`` on every call, via a single
+``jax.random.normal(config.noise.key, ...)`` that XLA fuses with the
+downstream scan. To scan over seeds, vary ``config.noise.key`` (e.g.
+with ``eqx.tree_at`` and ``jax.vmap``); no re-``prepare`` needed.
+Reseeding the noise object after ``prepare`` has no effect —
+``config.noise.key`` is the live source of randomness.
+
+For workflows that supply increments explicitly (NumPyro inference over
+Brownian increments, replay of a recorded trajectory, common random
+numbers across a sequential parameter sweep), set
+``config._internal.noise_samples`` to an array of shape ``[n_steps,
+n_noise_states, n_nodes]``. The trace-time branch on this field
+bypasses the in-call PRNG; flipping between ``None`` and an array
+triggers a one-time JIT retrace per ``solve_function``.
+
+**Noise generation (Diffrax path).** The ``VirtualBrownianTree`` is
+constructed inside ``solve_function`` from ``config.noise.key``, so
+the seed-swap workflow used on the native path works identically here:
+vary ``config.noise.key`` (e.g. with ``eqx.tree_at`` and ``jax.vmap``)
+to scan over noise realisations without re-``prepare``-ing. There is
+no injection slot on this dispatch — ``config._internal.noise_samples``
+is native-only because Diffrax controls are evaluated lazily by the
+solver (including at sub-step times for adaptive stages), and a fixed
+pre-sampled array cannot service those queries.
+
+**optax / grad note.** Because ``config.noise.key`` is a PRNG-key leaf
+sitting inside ``config.noise`` next to numeric parameters, any
+optimiser or gradient transformation applied to that subtree must
+either skip non-float leaves or operate on a filtered view (e.g.
+``eqx.partition``). The diffusion callback itself only touches numeric
+fields, so this is purely a concern for callers that pass
+``config.noise`` wholesale into ``optax``.
 
 **Preparation steps (native).**
 
@@ -336,16 +376,17 @@ def prepare(
     for name, external in network.externals.items():
         config.external[name] = external.params
 
-    # Add noise params and samples if stochastic
+    # Add noise params and (optional) sample-injection slot if stochastic.
+    # By default the full Brownian-increment tensor is materialised inside
+    # _f via a single jax.random.normal(config.noise.key, ...) call, which
+    # XLA fuses with the downstream scan. Users who want to inject a
+    # pre-sampled trajectory (e.g. for NumPyro inference over Brownian
+    # increments) can populate config._internal.noise_samples; the scan
+    # branches on its presence at trace time.
     if network.noise is not None:
         config.noise = network.noise.params
-        n_steps = len(time_steps)
-        n_nodes = network.graph.n_nodes
-        n_noise_states = len(network.noise._state_indices)
-        noise_shape = (n_steps, n_noise_states, n_nodes)
-        config._internal.noise_samples = network.noise.generate_noise_samples(
-            noise_shape
-        )
+        config.noise.key = network.noise.key
+        config._internal.noise_samples = None
 
     # =========================================================================
     # PRE-COMPILE COUPLING COMPUTATION CLOSURE
@@ -363,6 +404,9 @@ def prepare(
             coupling_list.append((name, None, None))
 
     n_nodes = network.graph.n_nodes
+    n_noise_states = (
+        len(network.noise._state_indices) if network.noise is not None else 0
+    )
 
     def compute_all_couplings(
         t, network_state, coupling_state_dict, config, coupling_data_dict
@@ -530,6 +574,10 @@ def prepare(
         _all_variable_names[i] for i in voi_indices if i < n_states
     ) + tuple(_all_variable_names[i] for i in voi_indices if i >= n_states)
 
+    # Static shape for the full per-call noise tensor.
+    n_steps = len(time_steps)
+    noise_samples_shape = (n_steps, n_noise_states, n_nodes)
+
     def _f(config):
         """Pure integration function."""
         state0 = config.initial_state
@@ -538,6 +586,23 @@ def prepare(
         # This allows parameter-dependent quantities (e.g. W_eff = W * wLRE) to
         # be computed with gradient flow while avoiding per-step redundancy.
         enriched = precompute_all_couplings(config)
+
+        # Materialize the full noise trajectory once per call. Trace-time
+        # branch: if the injection slot is None, sample from config.noise.key
+        # in a single PRNG call (XLA fuses this with the downstream scan);
+        # otherwise use the user-provided tensor verbatim. This avoids the
+        # per-step PRNG cost of an in-scan fold_in while preserving the
+        # seed-scan API (vary config.noise.key per call) and the injection
+        # path (set config._internal.noise_samples).
+        if network.noise is not None:
+            if config._internal.noise_samples is None:
+                noise_samples_all = jax.random.normal(
+                    config.noise.key, noise_samples_shape
+                )
+            else:
+                noise_samples_all = config._internal.noise_samples
+        else:
+            noise_samples_all = None
 
         def op(state, inputs):
             """Single integration step.
@@ -581,8 +646,8 @@ def prepare(
             # Prepare noise sample if stochastic
             noise_sample = jnp.zeros_like(state.dynamics)
             if network.noise is not None:
-                # Get pre-generated noise for this timestep
-                noise = config._internal.noise_samples[step_idx]
+                # Single indexed read into the per-call noise tensor.
+                noise = noise_samples_all[step_idx]
 
                 # Compute diffusion coefficient
                 diffusion = network.noise.diffusion(t, state.dynamics, config.noise)
@@ -852,24 +917,22 @@ def prepare(
     # =========================================================================
 
     has_noise = network.noise is not None
-    brownian_motion = None
+    brownian_tol = None
+    n_brownian = None
     if has_noise:
         noise_state_indices = network.noise._state_indices
         n_noise_states = len(noise_state_indices)
         n_brownian = n_noise_states * n_nodes
+        brownian_tol = dt * 0.01
 
         compute_diffusion_matrix = _make_diffusion_matrix_fn(
             network.noise.diffusion, noise_state_indices, n_states, n_nodes
         )
 
-        # Brownian motion is static (depends only on t0, t1, dt, key)
-        brownian_motion = diffrax.VirtualBrownianTree(
-            t0=t0,
-            t1=t1,
-            tol=dt * 0.01,
-            shape=(n_brownian,),
-            key=network.noise.key,
-        )
+        # Expose the PRNG key on the config so callers can swap seeds per
+        # call (mirroring the native dispatch). The VirtualBrownianTree is
+        # rebuilt inside _f from config.noise.key — see the rationale below.
+        config.noise.key = network.noise.key
 
     # =========================================================================
     # COMPUTE EFFECTIVE SAVE DT FROM SAVEAT
@@ -920,6 +983,19 @@ def prepare(
 
         # Combine terms
         if has_noise:
+            # Rebuild the VirtualBrownianTree inside _f so the PRNG key is
+            # drawn from the runtime config rather than captured as a
+            # closure variable. This lets callers swap config.noise.key
+            # per call (e.g. via eqx.tree_at + jax.vmap) without
+            # re-`prepare`-ing the entire solve function.
+            brownian_motion = diffrax.VirtualBrownianTree(
+                t0=t0,
+                t1=t1,
+                tol=brownian_tol,
+                shape=(n_brownian,),
+                key=config.noise.key,
+            )
+
             # SDE: build diffusion term inside _f so it uses runtime config
             def diffusion_vector_field(t, y, args):
                 return compute_diffusion_matrix(t, y, config.noise)
@@ -1015,14 +1091,19 @@ def prepare(
     )
 
     # ---- Noise setup ----
+    # Noise increments are materialised inside _f via a single
+    # jax.random.normal(config.noise.key, ...) call, which XLA fuses
+    # with the downstream scan. Users can override by populating
+    # config._internal.noise_samples with a pre-sampled trajectory; the
+    # scan branches on its presence at trace time.
     has_noise = noise is not None
     if has_noise:
         noise._state_indices = noise._resolve_state_indices(dynamics)
         noise_state_indices = noise._state_indices
         config.noise = noise.params
+        config.noise.key = noise.key
+        config._internal.noise_samples = None
         n_noise_states = len(noise_state_indices)
-        noise_shape = (n_steps, n_noise_states, n_nodes)
-        config._internal.noise_samples = noise.generate_noise_samples(noise_shape)
         noise_diffusion = noise.diffusion
 
     # ---- External inputs setup ----
@@ -1097,8 +1178,25 @@ def prepare(
         _all_variable_names[i] for i in voi_indices if i < n_states
     ) + tuple(_all_variable_names[i] for i in voi_indices if i >= n_states)
 
+    # Static shape for the full per-call noise tensor.
+    noise_samples_shape = (n_steps, n_noise_states, n_nodes) if has_noise else None
+
     def _f(config):
         """Pure integration function for bare dynamics."""
+
+        # Materialize the full noise trajectory once per call. See the
+        # network+native dispatch for the rationale; the trace-time branch
+        # on the injection slot keeps both seed-scan and explicit-replay
+        # workflows on the same scan body.
+        if has_noise:
+            if config._internal.noise_samples is None:
+                noise_samples_all = jax.random.normal(
+                    config.noise.key, noise_samples_shape
+                )
+            else:
+                noise_samples_all = config._internal.noise_samples
+        else:
+            noise_samples_all = None
 
         def op(carry, scan_input):
             t = scan_input[0]
@@ -1120,9 +1218,9 @@ def prepare(
                     ext_inputs = zero_external
                 return dynamics_fn(t_inner, s, params, zero_coupling, ext_inputs)
 
-            # Noise
+            # Noise: single indexed read into the per-call tensor.
             if has_noise:
-                noise_raw = config._internal.noise_samples[step_idx]
+                noise_raw = noise_samples_all[step_idx]
                 diffusion = noise_diffusion(t, state, config.noise)
                 scaled_noise = diffusion * jnp.sqrt(dt) * noise_raw
                 noise_sample = jnp.zeros_like(state)
@@ -1222,24 +1320,19 @@ def prepare(
 
     # ---- Noise setup ----
     has_noise = noise is not None
-    brownian_motion = None
+    brownian_tol = None
+    n_brownian = None
     if has_noise:
         noise._state_indices = noise._resolve_state_indices(dynamics)
         noise_state_indices = noise._state_indices
         config.noise = noise.params
+        config.noise.key = noise.key
         n_noise_states = len(noise_state_indices)
         n_brownian = n_noise_states * n_nodes
+        brownian_tol = dt * 0.01
 
         compute_diffusion_matrix = _make_diffusion_matrix_fn(
             noise.diffusion, noise_state_indices, n_states, n_nodes
-        )
-
-        brownian_motion = diffrax.VirtualBrownianTree(
-            t0=t0,
-            t1=t1,
-            tol=dt * 0.01,
-            shape=(n_brownian,),
-            key=noise.key,
         )
 
     # ---- External inputs setup ----
@@ -1302,6 +1395,16 @@ def prepare(
         drift_term = diffrax.ODETerm(vector_field)
 
         if has_noise:
+            # Rebuild the VirtualBrownianTree per call so it draws its key
+            # from config.noise.key — see the Network+Diffrax dispatch for
+            # the rationale.
+            brownian_motion = diffrax.VirtualBrownianTree(
+                t0=t0,
+                t1=t1,
+                tol=brownian_tol,
+                shape=(n_brownian,),
+                key=config.noise.key,
+            )
 
             def diffusion_vector_field(t, y, args):
                 return compute_diffusion_matrix(t, y, config.noise)

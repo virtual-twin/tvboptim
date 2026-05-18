@@ -68,3 +68,6 @@ docs/_styles-quartodoc.css
 .DS_Store?
 ._*
 Thumbs.db
+
+# AI Skills
+src/tvboptim/claude/skills

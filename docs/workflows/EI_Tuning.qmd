@@ -531,9 +531,9 @@ def run_fic_tuning():
         # Update initial conditions for next iteration
         state_fic.initial_state.dynamics = raw_result.data[-1]
 
-        # Update noise realization
+        # Update noise realization: swap the in-scan PRNG key.
         key, subkey = jax.random.split(key, 2)
-        state_fic._internal.noise_samples = jax.random.normal(key=subkey, shape=state_fic._internal.noise_samples.shape)
+        state_fic.noise.key = subkey
 
         # Apply FIC update rule
         state_fic.dynamics.J_i = FIC_update_rule(state_fic.dynamics.J_i, raw_result.data, eta_fic=eta_fic, target_fic=target_fic)
@@ -744,9 +744,9 @@ def run_eib_tuning():
         # 5. Update initial conditions for next simulation
         state_ei.initial_state.dynamics = raw_result.data[-1]
 
-        # 6. Update noise realization
+        # 6. Update noise realization: swap the in-scan PRNG key.
         key, subkey = jax.random.split(key, 2)
-        state_ei._internal.noise_samples = jax.random.normal(key=subkey, shape=state_ei._internal.noise_samples.shape)
+        state_ei.noise.key = subkey
 
         # 7. Apply FIC update (every iteration)
         state_ei.dynamics.J_i = FIC_update_rule(

@@ -212,6 +212,155 @@ class TestBasicNetworks(unittest.TestCase):
         self.assertAlmostEqual(float(result_b.ts[0]), t0b + dt, places=10)
         self.assertAlmostEqual(float(result_b.ts[-1]), t0b + 10.0, places=10)
 
+    def test_noise_key_drives_in_scan_sampling(self):
+        """config.noise.key controls in-scan noise generation.
+
+        Same key → identical trajectory; different key → divergent trajectory;
+        vmap over keys yields a batched run without re-preparing.
+        """
+        weights = jnp.ones((3, 3)) - jnp.eye(3)
+        graph = DenseGraph(weights)
+        network = Network(
+            dynamics=ReducedWongWang(),
+            coupling={"instant": LinearCoupling(incoming_states="S", G=0.0)},
+            graph=graph,
+            noise=AdditiveNoise(sigma=1e-3, key=jax.random.key(0)),
+        )
+
+        solve_fn, cfg = prepare(network, Heun(), t0=0.0, t1=5.0, dt=0.1)
+
+        # The lazy path is the default; injection slot is None.
+        self.assertIsNone(cfg._internal.noise_samples)
+
+        # Same key → deterministic.
+        r_a = solve_fn(cfg)
+        r_b = solve_fn(cfg)
+        self.assertTrue(jnp.allclose(r_a.ys, r_b.ys))
+
+        # Different key → divergent (replace via tree_at rather than mutation).
+        import equinox as eqx
+
+        cfg_alt = eqx.tree_at(lambda c: c.noise.key, cfg, jax.random.key(1))
+        r_alt = solve_fn(cfg_alt)
+        self.assertFalse(jnp.allclose(r_a.ys, r_alt.ys))
+
+        # vmap over keys: no wrapper, no re-prepare.
+        def with_seed(seed, base):
+            return eqx.tree_at(lambda c: c.noise.key, base, jax.random.key(seed))
+
+        seeds = jnp.arange(4)
+        cfgs = jax.vmap(with_seed, in_axes=(0, None))(seeds, cfg)
+        ys = jax.vmap(solve_fn)(cfgs).ys
+        self.assertEqual(ys.shape[0], 4)
+        # At least one pair of seeds must diverge.
+        self.assertTrue(jnp.any(ys[0] != ys[1]))
+
+    def test_noise_injection_matches_key_path(self):
+        """Injected noise tensor reproduces the key-driven trajectory.
+
+        Guards the NumPyro / replay contract: when the injection slot is
+        populated with the same Gaussian tensor that the in-call PRNG
+        would have produced, both paths must yield bit-identical outputs.
+        """
+        import equinox as eqx
+
+        weights = jnp.ones((3, 3)) - jnp.eye(3)
+        graph = DenseGraph(weights)
+        network = Network(
+            dynamics=ReducedWongWang(),
+            coupling={"instant": LinearCoupling(incoming_states="S", G=0.0)},
+            graph=graph,
+            noise=AdditiveNoise(sigma=1e-3, key=jax.random.key(7)),
+        )
+
+        solve_fn, cfg = prepare(network, Heun(), t0=0.0, t1=5.0, dt=0.1)
+
+        # Key-driven baseline.
+        r_key = solve_fn(cfg)
+
+        # Pre-sample the exact tensor the in-call PRNG would have used,
+        # inject it, and run again.
+        n_steps = int(round((5.0 - 0.0) / 0.1))
+        n_noise_states = len(network.noise._state_indices)
+        n_nodes = network.graph.n_nodes
+        samples = jax.random.normal(
+            cfg.noise.key, (n_steps, n_noise_states, n_nodes)
+        )
+        cfg_inj = eqx.tree_at(
+            lambda c: c._internal.noise_samples,
+            cfg,
+            samples,
+            is_leaf=lambda x: x is None,
+        )
+        r_inj = solve_fn(cfg_inj)
+
+        self.assertTrue(jnp.array_equal(r_key.ys, r_inj.ys))
+
+        # Sanity: an unrelated injected tensor diverges from the key path.
+        other = jax.random.normal(
+            jax.random.key(99), (n_steps, n_noise_states, n_nodes)
+        )
+        cfg_other = eqx.tree_at(
+            lambda c: c._internal.noise_samples,
+            cfg,
+            other,
+            is_leaf=lambda x: x is None,
+        )
+        r_other = solve_fn(cfg_other)
+        self.assertFalse(jnp.allclose(r_key.ys, r_other.ys))
+
+    def test_diffrax_noise_key_swap_no_reprepare(self):
+        """Diffrax path: config.noise.key controls the VirtualBrownianTree.
+
+        After the refactor the BrownianTree is built per call from
+        config.noise.key, so swapping the key in the config (no re-prepare)
+        must change the realisation. Same key must replay; vmap over keys
+        must produce a batched output.
+        """
+        import diffrax
+        import equinox as eqx
+
+        from tvboptim.experimental.network_dynamics.solvers import DiffraxSolver
+
+        weights = jnp.ones((3, 3)) - jnp.eye(3)
+        graph = DenseGraph(weights)
+        network = Network(
+            dynamics=ReducedWongWang(),
+            coupling={"instant": LinearCoupling(incoming_states="S", G=0.0)},
+            graph=graph,
+            noise=AdditiveNoise(sigma=1e-3, key=jax.random.key(0)),
+        )
+
+        t0, t1, dt = 0.0, 5.0, 0.1
+        saveat = diffrax.SaveAt(ts=jnp.linspace(t0 + dt, t1, 50))
+        solver = DiffraxSolver(solver=diffrax.Heun(), saveat=saveat)
+
+        solve_fn, cfg = prepare(network, solver, t0=t0, t1=t1, dt=dt)
+
+        # No injection slot on the Diffrax dispatch.
+        self.assertFalse(hasattr(cfg._internal, "noise_samples"))
+
+        # Same key → identical trajectory.
+        r_a = solve_fn(cfg)
+        r_b = solve_fn(cfg)
+        self.assertTrue(jnp.allclose(r_a.ys, r_b.ys, equal_nan=True))
+
+        # Different key → divergent trajectory, no re-prepare.
+        cfg_alt = eqx.tree_at(lambda c: c.noise.key, cfg, jax.random.key(1))
+        r_alt = solve_fn(cfg_alt)
+        finite = jnp.isfinite(r_a.ys) & jnp.isfinite(r_alt.ys)
+        self.assertTrue(jnp.any(r_a.ys[finite] != r_alt.ys[finite]))
+
+        # vmap over keys.
+        def with_seed(seed, base):
+            return eqx.tree_at(lambda c: c.noise.key, base, jax.random.key(seed))
+
+        seeds = jnp.arange(4)
+        cfgs = jax.vmap(with_seed, in_axes=(0, None))(seeds, cfg)
+        ys = jax.vmap(solve_fn)(cfgs).ys
+        self.assertEqual(ys.shape[0], 4)
+        self.assertTrue(jnp.any(ys[0] != ys[1]))
+
     def test_gradient_computation(self):
         """Test that gradients can be computed through the model."""
 

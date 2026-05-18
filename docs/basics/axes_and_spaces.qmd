@@ -1036,4 +1036,50 @@ print("✓ Parallel execution: vectorizes over any parameter combination")
 print("✓ Results: same access patterns regardless of execution type")
 ```
 
+# Scanning Noise Seeds for Stochastic Simulations
+
+When the model is stochastic (a `Network` with an `AbstractNoise` attached, integrated with a native solver), the PRNG key that drives the per-step noise increments lives at `config.noise.key`. Because the key is a regular leaf on the prepared config, you can place an axis on it the same way you place axes on any other parameter — no wrapper function, no per-point key swapping. The axis system substitutes the leaf with the per-point value before each call.
+
+```{python}
+#| eval: false
+import copy
+from tvboptim.execution import ParallelExecution
+from tvboptim.experimental.network_dynamics import Network, prepare
+from tvboptim.experimental.network_dynamics.dynamics.tvb import ReducedWongWang
+from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
+from tvboptim.experimental.network_dynamics.graph import DenseGraph
+from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
+from tvboptim.experimental.network_dynamics.solvers import Heun
+
+# Prepare once. The returned config carries config.noise.key.
+n_nodes = 8
+network = Network(
+    dynamics=ReducedWongWang(),
+    coupling={'instant': LinearCoupling(incoming_states='S', G=0.5)},
+    graph=DenseGraph(jnp.ones((n_nodes, n_nodes)) - jnp.eye(n_nodes)),
+    noise=AdditiveNoise(sigma=1e-3, key=jax.random.key(0)),
+)
+solve_fn, base_cfg = prepare(network, Heun(), t0=0.0, t1=10.0, dt=0.1)
+
+# Attach the axes directly to the config — the leaves they target are
+# substituted with per-point values at execution time.
+grid_state = copy.deepcopy(base_cfg)
+grid_state.coupling.instant.G = GridAxis(0.3, 1.5, 8)                       # Coupling sweep
+grid_state.noise.key          = DataAxis(jax.random.split(jax.random.key(0), 8))  # Noise replicates
+
+space = Space(grid_state, mode='product')
+
+def observation(cfg):
+    return solve_fn(cfg).ys.mean()
+
+observations = ParallelExecution(observation, space, n_vmap=8, n_pmap=1).run()
+```
+
+Two things to know:
+
+- **No re-`prepare` per seed.** The PRNG key is a config leaf, so the axis system substitutes it like any other parameter. `jax.vmap` over the resulting key batch dimension batches the single `jax.random.normal(config.noise.key, ...)` call inside the solve function, with no compile churn beyond the initial JIT.
+- **Common random numbers across parameter sweeps.** Place the `DataAxis` of keys on its own (so it shares one key across all `G` values), or use `mode='zip'` to pair them — every `G` point then sees the same realised noise trajectory. This is the classic variance-reduction trick for finite-difference sensitivity estimates.
+
+For workflows that need the increments materialised as an addressable tensor (NumPyro inference over Brownian increments, deterministic replay of a recorded trajectory), populate `config._internal.noise_samples` with an array of shape `[n_steps, n_noise_states, n_nodes]`. The scan branches on this field at trace time and uses it in place of in-scan sampling. Flipping between `None` and an array triggers a one-time JIT retrace. The injection slot is native-only — the Diffrax dispatch supports the same `config.noise.key` swap pattern shown above, but its `VirtualBrownianTree` cannot consume a pre-sampled array.
+
 This execution system provides the final piece of the TVB-Optim parameter exploration pipeline - taking your carefully designed parameter spaces and efficiently computing results across all combinations, whether you need the control of sequential execution or the speed of parallel execution.
