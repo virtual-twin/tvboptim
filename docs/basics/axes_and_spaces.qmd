@@ -14,18 +14,11 @@ execute:
 
 # Introduction & Overview
 
-The Axes and Spaces system in TVB-Optim provides a powerful, composable framework for systematic parameter exploration in brain network simulations. This system enables you to:
+The Axes and Spaces system is a generic parameter exploration framework for JAX-based models. It operates on [JAX pytrees](https://jax.readthedocs.io/en/latest/pytrees.html) — any nested container JAX can traverse: plain dicts, lists, dataclasses, NamedTuples, or the config objects returned by `prepare`. Replace any leaf with an axis, pass the container to `Space`, and you get a sequence of fully-resolved parameter combinations ready to run.
 
-- **Define parameter sampling strategies** using different axis types
-- **Compose complex parameter spaces** from multiple axes
-- **Leverage JAX transformations** for efficient parallel execution
-- **Seamlessly integrate** with optimization and analysis workflows
+The examples in this section use plain dicts to keep the mechanics visible. The execution section applies the same system to a real brain network model config.
 
-## Why This Design?
-
-Traditional parameter exploration often requires writing custom loops and managing complex indexing. TVB-Optim's axis system provides a flexible and composable approach to make things easier.
-
-Let's start with a quick preview of what we'll build:
+Traditional parameter exploration means writing custom loops and managing array indexing by hand. The axis system handles both.
 
 ```{python}
 import jax
@@ -34,7 +27,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tvboptim.types.spaces import Space, GridAxis, UniformAxis, DataAxis, NumPyroAxis
 
-# Quick preview: A mixed parameter space
+# Any pytree works — here a plain dict with two axes and one fixed value
 preview_state = {
     'coupling_strength': GridAxis(0.0, 2.0, 4),
     'noise_level': UniformAxis(0.01, 0.1, 3),
@@ -42,9 +35,8 @@ preview_state = {
 }
 
 space = Space(preview_state, mode='product', key=jax.random.key(123))
-print(f"Created parameter space with {len(space)} combinations")
+print(f"Parameter space: {len(space)} combinations")
 
-# Show first few parameter combinations
 for i, params in enumerate(space):
     if i >= 5: break
     print(f"Combination {i}: coupling={params['coupling_strength']:.2f}, "
@@ -55,13 +47,13 @@ for i, params in enumerate(space):
 
 ## The AbstractAxis Interface
 
-All axes in TVB-Optim implement a simple but powerful interface:
+All axes share the same two-method interface:
 
-- **`generate_values(key=None)`**: Produces sample values as JAX arrays
-- **`size`**: Returns the number of samples this axis generates
+- **`generate_values(key=None)`**: Returns sample values as a JAX array
+- **`size`**: Number of samples this axis generates
 
 ```{python}
-# Let's examine the interface
+# Examine the interface
 from tvboptim.types.spaces import GridAxis
 
 grid = GridAxis(0.0, 1.0, 5)
@@ -70,11 +62,11 @@ print(f"Generated values: {grid.generate_values()}")
 print(f"Values shape: {grid.generate_values().shape}")
 ```
 
-Each axis type can implement completely different sampling strategies while maintaining a consistent interface.
+Each axis type uses a different sampling strategy; the interface is always the same.
 
 ## GridAxis - Deterministic Sampling
 
-GridAxis provides systematic, deterministic sampling across parameter ranges. Perfect for sensitivity analysis and systematic exploration.
+GridAxis samples a deterministic grid across a parameter range — identical values every run, no randomness.
 
 ```{python}
 # Basic grid sampling
@@ -124,9 +116,9 @@ plt.tight_layout()
 plt.show()
 ```
 
-### Shape Broadcasting with GridAxis
+### Shape Broadcasting
 
-GridAxis supports shape broadcasting, which is useful for regional brain parameters in subsequent optimizations:
+GridAxis (and UniformAxis) support a `shape` parameter. Each sample becomes a constant array of that shape — useful for parameters that are shared uniformly across brain regions:
 
 ```{python}
 # Example: Regional coupling strengths (68 brain regions)
@@ -167,7 +159,7 @@ plt.show()
 
 ## UniformAxis - Random Sampling
 
-UniformAxis provides random sampling from uniform distributions, essential for more efficient stochastic exploration.
+UniformAxis draws samples uniformly at random. Pass the same key and you get identical values.
 
 ```{python}
 # Reproducible random sampling
@@ -216,33 +208,6 @@ ax2.grid(True, alpha=0.3)
 
 plt.tight_layout()
 plt.show()
-```
-
-### Shape Broadcasting with UniformAxis
-
-UniformAxis also supports shape broadcasting, useful for parameters that need the same random value across multiple dimensions:
-
-```{python}
-# Compare independent vs broadcast sampling
-key = jax.random.key(123)
-
-# Independent sampling: each element is different
-uniform_independent = UniformAxis(0.0, 1.0, 3, shape=None)
-independent_values = uniform_independent.generate_values(key)
-
-# Broadcast sampling: same value across shape dimensions
-uniform_broadcast = UniformAxis(0.0, 1.0, 3, shape=(4, 2))
-broadcast_values = uniform_broadcast.generate_values(key)
-
-print("Independent sampling:")
-print(f"Shape: {independent_values.shape}")
-print(f"Values: {independent_values}")
-
-print("\nBroadcast sampling:")
-print(f"Shape: {broadcast_values.shape}")
-print("First sample (4x2 matrix):")
-print(broadcast_values[0])
-print(f"All values in first sample identical: {jnp.allclose(broadcast_values[0], broadcast_values[0].flatten()[0])}")
 ```
 
 ## DataAxis - Predefined Values
@@ -326,7 +291,7 @@ plt.show()
 
 ## NumPyroAxis - Distribution Sampling
 
-NumPyroAxis brings the full power of probability distributions to parameter exploration, enabling sophisticated uncertainty quantification and Bayesian workflows.
+NumPyroAxis wraps any NumPyro distribution, making it a natural fit for Bayesian workflows and uncertainty quantification.
 
 ```{python}
 import numpyro.distributions as dist
@@ -464,7 +429,7 @@ plt.show()
 
 ## Basic Space Creation
 
-The `Space` class is where the magic happens - it takes a state tree containing axes and fixed values, then creates all possible parameter combinations according to your specified strategy.
+Space takes a state tree — axes where you want variation, plain values where you don't — and generates all parameter combinations from it.
 
 ```{python}
 # Create a realistic brain simulation parameter space
@@ -507,7 +472,7 @@ for i, params in enumerate(space):
 The two combination modes serve different exploration strategies:
 
 ### Product Mode (Cartesian Product)
-Perfect for **systematic exploration** - tests every combination of parameter values.
+Tests every combination of parameter values. Use this for systematic exploration.
 
 ```{python}
 # Product mode: systematic exploration
@@ -525,7 +490,7 @@ for i, params in enumerate(product_space):
 ```
 
 ### Zip Mode (Parallel Sampling)
-Perfect for **matched sampling** - pairs corresponding elements from each axis.
+Pairs corresponding elements from each axis. Use this when parameters must move together.
 
 ```{python}
 # Zip mode: matched sampling
@@ -619,60 +584,25 @@ Groups work across subtrees -- grouped axes don't need to be co-located in the s
 
 ## Iteration & Access Patterns
 
-Space provides flexible ways to access parameter combinations:
+Space supports standard Python iteration, integer indexing (including negative), and slicing. Slices return a new Space.
 
 ```{python}
-# Create a space for demonstration
 demo_state = {
     'coupling': GridAxis(0.0, 1.0, 6),
     'noise': UniformAxis(0.01, 0.1, 6),
-    'threshold': 0.5  # Fixed value
+    'threshold': 0.5
 }
-
 demo_space = Space(demo_state, mode='zip', key=jax.random.key(42))
-print(f"Demo space has {len(demo_space)} combinations")
-```
 
-### Sequential Iteration
-
-```{python}
-# Standard iteration - perfect for simulations
-print("Sequential iteration (first 3):")
+# Iterate
 for i, params in enumerate(demo_space):
     if i >= 3: break
-    print(f"  Run {i}: coupling={params['coupling']:.2f}, "
-          f"noise={params['noise']:.4f}")
-```
+    print(f"  {i}: coupling={params['coupling']:.2f}, noise={params['noise']:.4f}")
 
-### Random Access
-
-```{python}
-# Direct indexing - great for debugging specific combinations
-print("Random access examples:")
-print(f"  Combination 0: coupling = {demo_space[0]['coupling']:.3f}")
-print(f"  Combination 2: coupling = {demo_space[2]['coupling']:.3f}")
-print(f"  Last combination: coupling = {demo_space[-1]['coupling']:.3f}")
-
-# Negative indexing works too
-print(f"  Second to last: coupling = {demo_space[-2]['coupling']:.3f}")
-```
-
-### Slicing for Subset Analysis
-
-```{python}
-# Slicing creates new spaces - perfect for subset analysis
+# Index and slice
+print(demo_space[0]['coupling'], demo_space[-1]['coupling'])
 subset = demo_space[1:4]
-print(f"Subset contains {len(subset)} combinations")
-
-print("Subset combinations:")
-for i, params in enumerate(subset):
-    print(f"  Original index {i+1}: coupling={params['coupling']:.3f}")
-
-# Slicing with steps
-every_other = demo_space[::2]
-print(f"\nEvery other combination ({len(every_other)} total):")
-for i, params in enumerate(every_other):
-    print(f"  Index {i}: coupling={params['coupling']:.3f}")
+print(f"Subset: {len(subset)} combinations")
 ```
 
 ### Converting to DataFrames
@@ -725,109 +655,68 @@ Nested state structures produce dot-separated column names (e.g. `model.G`, `noi
 
 # Execution: Running Functions Over Spaces
 
-Now that we understand how to create and manipulate parameter spaces, let's see how to actually execute functions over them. TVB-Optim provides two execution strategies through `SequentialExecution` and `ParallelExecution` classes.
+The axis and space system works with any pure JAX function — not just TVB network models. The examples here use a real brain network, which is the typical use case.
+
+```{python}
+import copy
+from tvboptim.execution import SequentialExecution, ParallelExecution
+from tvboptim.experimental.network_dynamics import Network, prepare
+from tvboptim.experimental.network_dynamics.dynamics.tvb import ReducedWongWang
+from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
+from tvboptim.experimental.network_dynamics.graph import DenseGraph
+from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
+from tvboptim.experimental.network_dynamics.solvers import Heun
+
+n_nodes = 8
+network = Network(
+    dynamics=ReducedWongWang(),
+    coupling={'instant': LinearCoupling(incoming_states='S', G=0.5)},
+    graph=DenseGraph(jnp.ones((n_nodes, n_nodes)) - jnp.eye(n_nodes)),
+    noise=AdditiveNoise(sigma=1e-3, key=jax.random.key(0)),
+)
+solve_fn, base_cfg = prepare(network, Heun(), t0=0.0, t1=5.0, dt=0.1)
+print(f"Prepared: {n_nodes}-node RWW network, {int(5.0/0.1)} time steps")
+```
+
+`prepare` returns a compiled solve function and a config object. Axes attach directly to config leaves — `solve_fn` stays constant across the whole sweep.
+
+```{python}
+def observe(cfg):
+    ys = solve_fn(cfg).ys  # shape: [n_steps, n_state_vars, n_nodes]
+    return {'mean_S': ys.mean(), 'std_S': ys.std()}
+```
 
 ## Sequential Execution
 
-Sequential execution processes parameter combinations one at a time, making it ideal for debugging, memory-constrained environments, or when you need full control over execution order.
+Sequential execution processes one parameter combination at a time. Use it for debugging, memory-constrained environments, or when your model doesn't vectorize cleanly.
 
 ```{python}
-from tvboptim.execution import SequentialExecution
+seq_state = copy.deepcopy(base_cfg)
+seq_state.coupling.instant.G = GridAxis(0.1, 1.0, 8)
 
-# Define a simple brain simulation model
-def brain_simulation(state, noise_factor=1.0):
-    """
-    Simple brain simulation that combines coupling and noise.
-    Returns both simulation results and metadata.
-    """
-    coupling = state['coupling']
-    noise = state['noise'] * noise_factor
+seq_space = Space(seq_state, mode='product')
+seq_results = SequentialExecution(observe, seq_space).run()
 
-    # Simulate some dynamics (simplified for demonstration)
-    activity = coupling * jnp.sin(jnp.linspace(0, 4*jnp.pi, 100)) + noise * jax.random.normal(jax.random.key(42), shape=(100,))
-
-    # Calculate some metrics
-    mean_activity = jnp.mean(activity)
-    peak_activity = jnp.max(activity)
-
-    return {
-        'activity': activity,
-        'metrics': {
-            'mean': mean_activity,
-            'peak': peak_activity,
-            'coupling_used': coupling,
-            'noise_used': noise
-        }
-    }
-
-# Create a parameter space for our simulation
-simulation_state = {
-    'coupling': GridAxis(0.2, 1.5, 4),
-    'noise': UniformAxis(0.01, 0.1, 4),
-    'fixed_param': 42.0
-}
-
-space = Space(simulation_state, mode='zip', key=jax.random.key(123))
-print(f"Parameter space: {len(space)} combinations")
-
-# Set up sequential execution
-sequential_executor = SequentialExecution(
-    model=brain_simulation,
-    statespace=space,
-    noise_factor=1.5  # Additional parameter passed to model
-)
-
-print("\nExecuting simulations sequentially...")
-```
-
-```{python}
-# Run the sequential execution (with progress bar)
-sequential_results = sequential_executor.run()
-
-print(f"Execution complete! Got {len(sequential_results)} results")
-
-# Access results
-first_result = sequential_results[0]
-print(f"\nFirst result structure:")
-print(f"  Activity shape: {first_result['activity'].shape}")
-print(f"  Mean activity: {first_result['metrics']['mean']:.3f}")
-print(f"  Peak activity: {first_result['metrics']['peak']:.3f}")
-print(f"  Coupling used: {first_result['metrics']['coupling_used']:.3f}")
-
-# Analyze all results
-print(f"\nAll simulation metrics:")
-for i, result in enumerate(sequential_results):
-    metrics = result['metrics']
-    print(f"  Run {i}: coupling={metrics['coupling_used']:.2f}, "
-          f"noise={metrics['noise_used']:.4f}, mean={metrics['mean']:.3f}")
+df_seq = seq_results.to_dataframe()
+print(df_seq)
 ```
 
 ```{python}
 #| code-fold: true
 #| code-summary: "Show visualization code"
 
-# Visualize sequential execution results
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.1, 4))
 
-# Plot activity traces
-for i, result in enumerate(sequential_results):
-    activity = result['activity']
-    coupling = result['metrics']['coupling_used']
-    ax1.plot(activity[:50], alpha=0.7, label=f'Coupling={coupling:.2f}')
-
-ax1.set_xlabel('Time Steps')
-ax1.set_ylabel('Activity')
-ax1.set_title('Brain Activity Traces (First 50 Steps)')
-ax1.legend()
+ax1.plot(df_seq['coupling.instant.G'], df_seq['mean_S'], 'o-')
+ax1.set_xlabel('Coupling G')
+ax1.set_ylabel('Mean S')
+ax1.set_title('Mean activity vs coupling strength')
 ax1.grid(True, alpha=0.3)
 
-# Plot coupling vs mean activity relationship
-couplings = [r['metrics']['coupling_used'] for r in sequential_results]
-means = [r['metrics']['mean'] for r in sequential_results]
-ax2.scatter(couplings, means, s=100, alpha=0.7, color='blue')
-ax2.set_xlabel('Coupling Strength')
-ax2.set_ylabel('Mean Activity')
-ax2.set_title('Coupling vs Mean Activity')
+ax2.plot(df_seq['coupling.instant.G'], df_seq['std_S'], 'o-', color='orange')
+ax2.set_xlabel('Coupling G')
+ax2.set_ylabel('Std S')
+ax2.set_title('Activity variability vs coupling strength')
 ax2.grid(True, alpha=0.3)
 
 plt.tight_layout()
@@ -836,138 +725,61 @@ plt.show()
 
 ## Parallel Execution
 
-Parallel execution leverages JAX's `pmap` and `vmap` transformations for efficient vectorized computation across multiple devices. This is essential for large-scale parameter explorations.
+Parallel execution uses JAX's `pmap` and `vmap` for vectorized computation across multiple devices. With large parameter spaces, this is where the runtime difference becomes significant.
 
 ```{python}
-from tvboptim.execution import ParallelExecution
+par_state = copy.deepcopy(base_cfg)
+par_state.coupling.instant.G = GridAxis(0.1, 1.0, 8)
+par_state.noise.sigma = GridAxis(1e-4, 5e-3, 4)
 
-# Create a larger parameter space for parallel execution
-parallel_state = {
-    'coupling': GridAxis(0.1, 2.0, 8),
-    'noise': UniformAxis(0.005, 0.05, 8),
-    'threshold': 0.5  # Fixed parameter
-}
+par_space = Space(par_state, mode='product')  # 8 × 4 = 32 combinations
+print(f"Parameter space: {len(par_space)} combinations")
 
-parallel_space = Space(parallel_state, mode='product', key=jax.random.key(456))
-print(f"Larger parameter space: {len(parallel_space)} combinations")
-
-# Define a JAX-optimized model for parallel execution
-def fast_brain_model(state):
-    """
-    JAX-optimized brain model for parallel execution.
-    Simpler than sequential version for faster computation.
-    """
-    coupling = state['coupling']
-    noise = state['noise']
-
-    # Simplified dynamics that's faster to compute
-    base_activity = coupling * jnp.sin(jnp.arange(20) * 0.5)
-    noisy_activity = base_activity + noise * jax.random.normal(jax.random.key(123), shape=(20,))
-
-    return {
-        'mean_activity': jnp.mean(noisy_activity),
-        'max_activity': jnp.max(noisy_activity),
-        'params': state
-    }
-
-# Set up parallel execution
-n_devices = jax.device_count()
-print(f"Available devices: {n_devices}")
-
-parallel_executor = ParallelExecution(
-    model=fast_brain_model,
-    space=parallel_space,
-    n_vmap=8,  # Vectorize over 8 parameter combinations
-    n_pmap=1   # Use 1 device (can use more if available)
-)
-
-print("\nExecuting simulations in parallel...")
-```
-
-```{python}
-# Run parallel execution
-parallel_results = parallel_executor.run()
-
-print(f"Parallel execution complete! Got {len(parallel_results)} results")
-
-# Access results - same interface as sequential
-first_parallel = parallel_results[0]
-print(f"\nFirst parallel result:")
-print(f"  Mean activity: {first_parallel['mean_activity']:.3f}")
-print(f"  Max activity: {first_parallel['max_activity']:.3f}")
-print(f"  Coupling: {first_parallel['params']['coupling']:.3f}")
-
-# Get subset of results
-subset_results = parallel_results[5:15]
-print(f"\nSubset contains {len(subset_results)} results")
-
-# Analyze parameter-activity relationships
-couplings = [r['params']['coupling'] for r in parallel_results]
-means = [r['mean_activity'] for r in parallel_results]
-max_vals = [r['max_activity'] for r in parallel_results]
-
-print(f"\nParameter exploration summary:")
-print(f"  Coupling range: [{min(couplings):.2f}, {max(couplings):.2f}]")
-print(f"  Mean activity range: [{min(means):.3f}, {max(means):.3f}]")
-print(f"  Max activity range: [{min(max_vals):.3f}, {max(max_vals):.3f}]")
+par_results = ParallelExecution(observe, par_space, n_vmap=8, n_pmap=1).run()
+print(f"Done: {len(par_results)} results")
 ```
 
 ```{python}
 #| code-fold: true
 #| code-summary: "Show visualization code"
 
-# Visualize parallel execution results
-fig, axes = plt.subplots(2, 2, figsize=(8.1, 8))
+df_par = par_results.to_dataframe()
 
-# 1. Coupling vs Mean Activity
-ax = axes[0, 0]
-ax.scatter(couplings, means, alpha=0.6, s=30)
-ax.set_xlabel('Coupling Strength')
-ax.set_ylabel('Mean Activity')
-ax.set_title('Coupling vs Mean Activity')
-ax.grid(True, alpha=0.3)
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.1, 4))
 
-# 2. Noise vs Mean Activity
-noises = [r['params']['noise'] for r in parallel_results]
-ax = axes[0, 1]
-ax.scatter(noises, means, alpha=0.6, s=30, color='orange')
-ax.set_xlabel('Noise Level')
-ax.set_ylabel('Mean Activity')
-ax.set_title('Noise vs Mean Activity')
-ax.grid(True, alpha=0.3)
+for sigma, group in df_par.groupby('noise.sigma'):
+    ax1.plot(group['coupling.instant.G'], group['mean_S'],
+             'o-', alpha=0.7, label=f'σ={sigma:.4f}')
+ax1.set_xlabel('Coupling G')
+ax1.set_ylabel('Mean S')
+ax1.set_title('G sweep across noise amplitudes')
+ax1.legend(fontsize=8)
+ax1.grid(True, alpha=0.3)
 
-# 3. 2D parameter space visualization
-ax = axes[1, 0]
-scatter = ax.scatter(couplings, noises, c=means, cmap='viridis', s=50)
-ax.set_xlabel('Coupling Strength')
-ax.set_ylabel('Noise Level')
-ax.set_title('Parameter Space (colored by Mean Activity)')
-plt.colorbar(scatter, ax=ax)
-
-# 4. Mean vs Max Activity
-ax = axes[1, 1]
-ax.scatter(means, max_vals, alpha=0.6, s=30, color='red')
-ax.set_xlabel('Mean Activity')
-ax.set_ylabel('Max Activity')
-ax.set_title('Mean vs Max Activity Relationship')
-ax.grid(True, alpha=0.3)
+scatter = ax2.scatter(df_par['coupling.instant.G'], df_par['mean_S'],
+                      c=df_par['noise.sigma'], cmap='plasma', s=40)
+ax2.set_xlabel('Coupling G')
+ax2.set_ylabel('Mean S')
+ax2.set_title('Mean S across parameter space')
+plt.colorbar(scatter, ax=ax2, label='noise σ')
+ax2.grid(True, alpha=0.3)
 
 plt.tight_layout()
 plt.show()
 ```
 
-## Performance Comparison & Best Practices
+## Performance Comparison
+
+For trivial models the JIT and dispatch overhead of parallel execution outweighs the speedup — sequential wins at small scale. The crossover depends on model complexity and problem size.
 
 ```{python}
 import time
 
-# Compare execution times for different approaches
-small_state = {
+timing_state = {
     'param1': GridAxis(0.0, 1.0, 5),
     'param2': UniformAxis(0.0, 1.0, 5)
 }
-
-small_space = Space(small_state, mode='product', key=jax.random.key(789))
+timing_space = Space(timing_state, mode='product', key=jax.random.key(789))
 
 def simple_model(state):
     return {'result': state['param1'] * state['param2']}
@@ -975,27 +787,22 @@ def simple_model(state):
 print("Performance comparison on 25 parameter combinations:")
 print("=" * 55)
 
-# Sequential timing
-seq_exec = SequentialExecution(simple_model, small_space)
+seq_exec = SequentialExecution(simple_model, timing_space)
 start = time.time()
 seq_results = seq_exec.run()
 seq_time = time.time() - start
 print(f"Sequential execution: {seq_time:.4f} seconds")
 
-# Parallel timing
-par_exec = ParallelExecution(simple_model, small_space, n_vmap=5, n_pmap=1)
+par_exec = ParallelExecution(simple_model, timing_space, n_vmap=5, n_pmap=1)
 start = time.time()
 par_results = par_exec.run()
 par_time = time.time() - start
 print(f"Parallel execution:   {par_time:.4f} seconds")
 
 if seq_time > par_time:
-    speedup = seq_time / par_time
-    print(f"Parallel speedup:     {speedup:.1f}x faster")
+    print(f"Parallel speedup:     {seq_time / par_time:.1f}x faster")
 else:
     print("Sequential was faster (overhead dominates for small problems)")
-
-print(f"\nBoth produced {len(seq_results)} results")
 ```
 
 ### When to Use Each Approach
@@ -1012,28 +819,22 @@ print(f"\nBoth produced {len(seq_results)} results")
 - **Large parameter spaces**: Massive speedups for hundreds/thousands of combinations
 - **JAX-compatible models**: Models that can be easily vectorized
 - **Production runs**: When you need results fast
-- **Multi-device setups**: Can leverage multiple GPUs/TPUs
+- **Multi-device setups**: Can use multiple GPUs/TPUs
 
 ### Integration with Spaces
 
-Both execution types work seamlessly with all space features:
+Both execution types work with all space features. Any axis type can be placed on any config leaf:
 
 ```{python}
-# Works with any axis type
-complex_state = {
-    'coupling': NumPyroAxis(dist.Beta(2.0, 5.0), n=3),  # Probabilistic
-    'delay': DataAxis([5.0, 10.0, 15.0]),               # Specific values
-    'noise': GridAxis(0.01, 0.1, 3),                    # Systematic
-    'region_params': 68.0                               # Fixed value
-}
+mixed_state = copy.deepcopy(base_cfg)
+mixed_state.coupling.instant.G = NumPyroAxis(dist.Beta(2.0, 5.0), n=4)
+mixed_state.noise.sigma = DataAxis(jnp.array([1e-4, 5e-4, 1e-3]))
 
-complex_space = Space(complex_state, mode='product', key=jax.random.key(999))
-print(f"Complex space: {len(complex_space)} combinations")
+mixed_space = Space(mixed_state, mode='product', key=jax.random.key(0))
+print(f"{len(mixed_space)} combinations (4 coupling samples × 3 noise levels)")
 
-# Both executors handle this seamlessly
-print("✓ Sequential execution: handles any space complexity")
-print("✓ Parallel execution: vectorizes over any parameter combination")
-print("✓ Results: same access patterns regardless of execution type")
+result = SequentialExecution(observe, mixed_space).run()
+print(result.to_dataframe())
 ```
 
 # Scanning Noise Seeds for Stochastic Simulations
@@ -1041,27 +842,7 @@ print("✓ Results: same access patterns regardless of execution type")
 When the model is stochastic (a `Network` with an `AbstractNoise` attached, integrated with a native solver), the PRNG key that drives the per-step noise increments lives at `config.noise.key`. Because the key is a regular leaf on the prepared config, you can place an axis on it the same way you place axes on any other parameter — no wrapper function, no per-point key swapping. The axis system substitutes the leaf with the per-point value before each call.
 
 ```{python}
-#| eval: false
-import copy
-from tvboptim.execution import ParallelExecution
-from tvboptim.experimental.network_dynamics import Network, prepare
-from tvboptim.experimental.network_dynamics.dynamics.tvb import ReducedWongWang
-from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
-from tvboptim.experimental.network_dynamics.graph import DenseGraph
-from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
-from tvboptim.experimental.network_dynamics.solvers import Heun
-
-# Prepare once. The returned config carries config.noise.key.
-n_nodes = 8
-network = Network(
-    dynamics=ReducedWongWang(),
-    coupling={'instant': LinearCoupling(incoming_states='S', G=0.5)},
-    graph=DenseGraph(jnp.ones((n_nodes, n_nodes)) - jnp.eye(n_nodes)),
-    noise=AdditiveNoise(sigma=1e-3, key=jax.random.key(0)),
-)
-solve_fn, base_cfg = prepare(network, Heun(), t0=0.0, t1=10.0, dt=0.1)
-
-# Attach the axes directly to the config — the leaves they target are
+# Attach axes directly to the config — the leaves they target are
 # substituted with per-point values at execution time.
 grid_state = copy.deepcopy(base_cfg)
 grid_state.coupling.instant.G = GridAxis(0.3, 1.5, 8)                       # Coupling sweep
@@ -1081,5 +862,3 @@ Two things to know:
 - **Common random numbers across parameter sweeps.** Place the `DataAxis` of keys on its own (so it shares one key across all `G` values), or use `mode='zip'` to pair them — every `G` point then sees the same realised noise trajectory. This is the classic variance-reduction trick for finite-difference sensitivity estimates.
 
 For workflows that need the increments materialised as an addressable tensor (NumPyro inference over Brownian increments, deterministic replay of a recorded trajectory), populate `config._internal.noise_samples` with an array of shape `[n_steps, n_noise_states, n_nodes]`. The scan branches on this field at trace time and uses it in place of in-scan sampling. Flipping between `None` and an array triggers a one-time JIT retrace. The injection slot is native-only — the Diffrax dispatch supports the same `config.noise.key` swap pattern shown above, but its `VirtualBrownianTree` cannot consume a pre-sampled array.
-
-This execution system provides the final piece of the TVB-Optim parameter exploration pipeline - taking your carefully designed parameter spaces and efficiently computing results across all combinations, whether you need the control of sequential execution or the speed of parallel execution.
