@@ -195,6 +195,8 @@ covers:
 ```{python}
 #| echo: true
 #| output: false
+#| code-fold: true
+#| code-summary: "Benchmark Setup"
 
 # K = None is the baseline. The dense middle (128, 256, 512, 1024, 2048)
 # brackets sqrt(n_steps) so the U-shape near the minimum is well-resolved,
@@ -355,6 +357,7 @@ sweep_results = run_sweep()
 ```{python}
 #| label: fig-checkpoint-benchmark
 #| fig-cap: "**Gradient checkpointing benchmark.** Top row — *time*. Top-left: Forward and gradient wall time as a function of `checkpoint_every`; dotted horizontals mark the `None` baseline, dashed vertical marks `√n_steps`. Top-right: Per-call gradient-to-forward ratio. Bottom row — *memory*. Bottom-left: Peak RSS delta during a gradient call vs `checkpoint_every`, showing the `O(n_steps/K + K)` minimum near `√n_steps`. Bottom-right: Memory–time Pareto, with the `None` star at the low-time / high-memory extreme and checkpointed points tracing the front."
+#| echo: true
 #| code-fold: true
 #| code-summary: "Plotting code"
 
@@ -365,6 +368,7 @@ sqrt_n = np.sqrt(N_STEPS)
 # axis, only a horizontal-reference role. The Pareto panel keeps it as a
 # distinct star marker because its axes are (time, memory) and there is no
 # overlap risk.
+
 ck_labels = [l for l in sweep_results if l != "None"]
 xs_raw = np.array([float(l) for l in ck_labels])
 order = np.argsort(xs_raw)
@@ -690,6 +694,9 @@ or the device-memory delta if `jax.devices()[0].memory_stats()` is available
 
 ```{python}
 #| echo: true
+#| code-fold: true
+#| code-summary: "Table code"
+
 
 baseline = sweep_results["None"]
 header = (

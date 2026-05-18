@@ -5,6 +5,8 @@ project:
     - "*.qmd"
     - "!*.ipynb"  # Don't render notebooks (they're for Colab)
     - "!workflows/Hopf.qmd"  # Work in progress, excluded from builds
+    - "!workflows/Hopf_w_GenOpt.qmd"  # Work in progress, excluded from builds
+    - "!workflows/Hopf_Pareto_ParallelOpt.qmd"  # Work in progress, excluded from builds
   
 website:
   title: ""
@@ -73,6 +75,11 @@ format:
       toggle: true
     code-download: true
     highlight-style: github
+    lightbox: auto
+    grid:
+      body-width: 1000px
+      sidebar-width: 250px
+      margin-width: 250px
 
 quartodoc:
   render_interlinks: true
