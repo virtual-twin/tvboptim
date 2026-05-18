@@ -4,6 +4,7 @@ project:
   render:
     - "*.qmd"
     - "!*.ipynb"  # Don't render notebooks (they're for Colab)
+    - "!workflows/Hopf.qmd"  # Work in progress, excluded from builds
   
 website:
   title: ""
@@ -36,10 +37,9 @@ website:
           - file: network_dynamics/solvers.qmd
       - text: "Advanced Topics"
         menu:
-          - text: "Performance Tips"
           - file: advanced/buffer_strategies.qmd
+          - file: advanced/gradient_checkpointing.qmd
           - file: advanced/subspace_coupling.qmd
-          - text: "Constraining Parameters"
       - text: "Reference"
         file: reference/index.qmd
   # sidebar:
