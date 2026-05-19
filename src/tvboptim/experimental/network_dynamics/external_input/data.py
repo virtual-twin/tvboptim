@@ -187,6 +187,25 @@ class DataInput(AbstractExternalInput):
             # [n_times, n_dims, n_nodes] → [n_dims, n_nodes]
             return interpolated
 
+    def _plot_prepare(self, n_nodes, dt):
+        """Build interpolator for the plot path without a network."""
+        times = self.params.times
+        data = self.params.data
+        interp_type = self.params.interpolation_type
+
+        if interp_type == "linear":
+            interpolator = diffrax.LinearInterpolation(ts=times, ys=data)
+        else:
+            coeffs = diffrax.backward_hermite_coefficients(ts=times, ys=data)
+            interpolator = diffrax.CubicInterpolation(ts=times, coeffs=coeffs)
+
+        input_data = Bunch(
+            interpolator=interpolator,
+            n_nodes=n_nodes,
+            data_shape=tuple(data.shape),
+        )
+        return input_data, Bunch()
+
     def update_state(
         self, input_data: Bunch, input_state: Bunch, new_state: jnp.ndarray
     ) -> Bunch:
