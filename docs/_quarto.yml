@@ -6,7 +6,6 @@ project:
     - "!*.ipynb"  # Don't render notebooks (they're for Colab)
     - "!workflows/Hopf.qmd"  # Work in progress, excluded from builds
     - "!workflows/Hopf_w_GenOpt.qmd"  # Work in progress, excluded from builds
-    - "!workflows/Hopf_Pareto_ParallelOpt.qmd"  # Work in progress, excluded from builds
   
 website:
   title: ""
@@ -28,6 +27,8 @@ website:
           - file: workflows/RWW.qmd
           - file: workflows/JR.qmd
           - file: workflows/EI_Tuning.qmd
+          - file: workflows/Hopf_Pareto_ParallelOpt.qmd
+          - file: workflows/Stimulation_with_Bayesian_Inference.qmd
       - text: "Network Dynamics"
         menu:
           - file: network_dynamics/network_dynamics.qmd
