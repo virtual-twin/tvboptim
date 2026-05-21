@@ -191,7 +191,7 @@ class GammaHRFKernel(HRFKernel):
 
 class DoubleExponentialHRFKernel(HRFKernel):
     """
-    A difference of two exponential functions to define a kernel for the bold monitor, ported from TVBSim's 	DoubleExponential class.
+    A difference of two exponential functions to define a kernel for the bold monitor, ported from TVBSim's DoubleExponential class.
 
     h(t) = amp_1*exp(-t/tau_1)*sin(2*pi*f_1*t) - amp_2*exp(-t/tau_2)*sin(2*pi*f_2*t)
     normalized and scaled by amplitude factor `a`.
@@ -290,8 +290,8 @@ class MixtureOfGammasHRFKernel(HRFKernel):
     def __call__(self, t: jax.Array, downsample_dt: float) -> jax.Array:
         t_s = t / 1000.0
 
-        gamma_a_1 = math.gamma(self.a_1)
-        gamma_a_2 = math.gamma(self.a_2)
+        gamma_a_1 = jsp.special.gamma(self.a_1)
+        gamma_a_2 = jsp.special.gamma(self.a_2)
 
         return (
             (self.l * t_s) ** (self.a_1 - 1) * jnp.exp(-self.l * t_s) / gamma_a_1
