@@ -137,6 +137,169 @@ class LotkaVolterraHRFKernel(HRFKernel):
             / omega
         )
 
+class GammaHRFKernel(HRFKernel):
+    """
+    Gamma HRF kernel, ported from TVBSim's Gamma class.
+
+    h(t) = ((t/tau)^(n-1) * exp(-(t/tau))) / (tau * (n-1)!)
+    normalized and scaled by amplitude factor `a`.
+
+    Parameters
+    ----------
+    tau : float
+        Exponential time constant in seconds (default: 1.08 s)
+    n : float
+        Phase delay / shape parameter (default: 3.0)
+    a : float
+        Amplitude scaling factor after normalization (default: 0.1)
+    duration : float
+        Kernel support duration in ms (default: 20_000 ms)
+
+    Reference
+    ---------
+    Boynton et al. (1996). Linear Systems Analysis of fMRI in Human V1.
+    J Neurosci 16: 4207-4221.
+    """
+
+    tau: float = 1.08       # seconds
+    n: float = 3.0
+    a: float = 0.1
+    duration: float = 20_000.0  # ms
+
+    def __init__(self, tau=1.08, n=3.0, a=0.1, duration=20_000.0):
+        self.tau = tau
+        self.n = n
+        self.a = a
+        self.duration = duration
+
+    def __call__(self, t: jax.Array, downsample_dt: float) -> jax.Array:
+        # Convert time from ms to seconds for the HRF formula
+        t_s = t / 1000.0
+
+        factorial = math.factorial(int(self.n) - 1)
+
+        kernel = (
+            (t_s / self.tau) ** (self.n - 1)
+            * jnp.exp(-(t_s / self.tau))
+        ) / (self.tau * factorial)
+
+        # Replicate TVBSim's normalization and amplitude scaling from evaluate()
+        kernel = kernel / jnp.max(kernel)
+        kernel = kernel * self.a
+
+        return kernel
+
+class DoubleExponentialHRFKernel(HRFKernel):
+    """
+    A difference of two exponential functions to define a kernel for the bold monitor, ported from TVBSim's 	DoubleExponential class.
+
+    h(t) = amp_1*exp(-t/tau_1)*sin(2*pi*f_1*t) - amp_2*exp(-t/tau_2)*sin(2*pi*f_2*t)
+    normalized and scaled by amplitude factor `a`.
+
+    Parameters
+    ----------
+    tau_1 : float
+        Time constant of the first exponential function [s] (default: 7.22)
+    tau_2 : float
+        Time constant of the second exponential function [s] (default: 7.4)
+    f_1 : float
+        Frequency of the first sine function [Hz] (default: 0.03)
+    f_2 : float
+        Frequency of the second sine function [Hz] (default: 0.12)
+    amp_1 : float
+        Amplitude of the first exponential function (default: 0.1)
+    amp_2 : float
+        Amplitude of the second exponential function. (default: 0.1)
+    a : float
+        Amplitude factor after normalization (default: 0.1)
+
+    Reference
+    ---------
+    	Alex Polonsky, Randolph Blake, Jochen Braun and David J. Heeger
+        (2000). Neuronal activity in human primary visual cortex correlates with
+        perception during binocular rivalry. Nature Neuroscience 3: 1153-1159
+
+    """
+
+    tau_1: float = 7.22      
+    tau_2: float = 7.4
+    f_1: float = 0.03
+    f_2: float = 0.12       
+    amp_1: float = 0.1
+    amp_2: float = 0.1
+    a: float = 0.1 
+    duration: float = 20_000.0  # ms
+
+    def __init__(self, tau_1=7.22, tau_2=7.4, f_1=0.03, f_2=0.12, amp_1=0.1,
+                                 amp_2=0.1, a=0.1, duration=20_000.0):
+        self.tau_1 = tau_1
+        self.tau_2 = tau_2
+        self.f_1 = f_1
+        self.f_2 = f_2
+        self.amp_1 = amp_1
+        self.amp_2 = amp_2
+        self.a = a
+        self.duration = duration
+
+    def __call__(self, t: jax.Array, downsample_dt: float) -> jax.Array:
+        # Convert ms to seconds
+        t_s = t / 1000.0
+        
+        kernel = ((self.amp_1 * jnp.exp(-t_s/self.tau_1) * jnp.sin(2 * math.pi * self.f_1 * t_s)) 
+                  - (self.amp_2 * jnp.exp(-t_s/self.tau_2) * jnp.sin(2 * math.pi * self.f_2 * t_s))
+                  )
+
+        # Replicate TVBSim's normalization + amplitude scaling from evaluate()
+        kernel = kernel / jnp.max(kernel)
+        kernel = kernel * self.a
+
+        return kernel
+
+class MixtureOfGammasHRFKernel(HRFKernel):
+    """
+    Mixture of two gamma distributions HRF kernel, ported from TVBSim's MixtureOfGammas.
+
+    hrf(t) = (l*t)^(a_1-1) * exp(-l*t) / Γ(a_1)
+           - c * (l*t)^(a_2-1) * exp(-l*t) / Γ(a_2)
+
+    Parameters
+    ----------
+    a_1 : float
+        Shape parameter of the first gamma pdf (default: 6.0)
+    a_2 : float
+        Shape parameter of the second gamma pdf (default: 13.0)
+    l : float
+        Scale parameter / lambda (default: 1.0)
+    c : float
+        Scaling factor of the second gamma pdf (default: 0.4)
+    duration : float
+        Kernel support duration [ms] (default: 20_000)
+
+    Reference
+    ---------
+    Glover (1999). Deconvolution of Impulse Response in Event-Related BOLD fMRI.
+    NeuroImage 9, 416-429.
+    """
+
+    a_1: float = 6.0
+    a_2: float = 13.0
+    l: float = 1.0
+    c: float = 0.4
+    duration: float = 20_000.0
+
+    def __call__(self, t: jax.Array, downsample_dt: float) -> jax.Array:
+        t_s = t / 1000.0
+
+        gamma_a_1 = math.gamma(self.a_1)
+        gamma_a_2 = math.gamma(self.a_2)
+
+        return (
+            (self.l * t_s) ** (self.a_1 - 1) * jnp.exp(-self.l * t_s) / gamma_a_1
+            - self.c
+            * (self.l * t_s) ** (self.a_2 - 1)
+            * jnp.exp(-self.l * t_s)
+            / gamma_a_2
+        )
 
 class HRFBold(AbstractMonitor):
     """BOLD signal monitor using hemodynamic response function convolution.
