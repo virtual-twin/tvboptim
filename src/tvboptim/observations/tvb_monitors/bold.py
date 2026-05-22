@@ -171,12 +171,6 @@ class GammaHRFKernel(HRFKernel):
     a: float = 0.1
     duration: float = 20_000.0  # ms
 
-    def __init__(self, tau=1.08, n=3.0, a=0.1, duration=20_000.0):
-        self.tau = tau
-        self.n = n
-        self.a = a
-        self.duration = duration
-
     def __call__(self, t: jax.Array, downsample_dt: float) -> jax.Array:
         # Convert time from ms to seconds for the HRF formula
         t_s = t / 1000.0
@@ -234,17 +228,6 @@ class DoubleExponentialHRFKernel(HRFKernel):
     amp_2: float = 0.1
     a: float = 0.1 
     duration: float = 20_000.0  # ms
-
-    def __init__(self, tau_1=7.22, tau_2=7.4, f_1=0.03, f_2=0.12, amp_1=0.1,
-                                 amp_2=0.1, a=0.1, duration=20_000.0):
-        self.tau_1 = tau_1
-        self.tau_2 = tau_2
-        self.f_1 = f_1
-        self.f_2 = f_2
-        self.amp_1 = amp_1
-        self.amp_2 = amp_2
-        self.a = a
-        self.duration = duration
 
     def __call__(self, t: jax.Array, downsample_dt: float) -> jax.Array:
         # Convert ms to seconds
