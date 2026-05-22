@@ -737,7 +737,11 @@ class BoundedParameter(Parameter):
     ) -> "BoundedParameter":
         """Unflatten for JAX pytree registration."""
         low, high = aux_data
-        return cls(children[0], low, high)
+        instance = cls.__new__(cls)
+        instance.value = children[0]
+        instance.low = low
+        instance.high = high
+        return instance
 
 
 # Utility functions for working with parameters

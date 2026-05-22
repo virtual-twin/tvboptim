@@ -1,6 +1,7 @@
 from .bold import (
     BalloonWindkesselBold,
     Bold,
+    FirstOrderVolterraHRFKernel,
     HRFBold,
     HRFKernel,
     LotkaVolterraHRFKernel,
@@ -13,8 +14,9 @@ __all__ = [
     "TemporalAverage",
     "HRFBold",
     "BalloonWindkesselBold",
-    "LotkaVolterraHRFKernel",
+    "FirstOrderVolterraHRFKernel",
     "HRFKernel",
     # Deprecated aliases
     "Bold",
+    "LotkaVolterraHRFKernel",
 ]

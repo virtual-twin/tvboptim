@@ -37,14 +37,20 @@ class HRFKernel(eqx.Module):
         duration: Duration of kernel support in milliseconds
     """
 
-    duration: float
+    duration: eqx.AbstractVar[float]
 
     def __call__(self, t: jax.Array, downsample_dt: float) -> jax.Array:
         """Compute kernel values at time points.
 
         Args:
             t: Time points at which to evaluate the kernel
-            downsample_dt: Time step of downsampled signal (for internal use)
+            downsample_dt: Step size of the convolution grid `t` is sampled on.
+                Closed-form kernels (e.g. FirstOrderVolterraHRFKernel) are exact
+                functions of `t` and ignore this. It is part of the interface
+                for grid-dependent kernels not yet implemented — e.g. an
+                empirical/tabulated HRF that must resample itself onto the
+                convolution grid, or a kernel that scales by the sample spacing
+                to approximate the convolution integral.
 
         Returns:
             Kernel values at the specified time points
@@ -81,10 +87,16 @@ class HRFKernel(eqx.Module):
         return ax
 
 
-class LotkaVolterraHRFKernel(HRFKernel):
-    """Canonical hemodynamic response function based on Lotka-Volterra dynamics.
+class FirstOrderVolterraHRFKernel(HRFKernel):
+    """First-order Volterra kernel of the hemodynamic system.
 
-    This implements the oscillatory HRF kernel used in standard BOLD signal modeling.
+    This is the canonical damped-oscillator HRF used in standard BOLD signal
+    modeling — the first-order Volterra kernel of the Balloon/Windkessel
+    hemodynamics (Friston et al. 2000). Ported from TVB's ``FirstOrderVolterra``
+    equation.
+
+    Despite the shared name of the mathematician Vito Volterra, this is
+    unrelated to Lotka-Volterra (predator-prey) dynamics.
 
     Attributes:
         tau_s: Signal decay time constant in seconds (default: 0.8 s)
@@ -93,8 +105,15 @@ class LotkaVolterraHRFKernel(HRFKernel):
         duration: Kernel support duration in ms (default: 20,000 ms = 20 s)
 
     Note:
-        The tau parameters are in seconds (not ms) to match the standard HRF formulation.
-        Time input to __call__ is expected in milliseconds and converted internally.
+        The tau parameters are in seconds (not ms) to match the standard HRF
+        formulation. Time input to __call__ is expected in milliseconds and
+        converted internally.
+
+        This is the *underdamped* solution: the oscillation frequency
+        ``omega = sqrt(1/tau_f - 1/(4*tau_s**2))`` is real only when
+        ``4*tau_s**2 > tau_f``. The defaults satisfy this. Parameter values that
+        violate it make ``omega`` NaN and the whole kernel NaN — the overdamped
+        regime (which would need ``sinh`` instead of ``sin``) is not supported.
     """
 
     tau_s: float = 0.8  # seconds
@@ -102,22 +121,8 @@ class LotkaVolterraHRFKernel(HRFKernel):
     scaling: float = 1.0 / 3.0
     duration: float = 20_000.0  # ms (20 seconds)
 
-    def __init__(self, tau_s=0.8, tau_f=0.4, scaling=1.0 / 3.0, duration=20_000.0):
-        """Initialize Lotka-Volterra HRF kernel.
-
-        Args:
-            tau_s: Signal decay time constant in seconds (default: 0.8 s)
-            tau_f: Feedback time constant in seconds (default: 0.4 s)
-            scaling: Kernel amplitude scaling factor (default: 1/3)
-            duration: Kernel support duration in ms (default: 20,000 ms)
-        """
-        self.tau_s = tau_s
-        self.tau_f = tau_f
-        self.scaling = scaling
-        self.duration = duration
-
     def __call__(self, t: jax.Array, downsample_dt: float) -> jax.Array:
-        """Compute Lotka-Volterra HRF kernel.
+        """Compute the first-order Volterra HRF kernel.
 
         Args:
             t: Time points in milliseconds at which to evaluate the kernel
@@ -301,6 +306,23 @@ class MixtureOfGammasHRFKernel(HRFKernel):
             / gamma_a_2
         )
 
+def LotkaVolterraHRFKernel(*args, **kwargs):
+    """Deprecated: use FirstOrderVolterraHRFKernel.
+
+    The kernel was misnamed — it is the first-order Volterra kernel of the
+    hemodynamic system (Friston 2000), unrelated to Lotka-Volterra dynamics.
+    """
+    warnings.warn(
+        "LotkaVolterraHRFKernel is deprecated and will be removed in a future "
+        "version. Use FirstOrderVolterraHRFKernel instead — the kernel is the "
+        "first-order Volterra kernel of the hemodynamic system (Friston 2000), "
+        "unrelated to Lotka-Volterra dynamics.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return FirstOrderVolterraHRFKernel(*args, **kwargs)
+
+
 class HRFBold(AbstractMonitor):
     """BOLD signal monitor using hemodynamic response function convolution.
 
@@ -362,7 +384,7 @@ class HRFBold(AbstractMonitor):
 
         # Set up kernel
         if kernel is None:
-            self.kernel = LotkaVolterraHRFKernel()
+            self.kernel = FirstOrderVolterraHRFKernel()
         else:
             self.kernel = kernel
 

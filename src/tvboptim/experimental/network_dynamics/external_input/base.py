@@ -150,3 +150,72 @@ class AbstractExternalInput(ABC):
         """String representation of external input."""
         param_str = ", ".join(f"{k}={v}" for k, v in self.params.items())
         return f"{self.__class__.__name__}({param_str})"
+
+    def _plot_prepare(self, n_nodes: int, dt: float) -> Tuple[Bunch, Bunch]:
+        """Lightweight prepare for the plot path (no network required).
+
+        Subclasses that need precomputed data (e.g. interpolators) override this.
+        Default returns empty Bunches, which works for all stateless parametric
+        inputs.
+        """
+        return Bunch(), Bunch()
+
+    def plot(
+        self,
+        t0: float = 0.0,
+        t1: float = 1.0,
+        *,
+        dt: float = None,
+        n_nodes: int = 1,
+        ax=None,
+    ):
+        """Plot the input signal over [t0, t1] for quick inspection.
+
+        Calls ``compute`` directly with a zero state and empty input_data /
+        input_state (or whatever ``_plot_prepare`` returns). State-dependent or
+        stateful inputs will therefore show open-loop behavior only.
+
+        Args:
+            t0, t1: Time interval to plot.
+            dt: Sampling step. Defaults to (t1 - t0) / 500.
+            n_nodes: Number of nodes to render (lets spatial patterns show up).
+            ax: Matplotlib axis (or array of axes for multi-dim outputs). Created
+                if None.
+
+        Returns:
+            The matplotlib axis (or array of axes) used for plotting.
+        """
+        import matplotlib.pyplot as plt
+
+        if dt is None:
+            dt = (t1 - t0) / 500.0
+
+        input_data, input_state = self._plot_prepare(n_nodes, dt)
+        state = jnp.zeros((1, n_nodes))
+
+        ts = jnp.arange(t0, t1, dt)
+        signals = jnp.stack(
+            [
+                self.compute(float(t), state, input_data, input_state, self.params)
+                for t in ts
+            ]
+        )  # [T, N_OUTPUT_DIMS, n_nodes]
+
+        n_dims = signals.shape[1]
+        if ax is None:
+            fig, ax = plt.subplots(n_dims, 1, sharex=True, squeeze=False)
+            ax = ax[:, 0]
+        else:
+            ax = ax if hasattr(ax, "__len__") else [ax]
+
+        show_legend = n_nodes <= 8
+        for d in range(n_dims):
+            for i in range(n_nodes):
+                ax[d].plot(ts, signals[:, d, i], label=f"node {i}" if show_legend else None)
+            ax[d].set_ylabel(f"input[{d}]" if n_dims > 1 else "input")
+            if show_legend and n_nodes > 1:
+                ax[d].legend(loc="best", fontsize="small")
+        ax[-1].set_xlabel("time")
+        ax[0].set_title(repr(self))
+
+        return ax if n_dims > 1 else ax[0]
