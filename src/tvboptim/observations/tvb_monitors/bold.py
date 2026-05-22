@@ -183,7 +183,9 @@ class GammaHRFKernel(HRFKernel):
         ) / (self.tau * factorial)
 
         # Replicate TVBSim's normalization and amplitude scaling from evaluate()
-        kernel = kernel / jnp.max(kernel)
+        peak = jnp.max(kernel)
+        peak = jnp.where(peak > 0, peak, 1.0) # Avoid division by zero
+        kernel = kernel / peak
         kernel = kernel * self.a
 
         return kernel
@@ -227,7 +229,7 @@ class DoubleExponentialHRFKernel(HRFKernel):
     amp_1: float = 0.1
     amp_2: float = 0.1
     a: float = 0.1 
-    duration: float = 20_000.0  # ms
+    duration: float = 40_000.0  # ms
 
     def __call__(self, t: jax.Array, downsample_dt: float) -> jax.Array:
         # Convert ms to seconds
@@ -238,7 +240,9 @@ class DoubleExponentialHRFKernel(HRFKernel):
                   )
 
         # Replicate TVBSim's normalization + amplitude scaling from evaluate()
-        kernel = kernel / jnp.max(kernel)
+        peak = jnp.max(kernel)
+        peak = jnp.where(peak > 0, peak, 1.0) # Avoid division by zero
+        kernel = kernel / peak
         kernel = kernel * self.a
 
         return kernel
