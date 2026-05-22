@@ -76,6 +76,7 @@ docs = [
     "jupyter-cache>=1.0.1",
     "nibabel",
     "nilearn",
+    "pymoo",
     "griffe<2.0.0"
 ]
 
@@ -95,6 +96,7 @@ docs = [
     "jupyter-cache>=1.0.1",
     "nibabel",
     "nilearn",
+    "pymoo",
     "griffe<2.0.0"
 ]
 

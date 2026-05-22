@@ -7,8 +7,8 @@ try:
 except Exception:
     __version__ = "unknown"
 
-from . import data
+from . import analysis, data
 from .tvbo.prepare_experiment import HAS_TVBO, prepare
 from .types import parameter, spaces
 
-__all__ = ["spaces", "prepare", "HAS_TVBO", "parameter", "data"]
+__all__ = ["spaces", "prepare", "HAS_TVBO", "parameter", "data", "analysis"]
