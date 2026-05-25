@@ -103,3 +103,57 @@ def load_functional_connectivity(name: str = "dk_average") -> jnp.ndarray:
     fc = jnp.array(data["fc"])
 
     return fc
+
+
+def load_fcd_distribution(
+    name: str = "dk_average",
+) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    """
+    Load a typical empirical FCD value distribution.
+
+    Returns the histogram bin midpoints and a normalised density (integrates
+    to 1 over its support). Like the other example datasets shipped with
+    tvboptim, this is meant as a *qualitative* reference — a realistic FCD
+    shape to test, demo, and explore against — not as a calibrated benchmark.
+
+    The sliding-window parameters that produced the histogram are not
+    recorded. Pick a window/step for your simulated FCD that gives a
+    qualitatively comparable shape (Herzog et al. 2024 use a 30-sample
+    window with 2-sample step at TR = 1 s, which is a reasonable default).
+
+    Available datasets:
+        - "dk_average": FCD value histogram on Desikan-Killiany BOLD
+                        (84 regions).
+
+    Args:
+        name: Dataset name (default: "dk_average")
+
+    Returns:
+        midpoints: Bin midpoints [n_bins]
+        density: Normalised density evaluated on `midpoints` [n_bins]
+
+    Examples:
+        >>> from tvboptim.data import load_fcd_distribution
+        >>> midpoints, density = load_fcd_distribution()
+        >>> print(midpoints.shape, density.shape)
+        (100,) (100,)
+    """
+    data_path = _DATA_DIR / "functional" / name / "data.npz"
+
+    if not data_path.exists():
+        raise ValueError(f"Dataset '{name}' not found. Available datasets: dk_average")
+
+    data = np.load(data_path, allow_pickle=True)
+    if "fcd_edges" not in data.files:
+        raise ValueError(
+            f"Dataset '{name}' has no FCD histogram. "
+            "Available datasets with FCD: dk_average"
+        )
+
+    edges = np.asarray(data["fcd_edges"])
+    hist = np.asarray(data["fcd_hist"])
+    midpoints = (edges[1:] + edges[:-1]) / 2
+    bin_width = float(edges[1] - edges[0])
+    density = hist / np.sum(hist) / bin_width
+
+    return jnp.array(midpoints), jnp.array(density)
