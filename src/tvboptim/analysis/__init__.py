@@ -3,15 +3,15 @@
 from .identifiability import (
     IdentifiabilityResult,
     analyze_identifiability,
+    eigendecompose_curvature,
     fisher_information,
     loss_hessian,
-    spectrum,
 )
 
 __all__ = [
     "IdentifiabilityResult",
     "analyze_identifiability",
+    "eigendecompose_curvature",
     "fisher_information",
     "loss_hessian",
-    "spectrum",
 ]

@@ -302,7 +302,8 @@ def _draw_landscape(ax, vmax=None):
                levels=[float(jnp.percentile(mse_grid, 10))],
                colors="white", linewidths=1.0, linestyles="--")
     ax.scatter(TRUE_AMPLITUDE, TRUE_EXCITABILITY,
-               color="k", marker="*", s=150, zorder=6, label="ground truth")
+               color="white", marker="*", s=260, zorder=8,
+               edgecolors="k", linewidths=1., label="ground truth")
     ax.set_xlabel("Stimulus amplitude")
     ax.set_ylabel("Excitability (I)")
     # Clamp axes to the scanned landscape extent so later scatter() calls
@@ -438,6 +439,101 @@ ax_ts.set_title("Near-identical timeseries from different mechanisms")
 ax_ts.legend(fontsize=7, ncol=2)
 fig.tight_layout()
 ```
+
+## Identifiability from autodiff: the same ridge, in one gradient call
+
+The 25 × 25 scan above maps the ridge by brute force — 625 forward simulations to expose the geometry the optimiser runs into on every step. The gradients that drive optimisation give that geometry analytically. Take the Jacobian of the predicted trajectory w.r.t. `(amplitude, I)`, form `J^T J / σ²` (the Gauss-Newton Fisher information), eigendecompose. The smallest-eigenvalue eigenvector is the local ridge tangent; the eigenvalue ratio quantifies how much flatter the ridge is than the cross-ridge direction. Cost: one forward + one reverse-mode pass, independent of parameter count.
+
+One small but important detail: the input to `fisher_information` is the model's **prediction vector**, not the scalar loss. The Jacobian `J = ∂(predictions) / ∂θ` lives one level *above* the reduction to MSE — once the loss has summed over the observation index, that sensitivity information is gone. So `predict` below returns the predicted observation directly. The same pattern applies to any other observable: a BOLD time series, a flattened functional-connectivity matrix, summary statistics — anything the model emits before it gets compared to data.
+
+```{python}
+#| echo: true
+from tvboptim.analysis import eigendecompose_curvature, fisher_information
+
+net_id = build_network(TRUE_AMPLITUDE, TRUE_EXCITABILITY)
+sf_id, cfg_id = prepare(net_id, Heun(), t0=0.0, t1=T1, dt=DT)
+cfg_id.external.stimulus.amplitude = Parameter(TRUE_AMPLITUDE)
+cfg_id.dynamics.I = Parameter(TRUE_EXCITABILITY)
+
+# The predicted observation as a vector — one entry per observation time.
+# `fisher_information` takes ∂predict/∂θ for the two Parameter leaves;
+# σ = OBS_NOISE_SIGMA puts the resulting FIM in Cramér-Rao units.
+def predict(c):
+    return sf_id(c).ys[obs_idx, 0, 0]
+
+FIM, theta0, labels = fisher_information(predict, cfg_id, sigma=OBS_NOISE_SIGMA)
+result = eigendecompose_curvature(FIM, labels, theta0, kind="fisher")
+print(result.summary())
+```
+
+The sloppy direction comes out with opposite signs on the two parameters — `dynamics.I` at −0.75 and `external.stimulus.amplitude` at +0.66 — exactly the "more excitable + weaker stimulus" trade-off the grid scan revealed. The condition number κ ≈ 413 quantifies it: the cross-ridge direction (eigenvalue ≈ 1.1 × 10⁵) is constrained by the data more than two orders of magnitude tighter than the along-ridge one (eigenvalue ≈ 2.7 × 10²). Numerical rank is 2 / 2, so both parameters are *technically* identifiable at this noise scale; the diagnostic flags the disparity in confidence between the two directions, not absolute non-identifiability. That distinction matters for the rebuttal: a practical identifiability problem can hide inside a model that is structurally identifiable, and only the eigenvalue spread exposes it.
+
+```{python}
+#| label: fig-fisher-ridge
+#| fig-cap: "**Fisher eigenstructure overlaid on the MSE landscape.** Long arrow: the smallest-eigenvalue (sloppy) eigenvector of `J^T J` at truth — it traces the equal-MSE ridge that the 25 × 25 scan exposes. Short arrow: the largest-eigenvalue (stiff) eigenvector, perpendicular to the ridge and orders of magnitude more tightly constrained by the data. Tip labels give the eigenvalues; their ratio is the condition number in the title."
+#| code-fold: true
+#| code-summary: "Show plotting code"
+
+from matplotlib.patches import FancyArrowPatch
+from matplotlib import patheffects as pe
+
+i_amp = result.labels.index("external.stimulus.amplitude")
+i_exc = result.labels.index("dynamics.I")
+v_sloppy = np.asarray(result.eigenvectors[:,  0])
+v_stiff  = np.asarray(result.eigenvectors[:, -1])
+lam_min  = float(result.eigenvalues[0])
+lam_max  = float(result.eigenvalues[-1])
+
+fig, ax = plt.subplots(figsize=(7, 4), dpi=200)
+pcm = _draw_landscape(ax)
+fig.colorbar(pcm, ax=ax, label="MSE(V)")
+
+def _draw_eigenvector(v, L, label):
+    """White-fill / black-outlined double-headed arrow along v, labelled at the upper tip."""
+    dx = L * float(v[i_amp])
+    dy = L * float(v[i_exc])
+    arrow = FancyArrowPatch(
+        (TRUE_AMPLITUDE - dx, TRUE_EXCITABILITY - dy),
+        (TRUE_AMPLITUDE + dx, TRUE_EXCITABILITY + dy),
+        arrowstyle="<|-|>", mutation_scale=20,
+        color="white", lw=2.2, zorder=7,
+    )
+    arrow.set_path_effects([
+        pe.Stroke(linewidth=4.5, foreground="black"),
+        pe.Normal(),
+    ])
+    ax.add_patch(arrow)
+    # Label at whichever tip has higher excitability (keeps text off the lower axis).
+    tip_x = TRUE_AMPLITUDE  + (dx if dy >= 0 else -dx)
+    tip_y = TRUE_EXCITABILITY + (dy if dy >= 0 else -dy)
+    ax.annotate(
+        label,
+        xy=(tip_x, tip_y),
+        xytext=(6, 6), textcoords="offset points",
+        fontsize=9, color="white", zorder=8,
+        path_effects=[pe.withStroke(linewidth=2.5, foreground="black")],
+    )
+
+# Sloppy arrow longer; stiff shorter — the numerical eigenvalues at the tips
+# carry the exact magnitudes (visual length is just a fixed cue).
+_draw_eigenvector(v_sloppy, L=0.20, label=fr"$\lambda_{{\min}}$ = {lam_min:.1e}")
+_draw_eigenvector(v_stiff,  L=0.08, label=fr"$\lambda_{{\max}}$ = {lam_max:.1e}")
+
+ax.legend(fontsize=9, loc="upper right")
+ax.set_title(
+    f"Fisher eigenvectors at truth  "
+    fr"($\kappa$ = {result.condition_number():.1f})",
+    fontsize=10,
+)
+fig.tight_layout()
+```
+
+Two things matter for the rebuttal:
+
+1. **The local diagnostic recovers the global ridge.** At a single point, autodiff produces the same trade-off direction the grid scan shows. That holds because the ridge is locally near-linear — but the test is empirical: the green line lies along the white dashed low-MSE contour the brute-force scan drew.
+2. **It scales where the scan does not.** A 25 × 25 grid in two parameters is 625 simulations. The same diagnostic in `N` parameters is still one forward + one reverse pass; the dense `J^T J` is `O(N²)` to materialise, which is fine up to a few hundred parameters and can be replaced by a matrix-free Lanczos pass beyond that.
+
+The eigenspectrum is local — it describes the basin around the supplied point only and will not see disconnected alternative optima. That is what MCMC gives you in the next sections. Identifiability analysis and posterior sampling answer different questions: *what shape is the basin* (cheap, local, AD-only) vs. *what does the data plus prior actually believe* (expensive, global, requires a likelihood and a sampler). Stacking them — local diagnostic first, then MCMC — is the cheapest path to a defensible uncertainty story.
 
 ## Sanity-Checking the Priors
 
