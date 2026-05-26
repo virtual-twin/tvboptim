@@ -98,4 +98,4 @@ If you use TVB-Optim in your research, please cite:
 }
 ```
 
-Copyright © 2025 Charité Universitätsmedizin Berlin
+Copyright © 2026 Charité Universitätsmedizin Berlin
