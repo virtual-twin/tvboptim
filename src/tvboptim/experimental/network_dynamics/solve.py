@@ -20,6 +20,18 @@ from .solvers.diffrax import DiffraxSolver
 from .solvers.native import NativeSolver
 
 
+def _snapshot(tree):
+    """Structurally copy a PyTree's containers, sharing leaves.
+
+    Rebuilds every PyTree container (Bunch, dataclass, equinox Module, ...)
+    so mutations to the returned tree don't leak back to ``tree``. Leaves
+    (arrays, scalars, PRNG keys) are immutable in JAX, so sharing them is
+    safe and avoids duplicating large arrays (graph weights, history
+    buffers, pre-sampled noise tensors).
+    """
+    return jax.tree.map(lambda x: x, tree)
+
+
 def _checkpointed_scan(op, state0, scan_inputs, n_steps, block_size):
     """Run ``op`` over ``scan_inputs`` as an outer-checkpointed nested scan.
 
@@ -193,6 +205,14 @@ ValueError
 
 Notes
 -----
+**Config isolation from the source model.** The returned ``config`` is a
+structural snapshot: PyTree containers are rebuilt fresh, leaves are
+shared. Mutating ``config`` (e.g. ``config.dynamics.G = 0.5``, or
+attaching a ``GridAxis`` for a sweep) does not leak back into the source
+``Network``/``AbstractDynamics``, and a subsequent ``prepare()`` returns
+the original values. Sharing leaves is safe (JAX arrays are immutable)
+and avoids duplicating large data like graph weights or history buffers.
+
 **Native solver time grid.** Native solvers scan over
 ``arange(t0, t1, dt)`` and emit the post-step state on each iteration, so
 the returned ``result.ts`` is the half-open grid ``(t0, t1]``:
@@ -407,14 +427,16 @@ def prepare(
     # Time array
     time_steps = jnp.arange(t0, t1, dt)
 
-    # Build new config structure
+    # Build new config structure. Param/graph subtrees are snapshotted so
+    # user mutations to the returned config don't leak back into the source
+    # network (or contaminate later prepare() calls).
     config = Bunch(
         # Parameters (flattened - no params. prefix)
-        dynamics=network.dynamics.params,
+        dynamics=_snapshot(network.dynamics.params),
         coupling=Bunch(),
         external=Bunch(),
         # Graph (PyTree object)
-        graph=network.graph,
+        graph=_snapshot(network.graph),
         # Initial state
         initial_state=Bunch(
             dynamics=network.initial_state,
@@ -431,11 +453,11 @@ def prepare(
 
     # Add coupling params
     for name, coupling in network.coupling.items():
-        config.coupling[name] = coupling.params
+        config.coupling[name] = _snapshot(coupling.params)
 
     # Add external input params
     for name, external in network.externals.items():
-        config.external[name] = external.params
+        config.external[name] = _snapshot(external.params)
 
     # Add noise params and (optional) sample-injection slot if stochastic.
     # By default the full Brownian-increment tensor is materialised inside
@@ -445,7 +467,7 @@ def prepare(
     # increments) can populate config._internal.noise_samples; the scan
     # branches on its presence at trace time.
     if network.noise is not None:
-        config.noise = network.noise.params
+        config.noise = _snapshot(network.noise.params)
         config.noise.key = network.noise.key
         config._internal.noise_samples = None
 
@@ -851,14 +873,16 @@ def prepare(
     # Prepare all external inputs (get read-only data, ignore state)
     external_data_dict, _ = network.prepare_external(dt)
 
-    # Build config structure
+    # Build config structure. Param/graph subtrees are snapshotted so user
+    # mutations to the returned config don't leak back into the source
+    # network (or contaminate later prepare() calls).
     config = Bunch(
         # Parameters
-        dynamics=network.dynamics.params,
+        dynamics=_snapshot(network.dynamics.params),
         coupling=Bunch(),
         external=Bunch(),
         # Graph
-        graph=network.graph,
+        graph=_snapshot(network.graph),
         # Initial state [n_states, n_nodes]
         initial_state=network.initial_state,
         # Internal data
@@ -871,15 +895,15 @@ def prepare(
 
     # Add coupling params
     for name, coupling in network.coupling.items():
-        config.coupling[name] = coupling.params
+        config.coupling[name] = _snapshot(coupling.params)
 
     # Add external input params
     for name, external in network.externals.items():
-        config.external[name] = external.params
+        config.external[name] = _snapshot(external.params)
 
     # Add noise params if present
     if network.noise is not None:
-        config.noise = network.noise.params
+        config.noise = _snapshot(network.noise.params)
 
     # =========================================================================
     # PRE-COMPILE COUPLING COMPUTATION CLOSURE
@@ -1153,9 +1177,10 @@ def prepare(
     time_steps = jnp.arange(t0, t1, dt)
     n_steps = len(time_steps)
 
-    # Config
+    # Config. Param subtrees are snapshotted so user mutations to the
+    # returned config don't leak back into the source dynamics/noise/externals.
     config = Bunch(
-        dynamics=dynamics.params,
+        dynamics=_snapshot(dynamics.params),
         initial_state=state0,
         _internal=Bunch(time=Bunch(t0=t0, t1=t1, dt=dt)),
     )
@@ -1170,7 +1195,7 @@ def prepare(
     if has_noise:
         noise._state_indices = noise._resolve_state_indices(dynamics)
         noise_state_indices = noise._state_indices
-        config.noise = noise.params
+        config.noise = _snapshot(noise.params)
         config.noise.key = noise.key
         config._internal.noise_samples = None
         n_noise_states = len(noise_state_indices)
@@ -1187,7 +1212,7 @@ def prepare(
         for name in dynamics.EXTERNAL_INPUTS.keys():
             if name in externals:
                 ext_obj = externals[name]
-                config.external[name] = ext_obj.params
+                config.external[name] = _snapshot(ext_obj.params)
                 # Pass None as network — parametric externals don't use it
                 ext_data, ext_state = ext_obj.prepare(None, dt)
                 external_data_dict[name] = ext_data
@@ -1387,9 +1412,10 @@ def prepare(
     for name, n_dims in dynamics.COUPLING_INPUTS.items():
         zero_coupling[name] = jnp.zeros((n_dims, n_nodes))
 
-    # Config
+    # Config. Param subtrees are snapshotted so user mutations to the
+    # returned config don't leak back into the source dynamics/noise/externals.
     config = Bunch(
-        dynamics=dynamics.params,
+        dynamics=_snapshot(dynamics.params),
         initial_state=state0,
         _internal=Bunch(time=Bunch(t0=t0, t1=t1, dt=dt)),
     )
@@ -1405,7 +1431,7 @@ def prepare(
     if has_noise:
         noise._state_indices = noise._resolve_state_indices(dynamics)
         noise_state_indices = noise._state_indices
-        config.noise = noise.params
+        config.noise = _snapshot(noise.params)
         config.noise.key = noise.key
         n_noise_states = len(noise_state_indices)
         n_brownian = n_noise_states * n_nodes
@@ -1425,7 +1451,7 @@ def prepare(
         for name in dynamics.EXTERNAL_INPUTS.keys():
             if name in externals:
                 ext_obj = externals[name]
-                config.external[name] = ext_obj.params
+                config.external[name] = _snapshot(ext_obj.params)
                 ext_data, _ = ext_obj.prepare(None, dt)
                 external_data_dict[name] = ext_data
                 external_list.append((name, ext_obj, ext_data))

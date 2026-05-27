@@ -551,5 +551,91 @@ class TestCheckpointedScan(unittest.TestCase):
         self.assertTrue(jnp.array_equal(r_none.ys, r_ckpt.ys))
 
 
+class TestPrepareIsolation(unittest.TestCase):
+    """prepare() must return a config whose container is disconnected from the source.
+
+    Regression test: previously, ``config.dynamics`` aliased the Bunch held
+    inside ``network.dynamics``, so user assignments like
+    ``params.dynamics.w = GridAxis(...)`` leaked into the network and
+    contaminated subsequent prepare() calls (causing jit() to choke on the
+    leftover non-array value).
+    """
+
+    def _build_cases(self):
+        n_nodes = 4
+        weights = np.random.RandomState(0).rand(n_nodes, n_nodes)
+        delays = np.random.RandomState(1).rand(n_nodes, n_nodes)
+
+        return [
+            (
+                "network_instant",
+                Network(
+                    dynamics=ReducedWongWang(),
+                    coupling={"instant": LinearCoupling(incoming_states=["S"], G=0.3)},
+                    graph=DenseGraph(weights),
+                ),
+            ),
+            (
+                "network_delayed",
+                Network(
+                    dynamics=ReducedWongWang(),
+                    coupling={
+                        "delayed": DelayedLinearCoupling(
+                            incoming_states=["S"], G=0.3
+                        )
+                    },
+                    graph=DenseDelayGraph(weights, delays),
+                ),
+            ),
+            (
+                "network_noise",
+                Network(
+                    dynamics=ReducedWongWang(),
+                    coupling={"instant": LinearCoupling(incoming_states=["S"], G=0.3)},
+                    graph=DenseGraph(weights),
+                    noise=AdditiveNoise(sigma=1.0, apply_to="S", key=jax.random.key(0)),
+                ),
+            ),
+        ]
+
+    def test_config_mutation_does_not_leak(self):
+        """Mutating cfg.dynamics must not affect the source or later prepare() calls."""
+        sentinel = "SENTINEL_NOT_AN_ARRAY"
+
+        for name, network in self._build_cases():
+            with self.subTest(case=name):
+                _, cfg1 = prepare(network, Heun(), t0=0.0, t1=1.0, dt=0.1)
+                original_w = cfg1.dynamics.w
+
+                # Reproduce the failure mode from the minimal example: assign
+                # a non-array value onto a param attribute.
+                cfg1.dynamics.w = sentinel
+
+                # Source network must be untouched.
+                self.assertNotEqual(
+                    network.dynamics.params.w,
+                    sentinel,
+                    f"{name}: mutation leaked into network.dynamics.params",
+                )
+
+                # A second prepare() must reflect the original network state.
+                _, cfg2 = prepare(network, Heun(), t0=0.0, t1=1.0, dt=0.1)
+                self.assertNotEqual(
+                    cfg2.dynamics.w,
+                    sentinel,
+                    f"{name}: re-prepare returned mutated value",
+                )
+                self.assertTrue(
+                    jnp.array_equal(jnp.asarray(cfg2.dynamics.w),
+                                    jnp.asarray(original_w)),
+                    f"{name}: re-prepare did not restore original w",
+                )
+
+                # The fresh config must itself be jit-able — i.e. params are
+                # arrays, not leftover sentinels.
+                solve_fn, cfg3 = prepare(network, Heun(), t0=0.0, t1=1.0, dt=0.1)
+                jax.block_until_ready(jax.jit(solve_fn)(cfg3))
+
+
 if __name__ == "__main__":
     unittest.main()
