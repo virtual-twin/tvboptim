@@ -6,15 +6,23 @@ appended to that list to inherit the whole suite.
 
 import jax
 import jax.numpy as jnp
-import matplotlib.pyplot as plt
 import pytest
 
-from tvboptim.observations.tvb_monitors import FirstOrderVolterraHRFKernel, HRFKernel
+from tvboptim.observations.tvb_monitors import (
+    DoubleExponentialHRFKernel,
+    FirstOrderVolterraHRFKernel,
+    GammaHRFKernel,
+    HRFKernel,
+    MixtureOfGammasHRFKernel,
+)
 
 # Representative instance of every HRF kernel. New kernels only need to be
 # appended here to be covered by every test below.
 KERNELS = [
     FirstOrderVolterraHRFKernel(),
+    DoubleExponentialHRFKernel(),
+    GammaHRFKernel(),
+    MixtureOfGammasHRFKernel(),
 ]
 
 # Downsample step (ms) used as the convolution grid when evaluating kernels.

@@ -21,7 +21,6 @@ from tvboptim.observations import (
     wasserstein_1d,
 )
 
-
 T = 200
 N = 6
 SEED = 0

@@ -1,10 +1,13 @@
 from .bold import (
     BalloonWindkesselBold,
     Bold,
+    DoubleExponentialHRFKernel,
     FirstOrderVolterraHRFKernel,
+    GammaHRFKernel,
     HRFBold,
     HRFKernel,
     LotkaVolterraHRFKernel,
+    MixtureOfGammasHRFKernel,
 )
 from .downsampling import AbstractMonitor, SubSampling, TemporalAverage
 
