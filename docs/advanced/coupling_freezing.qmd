@@ -121,6 +121,16 @@ set_cache_path("./coupling_freezing_benchmark")
 
 N_SMALL = 40  # small network for the accuracy demos
 
+# Fixed, colorblind-friendly palette (Okabe-Ito) used across every figure. Set
+# explicitly so the plots do not depend on the active matplotlib color cycler
+# (which can differ between a local render and CI).
+C_EULER = "#D55E00"   # vermillion
+C_HEUN = "#0072B2"    # blue
+C_RK4 = "#009e0b"     # green
+C_FROZEN = "#E69F00"  # orange
+C_PERSTAGE = "#0072B2"  # blue   (frozen runs use Heun)
+C_TRUTH = "black"
+
 
 def oscillator():
     # Generic2dOscillator in an excitable regime; V is the coupled variable.
@@ -227,11 +237,11 @@ Ns = np.array(perf["N"])
 d = perf["delay"]
 fig, ax = plt.subplots(figsize=(7, 4.5))
 ax.loglog(Ns, np.array(d["baseline"]) * 1e3, "k:", marker="x", label="local only (no coupling)")
-ax.loglog(Ns, np.array(d["Euler"]) * 1e3, "^-", color="C2", label="Euler (1 stage)")
-ax.loglog(Ns, np.array(d["Heun_frozen"]) * 1e3, "o-", color="C0", label="Heun frozen")
-ax.loglog(Ns, np.array(d["Heun_perstage"]) * 1e3, "o--", color="C0", mfc="none", label="Heun per-stage")
-ax.loglog(Ns, np.array(d["RK4_frozen"]) * 1e3, "s-", color="C1", label="RK4 frozen")
-ax.loglog(Ns, np.array(d["RK4_perstage"]) * 1e3, "s--", color="C1", mfc="none", label="RK4 per-stage")
+ax.loglog(Ns, np.array(d["Euler"]) * 1e3, "^-", color=C_EULER, label="Euler (1 stage)")
+ax.loglog(Ns, np.array(d["Heun_frozen"]) * 1e3, "o-", color=C_HEUN, label="Heun frozen")
+ax.loglog(Ns, np.array(d["Heun_perstage"]) * 1e3, "o--", color=C_HEUN, mfc="none", label="Heun per-stage")
+ax.loglog(Ns, np.array(d["RK4_frozen"]) * 1e3, "s-", color=C_RK4, label="RK4 frozen")
+ax.loglog(Ns, np.array(d["RK4_perstage"]) * 1e3, "s--", color=C_RK4, mfc="none", label="RK4 per-stage")
 ax.set_xlabel("network size N")
 ax.set_ylabel("forward-solve time [ms]")
 ax.legend()
@@ -303,8 +313,8 @@ for ax, title, net in [(axes[0], "no noise", det_net), (axes[1], "additive noise
     yp = solve(net, Heun(recompute_coupling_per_stage=True), t1=200.0, dt=0.5).ys
     err = float(jnp.max(jnp.abs(yf - yp)))
     t = np.arange(1, yf.shape[0] + 1) * 0.5
-    ax.plot(t, np.asarray(yf[:, 0, :].mean(axis=1)), color="C0", lw=2.2, label="frozen (default)")
-    ax.plot(t, np.asarray(yp[:, 0, :].mean(axis=1)), color="C1", lw=1.0, ls="--",
+    ax.plot(t, np.asarray(yf[:, 0, :].mean(axis=1)), color=C_FROZEN, lw=2.2, label="frozen (default)")
+    ax.plot(t, np.asarray(yp[:, 0, :].mean(axis=1)), color=C_PERSTAGE, lw=1.0, ls="--",
             label=f"per-stage (max|Δ| = {err:.0e})")
     ax.set_title(title)
     ax.set_xlabel("time [ms]")
@@ -377,7 +387,7 @@ ref = solve(dyn, RungeKutta4(), t1=T, dt=T / 8192).ys[-1]  # fine reference ~ tr
 dts = np.array([0.2, 0.1, 0.05, 0.025])
 
 fig, ax = plt.subplots(figsize=(6, 4.2))
-for name, sv, p, c in [("Euler", Euler(), 1, "C0"), ("Heun", Heun(), 2, "C1"), ("RK4", RungeKutta4(), 4, "C2")]:
+for name, sv, p, c in [("Euler", Euler(), 1, C_EULER), ("Heun", Heun(), 2, C_HEUN), ("RK4", RungeKutta4(), 4, C_RK4)]:
     e = np.array([float(jnp.max(jnp.abs(solve(dyn, sv, t1=T, dt=dt).ys[-1] - ref))) for dt in dts])
     ax.loglog(dts, e, "o-", color=c, label=f"{name} (slope {p})")
     ax.loglog(dts, e[0] * (dts / dts[0]) ** p, "--", color=c, lw=0.8, alpha=0.5)
@@ -467,8 +477,8 @@ panels = [
 fig, axes = plt.subplots(1, 3, figsize=(11, 3.4), sharey=True)
 for ax, (regime, guides) in zip(axes, panels):
     series = {name: np.array(order_study[regime][name]) for name in ("Euler", "Heun")}
-    ax.loglog(dts, series["Euler"], "o-", label="Euler")
-    ax.loglog(dts, series["Heun"], "s-", label="Heun")
+    ax.loglog(dts, series["Euler"], "o-", color=C_EULER, label="Euler")
+    ax.loglog(dts, series["Heun"], "s-", color=C_HEUN, label="Heun")
     for p, anchor in guides:
         e = series[anchor]
         g = e[-1] * (dts / dts[-1]) ** p  # passes through the anchor's finest-dt point
@@ -530,10 +540,10 @@ fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 3.8))
 # Euler step helps only slowly; Heun and RK4 are on the true radius at dt=0.05.
 ax1.axhline(1.0, color="k", ls=":", label="true radius")
 for name, solver, dt, style in [
-    ("Euler (dt=0.05)", Euler(), 0.05, dict(color="C0", lw=2.2)),
-    ("Euler (dt=0.01)", Euler(), 0.01, dict(color="C0", lw=1.0, ls="--", alpha=0.7)),
-    ("Heun (dt=0.05)", Heun(), 0.05, dict(color="C1", lw=1.6)),
-    ("RK4 (dt=0.05)", RungeKutta4(), 0.05, dict(color="C2", lw=1.6)),
+    ("Euler (dt=0.05)", Euler(), 0.05, dict(color=C_EULER, lw=2.2)),
+    ("Euler (dt=0.01)", Euler(), 0.01, dict(color=C_EULER, lw=1.0, ls="--", alpha=0.7)),
+    ("Heun (dt=0.05)", Heun(), 0.05, dict(color=C_HEUN, lw=1.6)),
+    ("RK4 (dt=0.05)", RungeKutta4(), 0.05, dict(color=C_RK4, lw=1.6)),
 ]:
     t, r = radius_t(solver, dt)
     ax1.plot(t, r, label=name, **style)
@@ -543,7 +553,7 @@ ax1.set_ylabel("oscillation amplitude (radius)")
 ax1.legend(fontsize=8, loc="lower right")
 
 # Right: noisy trajectories in the phase plane at dt=0.05.
-for solver, name, c in [(Euler(), "Euler", "C0"), (Heun(), "Heun", "C1"), (RungeKutta4(), "RK4", "C2")]:
+for solver, name, c in [(Euler(), "Euler", C_EULER), (Heun(), "Heun", C_HEUN), (RungeKutta4(), "RK4", C_RK4)]:
     fn, cfg = prepare(SupHopf(a=1.0, omega=2 * np.pi), solver, t0=0.0, t1=30.0, dt=0.05, noise=AdditiveNoise(sigma=0.05, key=jax.random.key(3)))
     ys = fn(cfg).ys
     settled = ys[len(ys) // 2:]  # drop transient (dt-independent)
@@ -617,8 +627,8 @@ amp_perstage = np.array([collective_amp(True, dt) for dt in amp_dts])
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 3.8))
 # Left: collective amplitude caves in for frozen as dt grows; per-stage holds.
 ax1.axhline(truth_amp, color="k", ls=":", label="true amplitude")
-ax1.plot(amp_dts, amp_frozen, "o-", color="C0", label="frozen (default)")
-ax1.plot(amp_dts, amp_perstage, "s-", color="C1", label="per-stage")
+ax1.plot(amp_dts, amp_frozen, "o-", color=C_FROZEN, label="frozen (default)")
+ax1.plot(amp_dts, amp_perstage, "s-", color=C_PERSTAGE, label="per-stage")
 ax1.invert_xaxis()
 ax1.set_xlabel("dt [ms]")
 ax1.set_ylabel("oscillation amplitude (node 0)")
@@ -629,9 +639,9 @@ DT_ORB = 0.05
 xr, yr = node0_orbit(True, 0.005)
 xp, yp = node0_orbit(True, DT_ORB)
 xf, yf = node0_orbit(False, DT_ORB)
-ax2.plot(xr, yr, color="k", ls=":", lw=1.0, label="truth")
-ax2.plot(xp, yp, color="C1", lw=1.0, label=f"per-stage (dt={DT_ORB})")
-ax2.plot(xf, yf, color="C0", lw=1.3, label=f"frozen (dt={DT_ORB})")
+ax2.plot(xr, yr, color=C_TRUTH, ls=":", lw=1.0, label="truth")
+ax2.plot(xp, yp, color=C_PERSTAGE, lw=1.0, label=f"per-stage (dt={DT_ORB})")
+ax2.plot(xf, yf, color=C_FROZEN, lw=1.3, label=f"frozen (dt={DT_ORB})")
 ax2.set_aspect("equal")
 ax2.set_xlabel("x")
 ax2.set_ylabel("y")
@@ -688,7 +698,7 @@ def fast_fraction(n, synchronized=False, n_real=12, key=jax.random.key(1)):
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 3.8))
 
 # Left: the summed input flattens toward its mean as more sources are pooled.
-for n, color in [(4, "C0"), (16, "C1"), (64, "C2")]:
+for n, color in [(4, "#9ecae1"), (16, "#4292c6"), (64, "#08519c")]:  # light->dark blue as N grows
     t, c = aggregate_input(n, jax.random.key(n))
     ax1.plot(t, c / c.mean(), color=color, lw=1.0, label=f"N = {n}")
 ax1.axhline(1.0, color="k", ls=":", lw=0.8)
@@ -700,8 +710,8 @@ ax1.legend(fontsize=8)
 Ns = np.array([2, 4, 8, 16, 32, 64, 128, 256])
 fr_desync = np.array([fast_fraction(int(n)) for n in Ns])
 fr_sync = np.array([fast_fraction(int(n), synchronized=True) for n in Ns])
-ax2.loglog(Ns, fr_desync, "o-", color="C0", label="desynchronized")
-ax2.loglog(Ns, fr_sync, "s-", color="C3", label="phase-locked")
+ax2.loglog(Ns, fr_desync, "o-", color=C_FROZEN, label="desynchronized")
+ax2.loglog(Ns, fr_sync, "s-", color=C_EULER, label="phase-locked")
 ax2.loglog(Ns, fr_desync[0] * (Ns / Ns[0]) ** -0.5, "k--", lw=0.8, label="1/√N")
 ax2.set_xlabel("number of sources N")
 ax2.set_ylabel("std(c) / mean(c)")

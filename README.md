@@ -5,7 +5,7 @@
 # TVB-Optim
 
 [![Tests](https://github.com/virtual-twin/tvboptim/actions/workflows/python-package.yml/badge.svg)](https://github.com/virtual-twin/tvboptim/actions/workflows/python-package.yml)
-[![Ruff](https://github.com/virtual-twin/tvboptim/actions/workflows/ruff.yml/badge.svg)](https://github.com/virtual-twin/tvboptim/actions/workflows/ruff.yml)
+<!-- [![Ruff](https://github.com/virtual-twin/tvboptim/actions/workflows/ruff.yml/badge.svg)](https://github.com/virtual-twin/tvboptim/actions/workflows/ruff.yml) -->
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![PyPI version](https://img.shields.io/pypi/v/tvboptim.svg)](https://pypi.org/project/tvboptim/)
 [![Documentation](https://img.shields.io/badge/docs-online-brightgreen.svg)](https://virtual-twin.github.io/tvboptim)
