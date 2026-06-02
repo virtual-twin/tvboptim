@@ -42,6 +42,7 @@ website:
         menu:
           - file: advanced/buffer_strategies.qmd
           - file: advanced/gradient_checkpointing.qmd
+          - file: advanced/coupling_freezing.qmd
           - file: advanced/subspace_coupling.qmd
       - text: "Reference"
         file: reference/index.qmd

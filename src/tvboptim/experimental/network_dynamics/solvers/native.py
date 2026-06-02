@@ -24,9 +24,34 @@ class NativeSolver(AbstractSolver):
     integration of the dynamics state.
     """
 
-    def __init__(self, checkpoint_every: int | None = None):
+    def __init__(
+        self,
+        checkpoint_every: int | None = None,
+        recompute_coupling_per_stage: bool = False,
+    ):
         """
         Args:
+            recompute_coupling_per_stage: If False (default), coupling
+                inputs are evaluated once per step at ``(t, y_n)`` and held
+                constant across all solver stages (Heun's
+                predictor/corrector, RK4's k1..k4). If True, coupling is
+                recomputed at each stage's own ``(time, state)``, costing
+                ``n_stages`` coupling evaluations per step. Only the
+                Network+NativeSolver path reads this; bare dynamics has no
+                coupling and single-stage Euler is unaffected.
+
+                For delayed coupling the two settings are bit-exact: the
+                history buffer is a step-level carry that does not depend
+                on the stage state, so the default just avoids redundant
+                gathers. They differ only for instantaneous
+                (state-dependent) coupling, where freezing replaces
+                ``c(t)`` by the constant ``c(t_n)`` and pins the coupling
+                component of the solution to first order regardless of the
+                base method's order. Set True to recover full method order
+                when the coupling varies fast relative to ``dt``.
+
+                External inputs are always evaluated per stage regardless
+                of this flag.
             checkpoint_every: If None (default), no gradient checkpointing —
                 the integration scan runs as a single ``jax.lax.scan`` and
                 every step's carry is saved for the backward pass. If an int
@@ -55,6 +80,7 @@ class NativeSolver(AbstractSolver):
                 smaller because the carry itself dominates.
         """
         self.checkpoint_every = checkpoint_every
+        self.recompute_coupling_per_stage = recompute_coupling_per_stage
 
     def step(
         self,
@@ -139,8 +165,10 @@ class Heun(NativeSolver):
     Two-stage method with predictor-corrector structure.
     For SDEs: Stochastic Heun method.
 
-    Note: Uses coupling assumption that coupling is slow relative to dt,
-    so we can reuse the same coupling for both stages.
+    Note: Whether the coupling input is held constant across the two stages
+    or recomputed per stage is decided outside ``step`` by the
+    ``recompute_coupling_per_stage`` flag (see ``NativeSolver``); the
+    ``dynamics_fn`` passed here already encodes that choice via closure.
     """
 
     def step(
@@ -156,7 +184,6 @@ class Heun(NativeSolver):
 
         Args:
             dynamics_fn: Dynamics function (t, state, params) -> (derivatives, auxiliaries)
-                        Same coupling used for both evaluations
             t: Current time
             state: Current state [n_states, n_nodes]
             dt: Time step
@@ -183,7 +210,6 @@ class Heun(NativeSolver):
         y_pred = state + dt * k1 + noise_sample
 
         # Second evaluation: k2 = f(t + dt, y_pred)
-        # Coupling assumption: reuse same coupling (expensive to recompute)
         result2 = dynamics_fn(t + dt, y_pred, params)
 
         # Extract k2 (discard auxiliaries from second evaluation)
@@ -204,8 +230,10 @@ class RungeKutta4(NativeSolver):
     Four-stage explicit method with high accuracy for smooth ODEs.
     For SDEs: Applies noise at the end of the RK4 step.
 
-    Note: Uses coupling assumption that coupling is slow relative to dt,
-    so we can reuse the same coupling for all four stages.
+    Note: Whether the coupling input is held constant across the four stages
+    or recomputed per stage is decided outside ``step`` by the
+    ``recompute_coupling_per_stage`` flag (see ``NativeSolver``); the
+    ``dynamics_fn`` passed here already encodes that choice via closure.
     """
 
     def step(
@@ -221,7 +249,6 @@ class RungeKutta4(NativeSolver):
 
         Args:
             dynamics_fn: Dynamics function (t, state, params) -> (derivatives, auxiliaries)
-                        Same coupling used for all evaluations
             t: Current time
             state: Current state [n_states, n_nodes]
             dt: Time step
@@ -310,6 +337,10 @@ class BoundedSolver(NativeSolver):
     @property
     def checkpoint_every(self):
         return self.base_solver.checkpoint_every
+
+    @property
+    def recompute_coupling_per_stage(self):
+        return self.base_solver.recompute_coupling_per_stage
 
     def step(
         self,

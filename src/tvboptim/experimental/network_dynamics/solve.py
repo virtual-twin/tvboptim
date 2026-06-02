@@ -634,6 +634,7 @@ def prepare(
 
     # Pre-allocate solver step function reference
     solver_step = solver.step
+    recompute_coupling_per_stage = solver.recompute_coupling_per_stage
 
     # =========================================================================
     # VARIABLES OF INTEREST - Determine what to record
@@ -705,14 +706,30 @@ def prepare(
                 t = inputs
                 step_idx = None
 
-            # Inline dynamics wrapper to avoid extra function creation
-            # Note: This is still inside op, but it's the minimal unavoidable closure
-            def wrapped_dynamics(t_inner, network_state, params_dynamics):
-                # Compute all coupling inputs using pre-compiled closure
-                coupling_inputs = compute_all_couplings(
-                    t_inner, network_state, state.coupling, config, enriched
+            # By default compute all coupling inputs ONCE per step at the
+            # step-start point (t, state.dynamics) and freeze them across
+            # every solver stage (Heun's predictor+corrector, RK4's k1..k4).
+            # For delayed couplings the history buffer is a step-level carry
+            # that does not depend on the stage state, so freezing is exact
+            # while avoiding the (expensive) delay gather 2x for Heun / 4x
+            # for RK4. When solver.recompute_coupling_per_stage is True the
+            # coupling is instead re-evaluated inside wrapped_dynamics at each
+            # stage's (time, state); see NativeSolver for the order trade-off.
+            if not recompute_coupling_per_stage:
+                frozen_coupling_inputs = compute_all_couplings(
+                    t, state.dynamics, state.coupling, config, enriched
                 )
-                # Compute all external inputs using pre-compiled closure
+
+            # Inline dynamics wrapper to avoid extra function creation.
+            # External inputs are always evaluated per stage so time-varying
+            # stimuli see the stage time/state.
+            def wrapped_dynamics(t_inner, network_state, params_dynamics):
+                if recompute_coupling_per_stage:
+                    coupling_inputs = compute_all_couplings(
+                        t_inner, network_state, state.coupling, config, enriched
+                    )
+                else:
+                    coupling_inputs = frozen_coupling_inputs
                 external_inputs = compute_all_externals(
                     t_inner, network_state, state.external, config
                 )

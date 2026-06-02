@@ -1,0 +1,758 @@
+---
+title: "Coupling Freezing and Solver Order"
+subtitle: "Why the Network Coupling Is Held Constant Across Solver Stages by Default"
+format:
+  html:
+    code-fold: false
+    toc: true
+    echo: false
+    embed-resources: true
+    fig-width: 8
+    out-width: "100%"
+jupyter: python3
+execute:
+  cache: true
+---
+
+Try this notebook interactively:
+
+[Download .ipynb](https://github.com/virtual-twin/tvboptim/blob/main/docs/advanced/coupling_freezing.ipynb){.btn .btn-primary download="coupling_freezing.ipynb"}
+[Download .qmd](coupling_freezing.qmd){.btn .btn-secondary download="coupling_freezing.qmd"}
+[Open in Colab](https://colab.research.google.com/github/virtual-twin/tvboptim/blob/main/docs/advanced/coupling_freezing.ipynb){.btn .btn-warning target="_blank"}
+
+## Introduction
+
+A multi-stage solver evaluates the right-hand side several times per step: Heun
+twice, RK4 four times. On a coupled network every one of those evaluations faces
+the same question. The network RHS splits into a cheap local part and an
+expensive coupling part:
+
+$$
+\frac{dy_i}{dt} = f_i(y_i) + c_i(t), \qquad
+c_i(t) = G \sum_j W_{ij}\, h\big(y_j(t - \tau_{ij})\big)
+$$
+
+At network scale the coupling term `c_i` is the bottleneck: a gather over a
+delay-history buffer, or a dense matrix product over all sources. So the question
+each intermediate stage poses is whether to recompute `c_i` at the stage's own
+state, or to compute it once at the step start and hold it fixed. Recomputing
+pays the coupling cost 2× (Heun) or 4× (RK4) per step; holding it fixed pays it
+once.
+
+**The Virtual Brain answers this implicitly.** In TVB's integration loop
+(`Simulator.__call__`) the delayed node coupling is computed once per step,
+`node_coupling = self._loop_compute_node_coupling(step)`, and handed as a single
+fixed array to the integrator's `scheme`. Every stage of that scheme reuses it:
+`HeunDeterministic` and `HeunStochastic` evaluate the derivative twice with the
+same `coupling` (predictor and corrector), and `RungeKutta4thOrderDeterministic`
+evaluates it four times with the same `coupling` (`k1..k4`). The loop only
+refreshes `node_coupling` after the step is taken, for the next step. Frozen
+coupling is therefore not an option a TVB user selects; it is wired into the
+integrators, and getting per-stage coupling would mean rewriting `scheme`.
+
+There is a fairness point that also explains *why* TVB never needed to surface
+the choice: its long-range coupling is always a delayed gather over the history
+buffer, evaluated on the integer-step grid. As the next sections show, in that
+delayed regime freezing is exact, so the assumption never costs TVB anything and
+there was nothing to expose.
+
+`tvboptim` keeps the same default but makes it a visible knob, and supports
+instantaneous (non-delayed) coupling too, which is the case where the assumption
+actually bites. `NativeSolver` **freezes** the coupling by default, computing `c`
+once per step at `(t_n, y_n)` and reusing it across stages, and exposes the
+alternative as a keyword: `recompute_coupling_per_stage=True` opts into per-stage
+evaluation. Out of the box you reproduce TVB's behavior; the difference is that
+you can now see the assumption, reason about it, and flip it.
+
+Because freezing *is* an assumption, that the coupling is effectively constant
+across one step, the rest of this page makes the assumption and its consequences
+explicit, so you can tell when it is free, when it costs you, and which side of
+the flag your model wants:
+
+- For delayed coupling, the regime brain-network simulations actually run in
+  (usually with noise), the assumption holds **exactly**: freezing is
+  bit-identical to per-stage. Pure speedup at zero accuracy cost.
+- For fast, state-dependent *instantaneous* coupling it is a genuine
+  approximation: freezing drops the coupling term to first order. Often still
+  benign, because a region averages many inputs, but in strongly synchronized or
+  hub-dominated regimes it is worth paying for per-stage.
+
+The sections below quantify each claim in turn: first the cost that motivates
+freezing, then the delayed regime where it is exact, and finally the
+instantaneous regime where the flag earns its keep.
+
+```{python}
+#| echo: false
+try:
+    import google.colab
+    print("Running in Google Colab - installing dependencies...")
+    !pip install -q tvboptim
+    print("✓ Dependencies installed!")
+except ImportError:
+    pass
+```
+
+```{python}
+#| output: false
+#| code-fold: true
+#| code-summary: "Environment setup and imports"
+#| echo: true
+import time
+import numpy as np
+import matplotlib.pyplot as plt
+import jax
+import jax.numpy as jnp
+
+# float64 so convergence slopes sit above the floating-point floor.
+jax.config.update("jax_enable_x64", True)
+
+from tvboptim.experimental.network_dynamics import Network, prepare, solve
+from tvboptim.experimental.network_dynamics.dynamics.tvb import Generic2dOscillator, SupHopf
+from tvboptim.experimental.network_dynamics.coupling import (
+    LinearCoupling,
+    DelayedLinearCoupling,
+)
+from tvboptim.experimental.network_dynamics.graph import DenseGraph, DenseDelayGraph
+from tvboptim.experimental.network_dynamics.noise import AdditiveNoise, MultiplicativeNoise
+from tvboptim.experimental.network_dynamics.solvers import Euler, Heun, RungeKutta4
+from tvboptim.utils import set_cache_path, cache
+
+set_cache_path("./coupling_freezing_benchmark")
+
+N_SMALL = 40  # small network for the accuracy demos
+
+
+def oscillator():
+    # Generic2dOscillator in an excitable regime; V is the coupled variable.
+    return Generic2dOscillator(
+        a=-1.5, b=-15.0, d=0.015, tau=4.0, INITIAL_STATE=(0.1, 0.1)
+    )
+
+
+def delay_network(G, n=N_SMALL, max_delay=40.0):
+    graph = DenseDelayGraph.random(n, max_delay=max_delay, key=jax.random.key(0))
+    return Network(
+        oscillator(), {"delayed": DelayedLinearCoupling(incoming_states="V", G=G)}, graph
+    )
+
+
+def instant_network(G, n=N_SMALL):
+    graph = DenseGraph.random(n, key=jax.random.key(0))
+    return Network(
+        oscillator(), {"instant": LinearCoupling(incoming_states="V", G=G)}, graph
+    )
+
+
+def local_only_network(n=N_SMALL, max_delay=40.0):
+    # Same nodes and graph as delay_network, but with no coupling term. The
+    # coupling input is filled with zeros and the delay gather never enters
+    # the graph, so this isolates the cost of the local dynamics alone.
+    graph = DenseDelayGraph.random(n, max_delay=max_delay, key=jax.random.key(0))
+    return Network(oscillator(), {}, graph)
+```
+
+## Coupling dominates the simulation cost
+
+The reason to freeze is wall time, and to see it we need a yardstick: how much
+of a solve is *coupling* and how much is the local dynamics? We get the local
+baseline from a coupling-free network (same nodes, same graph, no coupling term),
+where the delay gather never enters the compiled graph. Everything else is timed
+against it: the three frozen solvers (Euler, Heun, RK4), and the per-stage Heun
+and RK4. Timing uses the prepared `solve_fn` under `jax.jit`, warmed up once.
+
+(A natural guess is that setting `G = 0` would give the same baseline by
+zeroing the coupling. It does not: `G` is a runtime value, so XLA still emits
+the full gather and only skips the final multiply. The gather, not the scaling,
+is the cost, so the baseline has to come from a network with no coupling at all.)
+
+```{python}
+#| output: false
+#| code-fold: true
+#| code-summary: "Benchmark harness"
+#| echo: true
+T1, DT = 10000.0, 1.0
+N_SWEEP = [50, 100, 200, 400]
+
+
+def bench_solve(net, solver, n_warmup=1, n_runs=5):
+    solve_fn, cfg = prepare(net, solver, t0=0.0, t1=T1, dt=DT)
+    solve_fn = jax.jit(solve_fn)
+    for _ in range(n_warmup):
+        jax.block_until_ready(solve_fn(cfg).ys)
+    times = []
+    for _ in range(n_runs):
+        t = time.perf_counter()
+        jax.block_until_ready(solve_fn(cfg).ys)
+        times.append(time.perf_counter() - t)
+    return float(np.median(times))
+
+
+@cache("coupling_freeze_perf_v2", redo=False)
+def run_perf_sweep():
+    out = {"N": N_SWEEP, "delay": {}, "instant": {}}
+    # Local baseline: no coupling term, so the delay gather is absent.
+    out["delay"]["baseline"] = [
+        bench_solve(local_only_network(n), Euler()) for n in N_SWEEP
+    ]
+    # Single-stage Euler always evaluates coupling once (it has one stage), so
+    # it doubles as the "frozen" reference the multi-stage solvers collapse to.
+    out["delay"]["Euler"] = [
+        bench_solve(delay_network(0.05, n), Euler()) for n in N_SWEEP
+    ]
+    for name, make in [("Heun", Heun), ("RK4", RungeKutta4)]:
+        for mode, rec in [("frozen", False), ("perstage", True)]:
+            out["delay"][f"{name}_{mode}"] = [
+                bench_solve(delay_network(0.05, n), make(recompute_coupling_per_stage=rec))
+                for n in N_SWEEP
+            ]
+    # Non-delay comparison at the largest size.
+    n = N_SWEEP[-1]
+    for name, make in [("Heun", Heun), ("RK4", RungeKutta4)]:
+        tf = bench_solve(instant_network(0.05, n), make(recompute_coupling_per_stage=False))
+        tp = bench_solve(instant_network(0.05, n), make(recompute_coupling_per_stage=True))
+        out["instant"][name] = (tf, tp)
+    return out
+
+
+perf = run_perf_sweep()
+```
+
+```{python}
+#| label: fig-perf
+#| fig-cap: "Forward-solve wall time vs network size for a delay-coupled network. The coupling-free baseline (black) sits far below everything that touches coupling: at network scale the delay gather, not the local dynamics, sets the wall time. The three frozen solvers (Euler, Heun, RK4) collapse onto one band because each pays that gather exactly once per step regardless of stage count. Per-stage evaluation (open markers) lifts off that band by re-paying the gather on every stage, so its cost scales with the stage count (Heun's two, RK4's four) instead of staying flat."
+#| echo: true
+#| code-fold: true
+#| code-summary: "Plotting code"
+Ns = np.array(perf["N"])
+d = perf["delay"]
+fig, ax = plt.subplots(figsize=(7, 4.5))
+ax.loglog(Ns, np.array(d["baseline"]) * 1e3, "k:", marker="x", label="local only (no coupling)")
+ax.loglog(Ns, np.array(d["Euler"]) * 1e3, "^-", color="C2", label="Euler (1 stage)")
+ax.loglog(Ns, np.array(d["Heun_frozen"]) * 1e3, "o-", color="C0", label="Heun frozen")
+ax.loglog(Ns, np.array(d["Heun_perstage"]) * 1e3, "o--", color="C0", mfc="none", label="Heun per-stage")
+ax.loglog(Ns, np.array(d["RK4_frozen"]) * 1e3, "s-", color="C1", label="RK4 frozen")
+ax.loglog(Ns, np.array(d["RK4_perstage"]) * 1e3, "s--", color="C1", mfc="none", label="RK4 per-stage")
+ax.set_xlabel("network size N")
+ax.set_ylabel("forward-solve time [ms]")
+ax.legend()
+fig.tight_layout()
+```
+
+```{python}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Coupling share and per-stage slowdown"
+d = perf["delay"]
+i = -1  # largest network
+base = np.array(d["baseline"])
+print(f"at N={perf['N'][i]}:")
+print(f"  coupling share of a frozen solve: "
+      f"{1 - base[i] / np.array(d['Euler'])[i]:.1%} "
+      f"(local baseline {base[i] * 1e3:.1f} ms vs Euler {np.array(d['Euler'])[i] * 1e3:.0f} ms)")
+print("  frozen solvers collapse together (one gather per step):")
+for name in ["Euler", "Heun_frozen", "RK4_frozen"]:
+    print(f"    {name:>11}: {np.array(d[name])[i] * 1e3:.0f} ms")
+print("  per-stage / frozen slowdown (extra gathers):")
+for name in ["Heun", "RK4"]:
+    ratios = np.array(d[f"{name}_perstage"]) / np.array(d[f"{name}_frozen"])
+    print(f"    {name:>4}: " + "  ".join(f"N={n}:{r:.1f}x" for n, r in zip(perf["N"], ratios)))
+print("\nnon-delay (instantaneous, dense matmul) at N={}:".format(perf["N"][-1]))
+for name, (tf, tp) in perf["instant"].items():
+    print(f"  {name:>4}: {tp / tf:.1f}x")
+```
+
+Two things stand out. First, the local dynamics is a rounding error: nearly all
+of a frozen solve is the coupling gather, so freezing that gather is the lever
+that matters. Second, the three frozen solvers land on the same line. Euler (one
+stage), Heun (two) and RK4 (four) cost essentially the same once coupling is
+frozen, because they all pay the gather exactly once per step and differ only in
+the negligible local part. The solver's stage count stops mattering, which is the
+whole point of freezing.
+
+Per-stage breaks that collapse: it re-pays the gather on every stage, so the cost
+scales with the stage count (the printed factors above) instead of staying flat.
+This is not special to delays. Instantaneous dense coupling shows the same
+pattern, because a dense matrix product is just as much the bottleneck as a
+history gather. What *is* special about the delayed case is not a bigger speedup
+but that the speedup is **free**, which is the next section.
+
+## The regime you actually run is exact
+
+For delayed coupling, freezing is not an approximation: it is bit-identical to
+per-stage. The delay history is a buffer sampled on the step grid and refreshed
+once per step; the delayed read indexes it by precomputed offsets and does not
+depend on the stage state, so both Heun stages read the same buffer entry. Noise
+does not change this either, because the noise increment is applied in the solver
+step, separately from the coupling. Overlaid, the frozen and per-stage
+trajectories coincide exactly, with and without noise:
+
+```{python}
+#| label: fig-delay-exact
+#| fig-cap: "Mean V across regions for delayed coupling, frozen (solid) vs per-stage (dashed), without and with noise. The dashed per-stage curve sits exactly on top of the frozen one; the legend reports the largest absolute difference over the whole trajectory, which is zero in both panels."
+#| echo: true
+#| code-fold: true
+#| code-summary: "Plotting code"
+graph = DenseDelayGraph.random(N_SMALL, max_delay=40.0, key=jax.random.key(0))
+coup = {"delayed": DelayedLinearCoupling(incoming_states="V", G=0.05)}
+det_net = Network(oscillator(), coup, graph)
+noisy_net = Network(oscillator(), coup, graph, noise=AdditiveNoise(sigma=0.02, key=jax.random.key(7)))
+
+fig, axes = plt.subplots(1, 2, figsize=(10, 3.4), sharey=True)
+for ax, title, net in [(axes[0], "no noise", det_net), (axes[1], "additive noise (σ=0.02)", noisy_net)]:
+    yf = solve(net, Heun(recompute_coupling_per_stage=False), t1=200.0, dt=0.5).ys
+    yp = solve(net, Heun(recompute_coupling_per_stage=True), t1=200.0, dt=0.5).ys
+    err = float(jnp.max(jnp.abs(yf - yp)))
+    t = np.arange(1, yf.shape[0] + 1) * 0.5
+    ax.plot(t, np.asarray(yf[:, 0, :].mean(axis=1)), color="C0", lw=2.2, label="frozen (default)")
+    ax.plot(t, np.asarray(yp[:, 0, :].mean(axis=1)), color="C1", lw=1.0, ls="--",
+            label=f"per-stage (max|Δ| = {err:.0e})")
+    ax.set_title(title)
+    ax.set_xlabel("time [ms]")
+    ax.legend(loc="upper right")
+axes[0].set_ylabel("mean V")
+fig.tight_layout()
+```
+
+So in the dominant regime of delays, with or without noise, freezing costs
+**zero** accuracy and still saves the redundant per-stage coupling evaluations
+timed above. The exactness is a consequence of one design choice: the history
+buffer is piecewise-constant over a step, so every stage reads the same stored
+sample and there is nothing for per-stage recomputation to refine.
+
+::: {.callout-note title="Future work: continuous-history delays"}
+That design choice is not the only option. A higher-order route stores a
+*continuous* interpolant of the history (for example cubic Hermite through the
+saved samples) and evaluates it at each stage's own delayed time
+`t_stage - τ`, instead of indexing a fixed buffer entry. The delayed argument
+then moves with the stage, exactly as the local term does, so per-stage
+recomputation would recover the full method order for the delayed term too. This
+is what continuous DDE solvers such as Julia's
+[`DelayDiffEq.jl`](https://github.com/SciML/DelayDiffEq.jl) do.
+
+We do not implement this yet. It trades the cheap, exact buffer read for an
+interpolant evaluation and a larger stored history, and in the noisy,
+delay-dominated regime brain networks usually run in, the stochastic order cap
+(below) tends to swallow the gain. If you have a smooth, low-noise,
+accuracy-critical delayed model where it would pay off, it is a natural
+extension to the solver: please open an issue so we can prioritize it.
+:::
+
+Noise reinforces the default from the other direction: it also caps the
+convergence order (shown in *Noise caps the order* below), so where freezing
+would lower the drift order at all, the noise has already capped the total and
+the per-stage cost buys nothing.
+
+# Solver order in practice
+
+The rest of this page is about solver order: what it means, how noise changes
+it, why Heun still beats Euler for oscillators despite that, and the one coupling
+type where the freezing flag itself costs accuracy.
+
+## What "order" means
+
+A one-step solver advances `y_n → y_{n+1}` with a small error each step that
+accumulates to a global error at the end time. A method of **order `p`** has that
+global error scale as `dt^p`: halve `dt`, and the error drops by `2^p`.
+
+| method | order `p` | error drop per halving of `dt` |
+|--------|-----------|------------------|
+| Euler  | 1 | 2× |
+| Heun   | 2 | 4× |
+| RK4    | 4 | 16× |
+
+On a log-log plot of error against `dt`, order `p` is just the **slope**: a
+straight line, steeper for higher-order methods. That is exactly how order is
+measured, integrate against a fine reference and read the slope off, here on a
+smooth (noise-free) `SupHopf` oscillator:
+
+```{python}
+#| label: fig-order-intuition
+#| fig-cap: "Global error vs step size on a smooth deterministic oscillator, log-log. Each method is a straight line whose slope is its order: Euler 1, Heun 2, RK4 4 (faint dashed guides). The steeper the line, the more accuracy each halving of dt buys, so the methods fan out by orders of magnitude as dt shrinks."
+#| echo: true
+#| code-fold: true
+#| code-summary: "Plotting code"
+dyn = SupHopf(a=-1.0, omega=1.0)  # smooth stable focus, no noise
+T = 2.0
+ref = solve(dyn, RungeKutta4(), t1=T, dt=T / 8192).ys[-1]  # fine reference ~ truth
+dts = np.array([0.2, 0.1, 0.05, 0.025])
+
+fig, ax = plt.subplots(figsize=(6, 4.2))
+for name, sv, p, c in [("Euler", Euler(), 1, "C0"), ("Heun", Heun(), 2, "C1"), ("RK4", RungeKutta4(), 4, "C2")]:
+    e = np.array([float(jnp.max(jnp.abs(solve(dyn, sv, t1=T, dt=dt).ys[-1] - ref))) for dt in dts])
+    ax.loglog(dts, e, "o-", color=c, label=f"{name} (slope {p})")
+    ax.loglog(dts, e[0] * (dts / dts[0]) ** p, "--", color=c, lw=0.8, alpha=0.5)
+ax.set_xlabel("dt")
+ax.set_ylabel(f"global error at t = {T:.0f}")
+ax.legend()
+fig.tight_layout()
+```
+
+Each method falls on its own slope, and the gaps widen fast: by `dt = 0.05`
+RK4's error is already several orders of magnitude below Euler's. That is the
+whole case for higher-order methods, far bigger steps at the same accuracy. The
+catch, next, is that this clean picture is deterministic; noise rewrites it.
+
+## Noise caps the order
+
+Solver order is an asymptotic, small-`dt` statement, and noise changes it. We
+measure the strong (pathwise) error of a `SupHopf` oscillator against a fine
+reference on the *same* Brownian path, refining `dt` while holding the path fixed
+(the increments of a coarse step are the sum of the fine ones). The injection
+slot `config._internal.noise_samples` feeds each run its prescribed increments.
+
+```{python}
+#| output: false
+#| code-fold: true
+#| code-summary: "Strong-convergence study (cached)"
+#| echo: true
+T_ORD, N_F, N_SEEDS = 2.0, 4096, 12
+DT_F = T_ORD / N_F
+KS = [64, 32, 16, 8]  # tested steps as multiples of the fine reference step
+
+
+def _path_final(solver, noise_factory, z, dt):
+    # SupHopf in a stable-focus regime: gentle drift, so the stochastic term
+    # sets the convergence order. The injected z are unit normals; the solver
+    # applies the sqrt(dt) scaling internally.
+    fn, cfg = prepare(SupHopf(a=-1.0, omega=1.0), solver, t0=0.0, t1=T_ORD, dt=dt, noise=noise_factory())
+    cfg._internal.noise_samples = z
+    return fn(cfg).ys[-1]
+
+
+@cache("solver_order_under_noise", redo=False)
+def run_order_study():
+    out = {"dts": [k * DT_F for k in KS]}
+    det = lambda solver, dt: solve(SupHopf(a=-1.0, omega=1.0), solver, t1=T_ORD, dt=dt).ys[-1]
+    ref = det(Heun(), DT_F)
+    out["deterministic"] = {
+        s: [float(jnp.max(jnp.abs(det(sv, k * DT_F) - ref))) for k in KS]
+        for s, sv in [("Euler", Euler()), ("Heun", Heun())]
+    }
+    regimes = {
+        "additive": lambda: AdditiveNoise(sigma=1.5, key=jax.random.key(1)),
+        "multiplicative": lambda: MultiplicativeNoise(sigma=1.5, state_scaling=1.0, key=jax.random.key(1)),
+    }
+    for rname, factory in regimes.items():
+        out[rname] = {}
+        for sname, sv in [("Euler", Euler()), ("Heun", Heun())]:
+            acc = np.zeros(len(KS))
+            for s in range(N_SEEDS):  # average strong error over Brownian paths
+                z = jax.random.normal(jax.random.key(s), (N_F, 2, 1))
+                rf = _path_final(sv, factory, z, DT_F)
+                for i, k in enumerate(KS):
+                    n = N_F // k
+                    zc = z[: n * k].reshape(n, k, 2, 1).sum(axis=1) / np.sqrt(k)
+                    acc[i] += float(jnp.sqrt(jnp.mean((_path_final(sv, factory, zc, k * DT_F) - rf) ** 2)))
+            out[rname][sname] = (acc / N_SEEDS).tolist()
+    return out
+
+
+order_study = run_order_study()
+```
+
+```{python}
+#| label: fig-noise-order
+#| fig-cap: "Strong convergence of Euler and Heun on a SupHopf oscillator. Deterministic: Euler is order 1, Heun order 2. With noise, Heun's second-order advantage is gone: additive noise holds both at order 1, multiplicative drops both toward order 1/2. Dashed lines are reference slopes."
+#| echo: true
+#| code-fold: true
+#| code-summary: "Plotting code"
+dts = np.array(order_study["dts"])
+# Each guide is (slope, anchor curve); anchoring it to the series it describes
+# keeps the reference line sitting on that scatter rather than floating off it.
+panels = [
+    ("deterministic", [(1, "Euler"), (2, "Heun")]),
+    ("additive", [(1, "Euler")]),
+    ("multiplicative", [(0.5, "Euler")]),
+]
+fig, axes = plt.subplots(1, 3, figsize=(11, 3.4), sharey=True)
+for ax, (regime, guides) in zip(axes, panels):
+    series = {name: np.array(order_study[regime][name]) for name in ("Euler", "Heun")}
+    ax.loglog(dts, series["Euler"], "o-", label="Euler")
+    ax.loglog(dts, series["Heun"], "s-", label="Heun")
+    for p, anchor in guides:
+        e = series[anchor]
+        g = e[-1] * (dts / dts[-1]) ** p  # passes through the anchor's finest-dt point
+        ax.loglog(dts, g, "k--", lw=0.8)
+        ax.text(dts[0], g[0], f"order {p}", fontsize=8, va="bottom", ha="right")
+    ax.set_title(regime)
+    ax.set_xlabel("dt")
+axes[0].set_ylabel("strong error")
+axes[0].legend()
+fig.tight_layout()
+```
+
+Without noise the schemes show their textbook orders. Switch noise on and Heun's
+second-order drift no longer pays: explicit fixed-step SDE schemes are capped at
+**strong order ≤ 1**, with the half-order Brownian increment `√Δt` as the
+bottleneck.
+
+$$
+\text{overall strong order} = \min(\text{drift order},\ \text{noise-limited order}) \le 1
+$$
+
+Additive noise holds both schemes at order 1; general multiplicative noise drops
+Euler–Maruyama to order 1/2, and Heun's frozen-diffusion step does not recover
+it. Monte-Carlo error across realizations (`~1/√M`) usually sits on top of both.
+
+## Why not just use Euler?
+
+If noise caps everything at order 1, why pay for Heun? Because order is the
+*slope* of error against `dt`, not the error at the `dt` you run, and it says
+nothing about whether the scheme keeps the shape of an oscillation.
+
+For oscillators Euler has a specific, systematic failure. Its linear
+amplification factor for a rotation at angular frequency `ω` is
+`|1 + iωΔt| = √(1 + (ωΔt)²) > 1`: every step injects a little energy and inflates
+the amplitude. Heun's factor is `√(1 + (ωΔt)⁴/4) ≈ 1`, much gentler. RK4 goes
+further still: its stability region actually contains the imaginary axis up to
+`ωΔt ≈ 2.8`, so it neither grows nor noticeably damps the oscillation. On a
+`SupHopf` oscillator with true limit-cycle radius 1, Euler overshoots the
+amplitude at usable step sizes, Heun is close, and RK4 is essentially exact. The
+bias persists under noise:
+
+```{python}
+#| label: fig-amplitude
+#| fig-cap: "SupHopf limit cycle, true radius 1 (dotted), started from radius 0.1. Left: oscillation amplitude over time. All methods spiral up toward the cycle, but Euler keeps injecting energy and overshoots to a plateau well above the true radius, and shrinking its step pulls that overshoot back only slowly (the finer-dt Euler curve is still visibly high). Heun and RK4 lock onto the true radius already at dt=0.05. Right: noisy trajectories in the phase plane at dt=0.05; the Euler cloud sits well outside the true unit circle while Heun and RK4 track it."
+#| echo: true
+#| code-fold: true
+#| code-summary: "Plotting code"
+def radius_t(solver, dt):
+    # SupHopf limit cycle, true radius 1; start inside it (radius 0.1) and watch
+    # the amplitude grow toward the cycle.
+    ys = solve(SupHopf(a=1.0, omega=2 * np.pi), solver, t0=0.0, t1=20.0, dt=dt).ys
+    r = np.sqrt(np.asarray(ys[:, 0, 0]) ** 2 + np.asarray(ys[:, 1, 0]) ** 2)
+    return np.arange(1, len(r) + 1) * dt, r
+
+
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 3.8))
+
+# Left: amplitude over time. Euler overshoots and plateaus too high; a finer
+# Euler step helps only slowly; Heun and RK4 are on the true radius at dt=0.05.
+ax1.axhline(1.0, color="k", ls=":", label="true radius")
+for name, solver, dt, style in [
+    ("Euler (dt=0.05)", Euler(), 0.05, dict(color="C0", lw=2.2)),
+    ("Euler (dt=0.01)", Euler(), 0.01, dict(color="C0", lw=1.0, ls="--", alpha=0.7)),
+    ("Heun (dt=0.05)", Heun(), 0.05, dict(color="C1", lw=1.6)),
+    ("RK4 (dt=0.05)", RungeKutta4(), 0.05, dict(color="C2", lw=1.6)),
+]:
+    t, r = radius_t(solver, dt)
+    ax1.plot(t, r, label=name, **style)
+ax1.set_ylim(0, 1.55)
+ax1.set_xlabel("time [ms]")
+ax1.set_ylabel("oscillation amplitude (radius)")
+ax1.legend(fontsize=8, loc="lower right")
+
+# Right: noisy trajectories in the phase plane at dt=0.05.
+for solver, name, c in [(Euler(), "Euler", "C0"), (Heun(), "Heun", "C1"), (RungeKutta4(), "RK4", "C2")]:
+    fn, cfg = prepare(SupHopf(a=1.0, omega=2 * np.pi), solver, t0=0.0, t1=30.0, dt=0.05, noise=AdditiveNoise(sigma=0.05, key=jax.random.key(3)))
+    ys = fn(cfg).ys
+    settled = ys[len(ys) // 2:]  # drop transient (dt-independent)
+    ax2.plot(np.asarray(settled[:, 0, 0]), np.asarray(settled[:, 1, 0]), lw=0.5, color=c, label=name)
+theta = np.linspace(0, 2 * np.pi, 200)
+ax2.plot(np.cos(theta), np.sin(theta), "k:", label="true cycle")
+ax2.set_aspect("equal")
+ax2.set_xlabel("x")
+ax2.set_ylabel("y")
+ax2.legend(fontsize=8)
+fig.tight_layout()
+```
+
+The order cap does not rescue Euler, because the amplitude error is a
+deterministic, drift-driven bias, separate from the stochastic term whose order
+the noise limits. A noisy oscillator integrated with Euler reports the wrong
+oscillation amplitude, and therefore wrong power and inflated functional
+connectivity, however small the noise. Matching Heun's amplitude at `dt = 0.05`
+would take Euler a much smaller step and many more steps, erasing the per-step
+saving. Under noise Heun and RK4 land close together (the stochastic term now
+limits accuracy), but both stay far from Euler's bias. For oscillatory brain
+models, reach for Heun or RK4; keep Euler for non-oscillatory dynamics or when
+`dt` is already tiny.
+
+## When the flag matters: instantaneous coupling
+
+Instantaneous coupling `c_i = G \sum_j W_{ij} V_j(t)` depends on the *current*
+state, so unlike the delayed case it genuinely changes between stages. Freezing
+it at `(t_n, y_n)` is a zeroth-order treatment of the coupling term: it pins the
+solution to **first order** regardless of the base method, while per-stage keeps
+Heun second order. In a calm, well-averaged network that barely shows (next
+section). But push into the regime the flag is built for, strong coupling that
+swings fast within a step, and frozen coupling breaks in the open: it collapses
+the very oscillation it is meant to carry.
+
+```{python}
+#| label: fig-instant-collapse
+#| fig-cap: "Eight identical fast SupHopf oscillators with strong instantaneous coupling, a regime where the coupling swings fast within a single step. Left: the settled node-0 oscillation amplitude vs step size. Per-stage clings to the true amplitude (dotted); frozen coupling caves in, shedding a large fraction of the oscillation at the coarsest step. Right: the node-0 orbit at dt=0.05; the frozen loop sits shrunken well inside the true cycle (dotted) while per-stage tracks it. Both recover the truth as dt shrinks, but frozen, being first order in the coupling, far more slowly."
+#| echo: true
+#| code-fold: true
+#| code-summary: "Plotting code"
+def sync_network(G=1.0, n=8, omega=4 * np.pi):
+    # Identical fast SupHopf oscillators, all-to-all random positive coupling:
+    # strong instantaneous coupling that swings fast within a step.
+    graph = DenseGraph.random(n, key=jax.random.key(0))
+    return Network(
+        SupHopf(a=1.0, omega=omega), {"instant": LinearCoupling(incoming_states="x", G=G)}, graph
+    )
+
+
+sync_net = sync_network()
+
+
+def collective_amp(recompute, dt):
+    ys = solve(sync_net, Heun(recompute_coupling_per_stage=recompute), t1=12.0, dt=dt).ys
+    x = np.asarray(ys[len(ys) // 2:, 0, 0])  # settled node-0 x
+    return x.max() - x.min()
+
+
+def node0_orbit(recompute, dt):
+    ys = solve(sync_net, Heun(recompute_coupling_per_stage=recompute), t1=12.0, dt=dt).ys
+    s = ys[len(ys) // 2:]
+    return np.asarray(s[:, 0, 0]), np.asarray(s[:, 1, 0])
+
+
+truth_amp = collective_amp(True, 0.005)
+amp_dts = np.array([0.1, 0.05, 0.025, 0.0125])
+amp_frozen = np.array([collective_amp(False, dt) for dt in amp_dts])
+amp_perstage = np.array([collective_amp(True, dt) for dt in amp_dts])
+
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 3.8))
+# Left: collective amplitude caves in for frozen as dt grows; per-stage holds.
+ax1.axhline(truth_amp, color="k", ls=":", label="true amplitude")
+ax1.plot(amp_dts, amp_frozen, "o-", color="C0", label="frozen (default)")
+ax1.plot(amp_dts, amp_perstage, "s-", color="C1", label="per-stage")
+ax1.invert_xaxis()
+ax1.set_xlabel("dt [ms]")
+ax1.set_ylabel("oscillation amplitude (node 0)")
+ax1.legend(fontsize=8)
+
+# Right: node-0 orbit at a usable dt; frozen loop shrinks inside the true cycle.
+DT_ORB = 0.05
+xr, yr = node0_orbit(True, 0.005)
+xp, yp = node0_orbit(True, DT_ORB)
+xf, yf = node0_orbit(False, DT_ORB)
+ax2.plot(xr, yr, color="k", ls=":", lw=1.0, label="truth")
+ax2.plot(xp, yp, color="C1", lw=1.0, label=f"per-stage (dt={DT_ORB})")
+ax2.plot(xf, yf, color="C0", lw=1.3, label=f"frozen (dt={DT_ORB})")
+ax2.set_aspect("equal")
+ax2.set_xlabel("x")
+ax2.set_ylabel("y")
+ax2.legend(fontsize=8)
+fig.tight_layout()
+```
+
+Both panels tell the same story: as `dt` grows the frozen amplitude caves in
+while per-stage clings to the truth, and the frozen orbit shrinks inside the true
+cycle. That is the lost order made visible, freezing the coupling across stages
+is a zeroth-order treatment that costs a full order of accuracy, which per-stage
+spends its extra evaluations to buy back. Why this is usually harmless anyway,
+and the regimes where it is not, are the next two sections.
+
+## Why it is usually benign anyway
+
+The collapse above needed two things: only a handful of oscillators, and coupling
+strong enough to lock them together. Real brain-network runs usually have
+neither. A region's input is a sum over *many* sources, and when those sources
+are desynchronized the sum is dominated by a large quasi-static bulk: for `N`
+roughly independent positive sources the mean grows like `N·μ` while the
+fluctuation grows only like `√N·σ`, so the fast part that freezing drops is a
+`1/√N` sliver of the total.
+
+```{python}
+#| label: fig-meanfield
+#| fig-cap: "Each source is a positive oscillating rate; a region sums many of them with heterogeneous weights. Left: the summed input, scaled to its own mean, for a growing number of *desynchronized* sources. With few sources it swings widely (the part freezing drops is large); pool more and it flattens toward a quasi-static bulk. Right: the leftover fluctuation fraction. Desynchronized sources average down like 1/sqrt(N); phase-locked sources do not average at all (pooling clones gains nothing), so the fraction stays put no matter how many you add."
+#| echo: true
+#| code-fold: true
+#| code-summary: "Plotting code"
+def aggregate_input(n, key, synchronized=False):
+    # A region's input as a weighted sum of many positive oscillating rates
+    # (heterogeneous strengths). Desynchronized: random phases (what noise
+    # maintains). Synchronized: a common phase (what strong coupling forces).
+    t = jnp.linspace(0.0, 0.5, 1000)
+    k_w, k_phi = jax.random.split(key)
+    w = jax.random.lognormal(k_w, shape=(n,))
+    phi = jnp.zeros(n) if synchronized else jax.random.uniform(
+        k_phi, (n,), minval=0.0, maxval=2 * jnp.pi
+    )
+    sources = 1.0 + jnp.sin(2 * jnp.pi * 8.0 * t[:, None] + phi[None, :])
+    return np.asarray(t) * 1000.0, np.asarray(sources @ w)
+
+
+def fast_fraction(n, synchronized=False, n_real=12, key=jax.random.key(1)):
+    fracs = []
+    for _ in range(n_real):
+        key, sub = jax.random.split(key)
+        _, c = aggregate_input(n, sub, synchronized)
+        fracs.append(float(np.std(c) / np.mean(c)))
+    return float(np.mean(fracs))
+
+
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 3.8))
+
+# Left: the summed input flattens toward its mean as more sources are pooled.
+for n, color in [(4, "C0"), (16, "C1"), (64, "C2")]:
+    t, c = aggregate_input(n, jax.random.key(n))
+    ax1.plot(t, c / c.mean(), color=color, lw=1.0, label=f"N = {n}")
+ax1.axhline(1.0, color="k", ls=":", lw=0.8)
+ax1.set_xlabel("time [ms]")
+ax1.set_ylabel("summed input / mean")
+ax1.legend(fontsize=8)
+
+# Right: averaging falls like 1/sqrt(N) only if the sources are desynchronized.
+Ns = np.array([2, 4, 8, 16, 32, 64, 128, 256])
+fr_desync = np.array([fast_fraction(int(n)) for n in Ns])
+fr_sync = np.array([fast_fraction(int(n), synchronized=True) for n in Ns])
+ax2.loglog(Ns, fr_desync, "o-", color="C0", label="desynchronized")
+ax2.loglog(Ns, fr_sync, "s-", color="C3", label="phase-locked")
+ax2.loglog(Ns, fr_desync[0] * (Ns / Ns[0]) ** -0.5, "k--", lw=0.8, label="1/√N")
+ax2.set_xlabel("number of sources N")
+ax2.set_ylabel("std(c) / mean(c)")
+ax2.legend(fontsize=8)
+fig.tight_layout()
+```
+
+Pooling sources flattens the input toward its mean, and the leftover fast
+fraction (the only part that depends on the stage state, and so the only part
+freezing gets wrong) falls like `1/√N`, but only along the desynchronized curve.
+Phase-locked sources are effectively one source copied `N` times and never
+average at all. So the benign case rests on the sources staying independent.
+
+That is where **noise helps**, and it is in almost every real model. Independent
+per-node noise continually desynchronizes the sources, holding the network on the
+averaging curve rather than letting it drift into lockstep, and as *Noise caps
+the order* showed, the stochastic term already pins the scheme to strong order
+≤ 1, so the order that per-stage would buy back is below the noise floor anyway.
+On both counts noise pushes instantaneous coupling further into the regime where
+freezing is invisible.
+
+Noise is not a cure-all, though. Where coupling is strong enough to synchronize
+the sources *despite* the noise (slow-wave states, seizures), or where
+heavy-tailed weights and hubs let a few inputs dominate, the effective source
+count collapses and the frozen error becomes a deterministic bias, the coupling
+analogue of Euler's amplitude inflation, which noise no more erases here than it
+did there. That is precisely when to pay for `recompute_coupling_per_stage=True`.
+
+## Practical takeaways
+
+- Keep the default `recompute_coupling_per_stage=False`. For delayed coupling it
+  is exact, bit-identical to per-stage; for instantaneous coupling it is usually
+  accurate too, because a region averages many desynchronized inputs. Either way
+  it evaluates the coupling once per step instead of once per stage, so it is
+  faster by roughly the solver's stage count.
+- Noise reinforces the default, and almost every real model has it. Independent
+  per-node noise keeps the sources desynchronized (so the averaging holds) and
+  caps the strong order at ≤ 1 (so the method order per-stage would recover sits
+  below the noise floor).
+- Reach for `recompute_coupling_per_stage=True` only when instantaneous coupling
+  is fast *and* the averaging fails: strong synchronizing coupling (slow-wave
+  states, seizures), hub- or heavy-tail-dominated inputs, or deterministic and
+  low-noise runs where you need full method order or want to check convergence.
+- Euler is unaffected (single stage). The flag changes only multi-stage solvers
+  (Heun, RK4) on the Network path; bare dynamics has no coupling, and external
+  inputs are always evaluated per stage regardless of the flag.
+- Noise caps the convergence order, but do not read that as "Euler is enough".
+  For oscillatory models Heun and RK4 still hold the right amplitude and phase at
+  the step sizes you actually use; Euler inflates the oscillation. Pick the drift
+  scheme for stability, not for its asymptotic order under noise.
+
+See [Solvers](../network_dynamics/solvers.qmd) for the solver basics and
+[Gradient Checkpointing](gradient_checkpointing.qmd) for the other `NativeSolver`
+knob.

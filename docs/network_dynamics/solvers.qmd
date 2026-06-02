@@ -24,7 +24,7 @@ result = solve(
     model,          # Network or bare AbstractDynamics instance
     solver,         # Solver instance (Native or Diffrax)
     t0=0.0,         # Start time [ms]
-    t1=1000.0,      # End time [ms]
+    t1=100.0,       # End time [ms]
     dt=0.1          # Integration time step [ms]
 )
 ```
@@ -35,6 +35,13 @@ result = solve(
 - `solver`: A solver instance that determines the integration method
 - `t0`, `t1`: Time interval to simulate (in milliseconds)
 - `dt`: Integration time step (in milliseconds)
+
+**Return value:**
+
+`solve()` returns a solution object with two attributes:
+
+- `result.ts`: Time points, shape `[n_time]`
+- `result.ys`: State trajectories, shape `[n_time, n_states, n_nodes]`
 
 ### Bare Dynamics (No Network)
 
@@ -54,24 +61,19 @@ result = solve(JansenRit(), Heun(), t0=0.0, t1=1000.0, dt=0.01, n_nodes=3)
 
 This works with both native and Diffrax solvers. Coupling and external inputs are set to zero.
 
-**Return value:**
-
-The `solve()` function returns a solution object with two main attributes:
-
-- `result.ts`: Time points array `[n_time]`
-- `result.ys`: State trajectories `[n_time, n_states, n_nodes]`
-
 ---
 
 ## Native Solvers (Recommended)
 
-Native solvers are JAX-based implementations optimized for brain network simulations. **These are the go-to solvers** for most use cases.
+Native solvers are JAX-based implementations optimized for brain network simulations. Use them for most cases.
 
 ### Features
 
 - Auxiliary variables (intermediate computations)
 - Variables of Interest (VOI) for selective output
 - Stateful couplings (delayed connections, history buffers)
+- Coupling freezing across solver stages for fast multi-stage integration
+  (configurable via `recompute_coupling_per_stage`)
 - Both deterministic (ODE) and stochastic (SDE) integration
 - Optimized for large-scale brain networks
 
@@ -136,8 +138,8 @@ is an integer, otherwise the grid won't land exactly on `t1`.
 
 You can control which variables to save in the output using `VARIABLES_OF_INTEREST`. This is useful for:
 
-1. **Reducing memory usage** - Save only the states you need
-2. **Including auxiliary variables** - Some dynamics models compute intermediate values (auxiliary variables). These are **only saved if explicitly included in `VARIABLES_OF_INTEREST`**.
+1. **Reducing memory usage**: save only the states you need.
+2. **Including auxiliary variables**: some dynamics models compute intermediate values (auxiliary variables). These are saved **only if explicitly included in `VARIABLES_OF_INTEREST`**.
 
 Let's demonstrate with the ReducedWongWang model, which computes the firing rate 'H' as an auxiliary variable:
 
@@ -223,11 +225,68 @@ solver = BoundedSolver(
 )
 ```
 
+### Coupling Freezing
+
+Multi-stage solvers (Heun, RK4) evaluate the right-hand side several times per
+step. On a network the coupling term is the expensive part, so by default
+`NativeSolver` computes it **once per step** at the step-start state and reuses it
+across all stages, rather than recomputing it at each stage:
+
+```python
+from tvboptim.experimental.network_dynamics.solvers import Heun
+
+# Default: coupling frozen across stages (computed once per step)
+solver = Heun()
+
+# Recompute coupling at each stage (n_stages evaluations per step)
+solver = Heun(recompute_coupling_per_stage=True)
+```
+
+For **delayed** coupling the two settings are bit-identical, because the delay
+history is a step-level buffer that does not depend on the stage state, so the
+default is a free speedup. For **instantaneous** coupling they differ: freezing
+treats the coupling to first order, while per-stage keeps the base method's full
+order. The default is accurate in the usual regime of many desynchronized inputs,
+and under noise the stochastic order caps accuracy anyway; reach for per-stage
+only when instantaneous coupling is fast and strongly synchronizing.
+
+Euler is single-stage and unaffected, and external inputs are always evaluated
+per stage regardless of this flag.
+
+::: {.callout-note}
+This is the same default TVB uses, made explicit. See
+[Coupling Freezing and Solver Order](../advanced/coupling_freezing.qmd) for the
+full performance and accuracy analysis.
+:::
+
+### Gradient Checkpointing
+
+Differentiating through a long simulation can run out of memory on the backward
+pass: `jax.lax.scan` saves every step's carry, and for delayed couplings that
+carry includes the history buffer. Every native solver takes a `checkpoint_every`
+argument to trade recompute for memory:
+
+```python
+from tvboptim.experimental.network_dynamics.solvers import Heun
+
+# Default: single scan, every step's carry kept for the backward pass
+solver = Heun()
+
+# Checkpoint blocks of K steps: backward memory drops from O(n_steps)
+# to O(n_steps / K + K), at the cost of one extra forward recompute
+solver = Heun(checkpoint_every=200)
+```
+
+This only affects gradient computation; forward-only runs are untouched. Memory
+is minimized near `K ≈ sqrt(n_steps)`. See
+[Gradient Checkpointing](../advanced/gradient_checkpointing.qmd) for the memory
+model, the `K` sweep, and the buffer-strategy caveats.
+
 ---
 
 ## Diffrax Solvers (Advanced)
 
-For advanced use cases, TVB-Optim supports [Diffrax](https://docs.kidger.site/diffrax/) - a powerful JAX library for differential equations with features like implicit methods, adaptive stepping, and advanced controllers.
+For advanced use cases, TVB-Optim supports [Diffrax](https://docs.kidger.site/diffrax/), a JAX library for differential equations that adds implicit methods, adaptive stepping, and stepsize controllers.
 
 ### When to Use Diffrax
 
@@ -300,7 +359,7 @@ result = solve(network, solver, t0=0.0, t1=1000.0, dt=0.1)
 
 ### Adaptive Stepping
 
-Diffrax excels at adaptive time stepping for efficient integration:
+Diffrax adapts the step size to the local error estimate:
 
 ```{python}
 #| eval: false

@@ -1,8 +1,8 @@
 """Solver implementations for  Network Dynamics."""
 
-from .base import AbstractSolver, NativeSolver
+from .base import AbstractSolver
 from .diffrax import DiffraxSolver
-from .native import BoundedSolver, Euler, Heun, RungeKutta4
+from .native import BoundedSolver, Euler, Heun, NativeSolver, RungeKutta4
 
 __all__ = [
     "AbstractSolver",
