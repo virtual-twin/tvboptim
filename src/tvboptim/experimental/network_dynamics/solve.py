@@ -93,6 +93,81 @@ def _checkpointed_scan(op, state0, scan_inputs, n_steps, block_size):
     return state_final, outs
 
 
+def _split_voi(dynamics):
+    """Split variables-of-interest into state and auxiliary index arrays.
+
+    Returns ``(state_voi_indices, aux_voi_indices, record_auxiliaries,
+    variable_names)``. ``variable_names`` labels axis 1 of the output
+    trajectory: selected states first, then selected auxiliaries, matching
+    the concatenation order in ``_assemble_output``.
+    """
+    voi_indices = dynamics.get_variables_of_interest_indices()
+    n_states = dynamics.N_STATES
+    state_voi_indices = jnp.array([i for i in voi_indices if i < n_states], dtype=int)
+    aux_voi_indices = jnp.array(
+        [i - n_states for i in voi_indices if i >= n_states], dtype=int
+    )
+    record_auxiliaries = len(aux_voi_indices) > 0
+    all_variable_names = dynamics.all_variable_names
+    variable_names = tuple(
+        all_variable_names[i] for i in voi_indices if i < n_states
+    ) + tuple(all_variable_names[i] for i in voi_indices if i >= n_states)
+    return state_voi_indices, aux_voi_indices, record_auxiliaries, variable_names
+
+
+def _materialize_noise(noise_key, injected, shape):
+    """Draw the full per-call noise tensor, or pass through an injected override.
+
+    A single fused ``jax.random.normal`` draw of shape ``[n_steps,
+    n_noise_states, n_nodes]`` when no override is present (XLA fuses this with
+    the downstream scan); otherwise the caller-supplied tensor verbatim (the
+    NumPyro-over-increments replay path). Callers gate this on the network
+    actually having noise.
+    """
+    if injected is None:
+        return jax.random.normal(noise_key, shape)
+    return injected
+
+
+def _assemble_output(
+    next_state, auxiliaries, state_voi_indices, aux_voi_indices, record_auxiliaries
+):
+    """Select one step's variables-of-interest slice of the output.
+
+    Concatenates selected state variables and (optionally) selected
+    auxiliaries along axis 0, matching the ordering of ``variable_names``
+    from ``_split_voi``.
+    """
+    if len(state_voi_indices) > 0:
+        selected_states = next_state[state_voi_indices]
+    else:
+        selected_states = jnp.array([]).reshape(0, next_state.shape[1])
+
+    if record_auxiliaries and auxiliaries.size > 0:
+        selected_aux = auxiliaries[aux_voi_indices]
+        return jnp.concatenate([selected_states, selected_aux], axis=0)
+    return selected_states
+
+
+def run_scan(op, state0, scan_inputs, n_steps, solver):
+    """Run the integration scan, dispatching on the solver's memory knob.
+
+    The single seam where scan-level features live. With
+    ``checkpoint_every is None`` this is the plain single ``jax.lax.scan`` (the
+    default, no-regression path); otherwise it is the outer-checkpointed nested
+    scan that trades recompute for backward memory. ``op`` consumes its
+    per-step driving signals (time, and for SDEs the noise slice) from
+    ``scan_inputs`` and is agnostic to how they were produced, so later phases
+    extend this seam (grad_mode, per-block noise, reduce, sink) without
+    reshaping ``op``.
+    """
+    if solver.checkpoint_every is None:
+        return jax.lax.scan(op, state0, scan_inputs)
+    return _checkpointed_scan(
+        op, state0, scan_inputs, n_steps, solver.checkpoint_every
+    )
+
+
 def _make_diffusion_matrix_fn(diffusion_fn, state_indices, n_states, n_nodes):
     """Build a vectorized diffusion-matrix closure for Diffrax SDE integration.
 
@@ -639,24 +714,12 @@ def prepare(
     # =========================================================================
     # VARIABLES OF INTEREST - Determine what to record
     # =========================================================================
-    voi_indices = network.dynamics.get_variables_of_interest_indices()
-    n_states = network.dynamics.N_STATES
-
-    # Split VOI indices into state and auxiliary indices
-    state_voi_indices = jnp.array([i for i in voi_indices if i < n_states], dtype=int)
-    aux_voi_indices = jnp.array(
-        [i - n_states for i in voi_indices if i >= n_states], dtype=int
-    )
-
-    # Flag: do we need to record any auxiliaries?
-    record_auxiliaries = len(aux_voi_indices) > 0
-
-    # Variable names that label axis 1 of the output trajectory.
-    # Ordering mirrors the concatenation below: selected states, then selected auxiliaries.
-    _all_variable_names = network.dynamics.all_variable_names
-    variable_names = tuple(
-        _all_variable_names[i] for i in voi_indices if i < n_states
-    ) + tuple(_all_variable_names[i] for i in voi_indices if i >= n_states)
+    (
+        state_voi_indices,
+        aux_voi_indices,
+        record_auxiliaries,
+        variable_names,
+    ) = _split_voi(network.dynamics)
 
     # Static shape for the full per-call noise tensor.
     n_steps = len(time_steps)
@@ -671,20 +734,17 @@ def prepare(
         # be computed with gradient flow while avoiding per-step redundancy.
         enriched = precompute_all_couplings(config)
 
-        # Materialize the full noise trajectory once per call. Trace-time
-        # branch: if the injection slot is None, sample from config.noise.key
-        # in a single PRNG call (XLA fuses this with the downstream scan);
-        # otherwise use the user-provided tensor verbatim. This avoids the
-        # per-step PRNG cost of an in-scan fold_in while preserving the
-        # seed-scan API (vary config.noise.key per call) and the injection
-        # path (set config._internal.noise_samples).
+        # Materialize the full noise trajectory once per call. The default
+        # provider is a single fused PRNG draw; an injected tensor is used
+        # verbatim. The result becomes a scan input below, so ``op`` consumes
+        # the per-step noise slice from its inputs rather than gathering a
+        # closed-over global tensor by index.
         if network.noise is not None:
-            if config._internal.noise_samples is None:
-                noise_samples_all = jax.random.normal(
-                    config.noise.key, noise_samples_shape
-                )
-            else:
-                noise_samples_all = config._internal.noise_samples
+            noise_samples_all = _materialize_noise(
+                config.noise.key,
+                config._internal.noise_samples,
+                noise_samples_shape,
+            )
         else:
             noise_samples_all = None
 
@@ -693,18 +753,16 @@ def prepare(
 
             Args:
                 state: Bunch(dynamics=network_state, coupling=coupling_state_dict, external=external_state_dict)
-                inputs: (t, step_idx) for SDE or just t for ODE
+                inputs: (t, noise_slice) for SDE or just t for ODE
 
             Returns:
                 (next_state, output) tuple for scan
             """
-            # Unpack inputs
+            # Unpack per-step driving signals from the scan inputs.
             if network.noise is not None:
-                t = inputs[0]
-                step_idx = jnp.int32(inputs[1])
+                t, noise = inputs
             else:
                 t = inputs
-                step_idx = None
 
             # By default compute all coupling inputs ONCE per step at the
             # step-start point (t, state.dynamics) and freeze them across
@@ -746,9 +804,7 @@ def prepare(
             # Prepare noise sample if stochastic
             noise_sample = jnp.zeros_like(state.dynamics)
             if network.noise is not None:
-                # Single indexed read into the per-call noise tensor.
-                noise = noise_samples_all[step_idx]
-
+                # ``noise`` is the per-step slice handed in via scan inputs.
                 # Compute diffusion coefficient
                 diffusion = network.noise.diffusion(t, state.dynamics, config.noise)
 
@@ -785,42 +841,30 @@ def prepare(
             )
 
             # Apply VARIABLES_OF_INTEREST filtering to build output
-            # Collect selected state variables
-            if len(state_voi_indices) > 0:
-                selected_states = next_dynamics_state[state_voi_indices]
-            else:
-                selected_states = jnp.array([]).reshape(0, next_dynamics_state.shape[1])
-
-            # Collect selected auxiliary variables if needed
-            if record_auxiliaries and auxiliaries.size > 0:
-                selected_aux = auxiliaries[aux_voi_indices]
-                # Concatenate states and auxiliaries
-                output = jnp.concatenate([selected_states, selected_aux], axis=0)
-            else:
-                output = selected_states
+            output = _assemble_output(
+                next_dynamics_state,
+                auxiliaries,
+                state_voi_indices,
+                aux_voi_indices,
+                record_auxiliaries,
+            )
 
             # Return (carry, output)
             return next_state, output
 
-        # Prepare scan inputs
+        # Prepare scan inputs. The per-step driving signals are the scan xs:
+        # ODE/DDE carries just time; SDE/SDDE carries (time, noise_slice) so
+        # the noise tensor is sliced per step by scan rather than gathered
+        # from a closure. The driving signals stay a pluggable provider so
+        # later phases can stream noise per block without reshaping the seam.
         if network.noise is None:
-            # ODE/DDE: just time
             scan_inputs = time_steps
         else:
-            # SDE/SDDE: time + step index for noise lookup
-            scan_inputs = jnp.stack([time_steps, jnp.arange(len(time_steps))], axis=1)
+            scan_inputs = (time_steps, noise_samples_all)
 
-        # Run integration. When checkpoint_every is None we go through the
-        # original single-scan path verbatim to guarantee no performance
-        # regression for the default setting; otherwise switch to an
-        # outer-checkpointed nested scan that trades ~2x recompute on the
-        # backward pass for ~O(n_steps/K + K) backward memory.
-        if solver.checkpoint_every is None:
-            _, res = jax.lax.scan(op, state0, scan_inputs)
-        else:
-            _, res = _checkpointed_scan(
-                op, state0, scan_inputs, n_steps, solver.checkpoint_every
-            )
+        # Run integration through the single scan seam, which dispatches on
+        # the solver's memory knob (checkpoint_every).
+        _, res = run_scan(op, state0, scan_inputs, n_steps, solver)
 
         # Wrap result for consistency
         return wrap_native_result(res, t0, t1, dt, variable_names=variable_names)
@@ -1274,21 +1318,14 @@ def prepare(
     # References
     dynamics_fn = dynamics.dynamics
     solver_step = solver.step
-    n_states = dynamics.N_STATES
 
     # VOI filtering
-    voi_indices = dynamics.get_variables_of_interest_indices()
-    state_voi_indices = jnp.array([i for i in voi_indices if i < n_states], dtype=int)
-    aux_voi_indices = jnp.array(
-        [i - n_states for i in voi_indices if i >= n_states], dtype=int
-    )
-    record_auxiliaries = len(aux_voi_indices) > 0
-
-    # Variable names matching the output layout: selected states, then selected auxiliaries.
-    _all_variable_names = dynamics.all_variable_names
-    variable_names = tuple(
-        _all_variable_names[i] for i in voi_indices if i < n_states
-    ) + tuple(_all_variable_names[i] for i in voi_indices if i >= n_states)
+    (
+        state_voi_indices,
+        aux_voi_indices,
+        record_auxiliaries,
+        variable_names,
+    ) = _split_voi(dynamics)
 
     # Static shape for the full per-call noise tensor.
     noise_samples_shape = (n_steps, n_noise_states, n_nodes) if has_noise else None
@@ -1297,22 +1334,23 @@ def prepare(
         """Pure integration function for bare dynamics."""
 
         # Materialize the full noise trajectory once per call. See the
-        # network+native dispatch for the rationale; the trace-time branch
-        # on the injection slot keeps both seed-scan and explicit-replay
-        # workflows on the same scan body.
+        # network+native dispatch for the rationale; the noise tensor becomes
+        # a scan input below so ``op`` consumes the per-step slice directly.
         if has_noise:
-            if config._internal.noise_samples is None:
-                noise_samples_all = jax.random.normal(
-                    config.noise.key, noise_samples_shape
-                )
-            else:
-                noise_samples_all = config._internal.noise_samples
+            noise_samples_all = _materialize_noise(
+                config.noise.key,
+                config._internal.noise_samples,
+                noise_samples_shape,
+            )
         else:
             noise_samples_all = None
 
         def op(carry, scan_input):
-            t = scan_input[0]
-            step_idx = scan_input[1].astype(int)
+            # Unpack per-step driving signals from the scan inputs.
+            if has_noise:
+                t, noise_raw = scan_input
+            else:
+                t = scan_input
 
             # Unpack carry
             if has_externals:
@@ -1330,9 +1368,8 @@ def prepare(
                     ext_inputs = zero_external
                 return dynamics_fn(t_inner, s, params, zero_coupling, ext_inputs)
 
-            # Noise: single indexed read into the per-call tensor.
+            # Noise: ``noise_raw`` is the per-step slice from the scan inputs.
             if has_noise:
-                noise_raw = noise_samples_all[step_idx]
                 diffusion = noise_diffusion(t, state, config.noise)
                 scaled_noise = diffusion * jnp.sqrt(dt) * noise_raw
                 noise_sample = jnp.zeros_like(state)
@@ -1345,16 +1382,13 @@ def prepare(
             )
 
             # VOI filtering
-            if len(state_voi_indices) > 0:
-                selected_states = next_state[state_voi_indices]
-            else:
-                selected_states = jnp.array([]).reshape(0, next_state.shape[1])
-
-            if record_auxiliaries and auxiliaries.size > 0:
-                selected_aux = auxiliaries[aux_voi_indices]
-                output = jnp.concatenate([selected_states, selected_aux], axis=0)
-            else:
-                output = selected_states
+            output = _assemble_output(
+                next_state,
+                auxiliaries,
+                state_voi_indices,
+                aux_voi_indices,
+                record_auxiliaries,
+            )
 
             # Update carry
             if has_externals:
@@ -1367,20 +1401,14 @@ def prepare(
 
             return next_carry, output
 
-        scan_inputs = jnp.stack(
-            [time_steps, jnp.arange(n_steps, dtype=time_steps.dtype)], axis=1
-        )
-        # See the Network+Native dispatch for the rationale on the branch.
-        if solver.checkpoint_every is None:
-            _, res = jax.lax.scan(op, config.initial_state, scan_inputs)
+        # Per-step driving signals as the scan xs: time alone for ODE, or
+        # (time, noise_slice) for SDE so scan slices the noise tensor per step.
+        if has_noise:
+            scan_inputs = (time_steps, noise_samples_all)
         else:
-            _, res = _checkpointed_scan(
-                op,
-                config.initial_state,
-                scan_inputs,
-                n_steps,
-                solver.checkpoint_every,
-            )
+            scan_inputs = time_steps
+        # Single scan seam; dispatches on the solver's memory knob.
+        _, res = run_scan(op, config.initial_state, scan_inputs, n_steps, solver)
         return wrap_native_result(res, t0, t1, dt, variable_names=variable_names)
 
     return _f, config

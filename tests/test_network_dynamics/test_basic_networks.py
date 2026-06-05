@@ -637,5 +637,84 @@ class TestPrepareIsolation(unittest.TestCase):
                 jax.block_until_ready(jax.jit(solve_fn)(cfg3))
 
 
+class TestSolveHelpers(unittest.TestCase):
+    """Pin the contract of the Phase 1 module-level helpers extracted from the
+    duplicated native dispatch bodies. These are covered transitively by the
+    bit-exact integration suite; this class documents the helpers directly so a
+    future refactor of one cannot silently drift from the inline logic it
+    replaced.
+    """
+
+    DYNAMICS = [JansenRit(), ReducedWongWang()]
+
+    def test_split_voi_matches_inline_reference(self):
+        from tvboptim.experimental.network_dynamics.solve import _split_voi
+
+        for dyn in self.DYNAMICS:
+            with self.subTest(dynamics=type(dyn).__name__):
+                # Reference: the exact inline logic the helper replaced.
+                voi = dyn.get_variables_of_interest_indices()
+                n_states = dyn.N_STATES
+                names = dyn.all_variable_names
+                ref_state = jnp.array(
+                    [i for i in voi if i < n_states], dtype=int
+                )
+                ref_aux = jnp.array(
+                    [i - n_states for i in voi if i >= n_states], dtype=int
+                )
+                ref_record = len(ref_aux) > 0
+                ref_names = tuple(names[i] for i in voi if i < n_states) + tuple(
+                    names[i] for i in voi if i >= n_states
+                )
+
+                state_idx, aux_idx, record, var_names = _split_voi(dyn)
+                self.assertTrue(jnp.array_equal(state_idx, ref_state))
+                self.assertTrue(jnp.array_equal(aux_idx, ref_aux))
+                self.assertEqual(record, ref_record)
+                self.assertEqual(var_names, ref_names)
+                # Labels match the number of recorded rows.
+                self.assertEqual(
+                    len(var_names), len(ref_state) + len(ref_aux)
+                )
+
+    def test_materialize_noise_draw_and_injection(self):
+        from tvboptim.experimental.network_dynamics.solve import _materialize_noise
+
+        shape = (5, 2, 3)
+        key = jax.random.key(0)
+        # Default provider: single fused draw, reproducible from the key.
+        drawn = _materialize_noise(key, None, shape)
+        self.assertEqual(drawn.shape, shape)
+        self.assertTrue(
+            jnp.array_equal(drawn, jax.random.normal(key, shape))
+        )
+        # Injection: passed through verbatim, ignoring the key.
+        injected = jnp.ones(shape)
+        out = _materialize_noise(key, injected, shape)
+        self.assertIs(out, injected)
+
+    def test_assemble_output_layout(self):
+        from tvboptim.experimental.network_dynamics.solve import _assemble_output
+
+        n_nodes = 3
+        next_state = jnp.arange(4 * n_nodes, dtype=float).reshape(4, n_nodes)
+        aux = jnp.arange(2 * n_nodes, dtype=float).reshape(2, n_nodes) + 100.0
+
+        # States only.
+        out = _assemble_output(
+            next_state, aux, jnp.array([0, 2]), jnp.array([], dtype=int), False
+        )
+        self.assertTrue(jnp.array_equal(out, next_state[jnp.array([0, 2])]))
+
+        # States followed by selected auxiliaries.
+        out = _assemble_output(
+            next_state, aux, jnp.array([1]), jnp.array([0]), True
+        )
+        expected = jnp.concatenate(
+            [next_state[jnp.array([1])], aux[jnp.array([0])]], axis=0
+        )
+        self.assertTrue(jnp.array_equal(out, expected))
+
+
 if __name__ == "__main__":
     unittest.main()
