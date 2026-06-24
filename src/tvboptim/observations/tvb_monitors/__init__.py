@@ -8,6 +8,7 @@ from .bold import (
     HRFKernel,
     LotkaVolterraHRFKernel,
     MixtureOfGammasHRFKernel,
+    streaming_hrf_bold,
 )
 from .downsampling import AbstractMonitor, SubSampling, TemporalAverage
 
@@ -16,6 +17,7 @@ __all__ = [
     "SubSampling",
     "TemporalAverage",
     "HRFBold",
+    "streaming_hrf_bold",
     "BalloonWindkesselBold",
     "FirstOrderVolterraHRFKernel",
     "HRFKernel",

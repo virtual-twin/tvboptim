@@ -6,6 +6,7 @@ from .observation import (
     ks_distance,
     rmse,
     wasserstein_1d,
+    welford_cov,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "ks_distance",
     "rmse",
     "wasserstein_1d",
+    "welford_cov",
 ]

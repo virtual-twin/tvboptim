@@ -498,6 +498,101 @@ class HRFBold(AbstractMonitor):
         )
 
 
+def streaming_hrf_bold(monitor, dt):
+    """Block-level streaming reducer form of :class:`HRFBold`.
+
+    Returns an ``(init, update, finalize)`` triple for the ``reduce=`` kwarg of
+    ``prepare`` / ``solve``, computing the same BOLD signal as
+    ``monitor(full_solution)`` without ever stacking the full neural trajectory.
+    It reuses the monitor's kernel, periods and BOLD scaling, and carries a
+    downsampled-history ring buffer plus a preallocated BOLD output buffer; each
+    block subsamples, convolves ``[ring; block_downsampled]`` with the HRF
+    (``valid`` mode, same ``fftconvolve`` as the post-hoc monitor), and writes
+    the BOLD samples at TR boundaries into the buffer.
+
+    Requirements (so blocks align with the decimation and BOLD grids):
+
+    - the monitor must use a ``SubSampling`` downsample (uniform integer stride);
+      ``TemporalAverage``'s float-rounded windows are not streamable.
+    - ``block_size`` and ``n_steps`` must be multiples of the BOLD period in raw
+      steps (``period / dt``); the per-block update asserts this.
+
+    Warm start / chaining: ``init`` seeds the ring from ``monitor.history`` when
+    set (the same warm-start the monitor accepts); ``finalize`` returns the BOLD
+    buffer ``[n_bold, n_voi, n_nodes]``.
+    """
+    ds_period = monitor.downsample_period
+    period = monitor.period
+    voi = monitor.voi
+    k_1, V_0 = monitor.k_1, monitor.V_0
+    conv_mode = monitor.convolution_mode
+    kernel = monitor.kernel
+    warm_history = monitor.history
+
+    ds_steps = int(round(ds_period / dt))
+    final_idx_step = int(round(period / ds_period))
+    period_in_steps = ds_steps * final_idx_step
+    kernel_samples = int(math.ceil(kernel.duration / ds_period))
+    hrf = kernel(jnp.linspace(0.0, kernel.duration, kernel_samples), ds_period)
+
+    def _conv_valid(signal):
+        # signal [time, n_voi, n_nodes] -> valid HRF convolution along time,
+        # vectorized over nodes and variables exactly as HRFBold.__call__.
+        def convolve_single(x):
+            return jsp.signal.fftconvolve(x, hrf, mode=conv_mode)
+
+        return jax.vmap(
+            lambda y: jax.vmap(convolve_single, in_axes=1, out_axes=1)(y),
+            in_axes=1,
+            out_axes=1,
+        )(signal)
+
+    def init(template, n_steps):
+        t_sel = template[voi, :]  # [n_voi, n_nodes]
+        n_voi, n_nodes = t_sel.shape
+        # SubSampling emits these indices; n_bold matches HRFBold's bold_indices.
+        n_ds = len(range(ds_steps - 1, n_steps, ds_steps))
+        n_bold = len(range(final_idx_step, n_ds + 1, final_idx_step))
+        ring0 = (
+            jnp.zeros((kernel_samples, n_voi, n_nodes))
+            if warm_history is None
+            else jnp.asarray(warm_history)
+        )
+        bold0 = jnp.zeros((n_bold, n_voi, n_nodes))
+        return (ring0, bold0, jnp.array(0))
+
+    def update(acc, block):
+        ring, bold_buffer, ds_count = acc
+        y = block[:, voi, :]  # [block_len, n_voi, n_nodes]
+        block_len = y.shape[0]
+        assert block_len % period_in_steps == 0, (
+            "streaming_hrf_bold requires each block length to be a multiple of "
+            f"the BOLD period in steps ({period_in_steps} = period/dt); got "
+            f"{block_len}. Set block_size and n_steps to multiples of period/dt."
+        )
+        block_ds = y[ds_steps - 1 :: ds_steps]  # SubSampling, [m_b, n_voi, n_nodes]
+        m_b = block_ds.shape[0]
+        signal = jnp.concatenate([ring, block_ds], axis=0)
+        conv = _conv_valid(signal)  # [m_b + 1, n_voi, n_nodes] (valid)
+        conv = k_1 * V_0 * (conv - 1.0)
+        # BOLD samples at TR boundaries within this block (block-aligned so the
+        # output slots are contiguous). conv[i] == B_full[ds_count + i].
+        idx = jnp.arange(final_idx_step, m_b + 1, final_idx_step)
+        bold_samples = conv[idx]
+        start = ds_count // final_idx_step
+        bold_buffer = jax.lax.dynamic_update_slice(
+            bold_buffer, bold_samples, (start,) + (0,) * (bold_buffer.ndim - 1)
+        )
+        ring = signal[-kernel_samples:]
+        return (ring, bold_buffer, ds_count + m_b)
+
+    def finalize(acc):
+        _ring, bold_buffer, _ds_count = acc
+        return bold_buffer
+
+    return (init, update, finalize)
+
+
 class BalloonWindkesselBold(AbstractMonitor):
     """BOLD signal monitor using Balloon-Windkessel hemodynamic ODE.
 

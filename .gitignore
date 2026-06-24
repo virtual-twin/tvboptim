@@ -71,3 +71,6 @@ Thumbs.db
 
 # AI Skills
 src/tvboptim/claude/skills
+
+# Stray cache dir from running doc notebooks outside their own directory
+/cache/

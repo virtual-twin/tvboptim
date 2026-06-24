@@ -23,7 +23,7 @@ from tvboptim.experimental.network_dynamics.dynamics.tvb import (
 from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph, DenseGraph
 from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
 from tvboptim.experimental.network_dynamics.solve import prepare
-from tvboptim.experimental.network_dynamics.solvers import Heun
+from tvboptim.experimental.network_dynamics.solvers import BoundedSolver, Heun
 
 
 class TestBasicNetworks(unittest.TestCase):
@@ -438,6 +438,12 @@ class TestCheckpointedScan(unittest.TestCase):
     """Verify that the block-checkpointed scan path matches the unchecked
     single-scan path bit-exactly on forward and to numerical precision on
     backward, for both divisor and non-divisor block sizes.
+
+    The network is deterministic (no noise) so ``block_size`` is pure
+    rematerialization here: it does NOT stream noise, so the blocked result is
+    bit-exact to the monolithic one. The streaming-noise behaviour that
+    ``block_size`` also triggers for an SDE network (which reseeds, so it is
+    deliberately not bit-exact to monolithic) is covered by ``TestStreamingNoise``.
     """
 
     def _build_dde_network(self):
@@ -452,14 +458,14 @@ class TestCheckpointedScan(unittest.TestCase):
             dynamics=ReducedWongWang(),
             coupling={"delayed": coupling},
             graph=graph,
-            noise=AdditiveNoise(sigma=1e-4, key=jax.random.key(0)),
+            noise=None,
         )
 
-    def _run(self, checkpoint_every, t1=20.0, dt=0.1):
+    def _run(self, block_size, t1=20.0, dt=0.1):
         network = self._build_dde_network()
         solve_fn, cfg = prepare(
             network,
-            Heun(checkpoint_every=checkpoint_every),
+            Heun(block_size=block_size),
             t0=0.0,
             t1=t1,
             dt=dt,
@@ -491,8 +497,8 @@ class TestCheckpointedScan(unittest.TestCase):
         unckecpointed gradient to numerical precision, for both divisor and
         non-divisor block sizes."""
 
-        def make_loss(checkpoint_every):
-            solve_fn, cfg = self._run(checkpoint_every)
+        def make_loss(block_size):
+            solve_fn, cfg = self._run(block_size)
 
             def loss(G):
                 import equinox as eqx
@@ -526,10 +532,10 @@ class TestCheckpointedScan(unittest.TestCase):
     def test_default_is_none(self):
         """Sentinel: the default constructor must not enable checkpointing.
         Guards the no-perf-regression contract for existing call sites."""
-        self.assertIsNone(Heun().checkpoint_every)
+        self.assertIsNone(Heun().block_size)
 
     def test_bare_dynamics_dispatch(self):
-        """Bare-dynamics+native path also branches on checkpoint_every."""
+        """Bare-dynamics+native path also branches on block_size."""
         from tvboptim.experimental.network_dynamics.dynamics.tvb import (
             ReducedWongWang,
         )
@@ -540,7 +546,7 @@ class TestCheckpointedScan(unittest.TestCase):
         )
         solve_ckpt, _ = prepare(
             dyn,
-            Heun(checkpoint_every=11),  # non-divisor of 100 steps
+            Heun(block_size=11),  # non-divisor of 100 steps
             t0=0.0,
             t1=10.0,
             dt=0.1,
@@ -714,6 +720,479 @@ class TestSolveHelpers(unittest.TestCase):
             [next_state[jnp.array([1])], aux[jnp.array([0])]], axis=0
         )
         self.assertTrue(jnp.array_equal(out, expected))
+
+
+class TestTruncatedScan(unittest.TestCase):
+    """Verify the truncated-BPTT windowed scan (`_truncated_scan`).
+
+    Forward must stay bit-exact to a plain single scan (``stop_gradient`` is the
+    identity on the forward); the backward must (a) match an independent
+    hand-rolled windowed reference, (b) reduce to the full exact gradient in the
+    degenerate single-window case, and (c) be invariant to the nested memory
+    knob ``block_size``. A network-level case checks the wiring through
+    ``prepare`` / ``run_scan`` and the ``BoundedSolver`` delegation.
+
+    The combinator is tested with a toy linear recurrence so the reference is
+    independent and fully controlled, mirroring ``TestCheckpointedScan`` for the
+    network-level checks.
+    """
+
+    N = 20  # toy rollout length
+    C0 = jnp.asarray(0.3)
+
+    @staticmethod
+    def _make_op(a):
+        # Toy step: carry' = a * carry + x, output = carry. ``a`` is the
+        # closed-over parameter we differentiate (stands in for theta).
+        def op(c, x):
+            nc = a * c + x
+            return nc, nc
+
+        return op
+
+    def _xs(self):
+        return jnp.arange(self.N, dtype=float) + 1.0
+
+    def _full(self, a):
+        _, ys = jax.lax.scan(self._make_op(a), self.C0, self._xs())
+        return jnp.sum(ys)
+
+    def _trunc(self, a, window, block_size):
+        from tvboptim.experimental.network_dynamics.solve import _truncated_scan
+
+        _, ys = _truncated_scan(
+            self._make_op(a), self.C0, self._xs(), self.N, window, block_size
+        )
+        return jnp.sum(ys)
+
+    def _ref_trunc(self, a, window):
+        # Independent reference: an unrolled Python loop over windows that
+        # severs the carry gradient at each window entry, exactly the truncated
+        # estimator. No reshape/tail machinery, so it cannot share a bug with
+        # `_truncated_scan`.
+        op = self._make_op(a)
+        xs = self._xs()
+        c = self.C0
+        outs = []
+        i = 0
+        while i < self.N:
+            j = min(i + window, self.N)
+            c = jax.lax.stop_gradient(c)
+            c, block = jax.lax.scan(op, c, xs[i:j])
+            outs.append(block)
+            i = j
+        return jnp.sum(jnp.concatenate(outs, axis=0))
+
+    def test_forward_bitexact(self):
+        """Truncation does not touch the forward value, for divisor,
+        non-divisor and degenerate window sizes."""
+        for window in (5, 7, self.N + 3):
+            with self.subTest(window=window):
+                self.assertTrue(
+                    jnp.array_equal(
+                        self._full(0.5), self._trunc(0.5, window, None)
+                    )
+                )
+
+    def test_gradient_matches_reference(self):
+        """Truncated gradient equals the unrolled windowed reference, and is a
+        genuine truncation (differs from the full gradient)."""
+        g_full = jax.grad(self._full)(0.5)
+        for window in (5, 7):
+            with self.subTest(window=window):
+                g_trunc = jax.grad(lambda a: self._trunc(a, window, None))(0.5)
+                g_ref = jax.grad(lambda a: self._ref_trunc(a, window))(0.5)
+                self.assertTrue(
+                    jnp.allclose(g_trunc, g_ref, rtol=1e-10, atol=1e-12),
+                    f"window={window}: {g_trunc} vs ref {g_ref}",
+                )
+                # The truncation is real: short windows drop cross-window credit.
+                self.assertFalse(jnp.allclose(g_trunc, g_full, rtol=1e-6))
+
+    def test_degenerate_window_equals_full(self):
+        """A single window (window >= n_steps) recovers the full exact gradient:
+        severing the leaf initial carry does not affect the parameter gradient."""
+        g_full = jax.grad(self._full)(0.5)
+        for window in (self.N, self.N + 5):
+            with self.subTest(window=window):
+                g = jax.grad(lambda a: self._trunc(a, window, None))(0.5)
+                self.assertTrue(jnp.allclose(g_full, g, rtol=1e-10, atol=1e-12))
+
+    def test_gradient_invariant_to_block_size(self):
+        """Within a fixed window, subdividing into checkpoint sub-blocks
+        rematerializes activations but must not change the gradient, including
+        non-divisor sub-blocks and a sub-block larger than the window."""
+        window = 10
+        g_none = jax.grad(lambda a: self._trunc(a, window, None))(0.5)
+        for ce in (5, 3, 25):  # divisor, non-divisor, larger-than-window
+            with self.subTest(block_size=ce):
+                g = jax.grad(lambda a: self._trunc(a, window, ce))(0.5)
+                self.assertTrue(
+                    jnp.allclose(g_none, g, rtol=1e-10, atol=1e-12),
+                    f"block_size={ce}: {g} vs {g_none}",
+                )
+
+    def _build_sde_network(self):
+        key = jax.random.PRNGKey(11)
+        wkey, dkey = jax.random.split(key)
+        n_nodes = 4
+        weights = jax.random.uniform(wkey, (n_nodes, n_nodes)) * 0.5
+        delays = jax.random.uniform(dkey, (n_nodes, n_nodes)) * 5.0
+        graph = DenseDelayGraph(weights=weights, delays=delays)
+        coupling = DelayedLinearCoupling(incoming_states="S", G=0.1)
+        return Network(
+            dynamics=ReducedWongWang(),
+            coupling={"delayed": coupling},
+            graph=graph,
+            noise=AdditiveNoise(sigma=1e-4, key=jax.random.key(0)),
+        )
+
+    def test_network_forward_bitexact(self):
+        """Through prepare/run_scan, the truncated path's forward trajectory is
+        bit-exact to the non-truncated path (truncation changes only gradients),
+        for a divisor and a non-divisor window of the 200-step rollout."""
+        network = self._build_sde_network()
+        solve_full, cfg = prepare(network, Heun(), t0=0.0, t1=20.0, dt=0.1)
+        r_full = solve_full(cfg)
+        for window in (20, 13):  # 200 % 20 == 0, 200 % 13 == 5
+            with self.subTest(window=window):
+                solve_trunc, _ = prepare(
+                    network, Heun(tbptt_window=window), t0=0.0, t1=20.0, dt=0.1
+                )
+                self.assertTrue(
+                    jnp.array_equal(r_full.ys, solve_trunc(cfg).ys)
+                )
+
+    def test_default_and_bounded_delegation(self):
+        """Default constructor leaves truncation off; BoundedSolver forwards the
+        knob from its base solver."""
+        self.assertIsNone(Heun().tbptt_window)
+        self.assertEqual(Heun(tbptt_window=50).tbptt_window, 50)
+        self.assertEqual(
+            BoundedSolver(Heun(tbptt_window=50), low=0.0, high=1.0).tbptt_window,
+            50,
+        )
+
+
+class TestReduce(unittest.TestCase):
+    """Verify the block-level reduce (fold) path.
+
+    The fold folds each block's stacked outputs into an accumulator carried in
+    the scan instead of stacking the whole trajectory. Checked at two levels: a
+    toy running-sum reducer through ``run_scan`` (the independent reference is
+    the sum over the plainly-stacked trajectory), and a network-level online
+    ``welford_cov`` FC pinned against the post-hoc ``compute_fc``. The fold must
+    match for divisor / non-divisor / degenerate blocks, compose with
+    ``tbptt_window``, and be invariant (value and gradient) to ``block_size``.
+    """
+
+    N = 20  # toy rollout length
+    C0 = jnp.asarray(0.3)
+
+    @staticmethod
+    def _make_op(a):
+        # Toy step: carry' = a * carry + x, output = carry (matches
+        # TestTruncatedScan so the reference is independent and controlled).
+        def op(c, x):
+            nc = a * c + x
+            return nc, nc
+
+        return op
+
+    def _xs(self):
+        return jnp.arange(self.N, dtype=float) + 1.0
+
+    # Toy reducer update: acc is the scalar running sum of all step outputs.
+    _UPDATE = staticmethod(lambda acc, block: acc + jnp.sum(block))
+
+    def _stacked_sum(self, a):
+        _, ys = jax.lax.scan(self._make_op(a), self.C0, self._xs())
+        return jnp.sum(ys)
+
+    def _fold_sum(self, a, block_size, window=None):
+        from tvboptim.experimental.network_dynamics.solve import run_scan
+
+        solver = Heun(block_size=block_size, tbptt_window=window)
+        carry, _ = run_scan(
+            self._make_op(a),
+            self.C0,
+            self._xs(),
+            self.N,
+            solver,
+            fold=(jnp.asarray(0.0), self._UPDATE),
+        )
+        return carry[1]  # the accumulator threaded in the (state, acc) carry
+
+    def test_fold_equals_stacked_sum(self):
+        """Folded accumulator equals the sum over the plainly-stacked
+        trajectory, for divisor / non-divisor / degenerate blocks, with and
+        without a truncation window (the forward value is identical)."""
+        ref = self._stacked_sum(0.5)
+        for block_size in (5, 7, self.N, 4):
+            # Windows are None or multiples of block_size (so no snapping fires;
+            # snapping is covered in TestStreamingNoise).
+            for window in (None, 2 * block_size, 3 * block_size):
+                with self.subTest(block_size=block_size, window=window):
+                    got = self._fold_sum(0.5, block_size, window)
+                    self.assertTrue(
+                        jnp.allclose(got, ref, rtol=1e-12, atol=1e-12),
+                        f"bs={block_size}, w={window}: {got} vs {ref}",
+                    )
+
+    def test_fold_value_and_grad_invariant_to_block_size(self):
+        """Without truncation the fold is the exact gradient (checkpoint
+        rematerialization), so both value and gradient are invariant to
+        ``block_size``, including non-divisor and larger-than-rollout blocks."""
+        v_ref = self._stacked_sum(0.5)
+        g_ref = jax.grad(self._stacked_sum)(0.5)
+        for block_size in (5, 7, 4, self.N):
+            with self.subTest(block_size=block_size):
+                v = self._fold_sum(0.5, block_size, None)
+                g = jax.grad(lambda a: self._fold_sum(a, block_size, None))(0.5)
+                self.assertTrue(jnp.allclose(v, v_ref, rtol=1e-12, atol=1e-12))
+                self.assertTrue(
+                    jnp.allclose(g, g_ref, rtol=1e-10, atol=1e-12),
+                    f"bs={block_size}: grad {g} vs {g_ref}",
+                )
+
+    def _build_sde_network(self):
+        key = jax.random.PRNGKey(11)
+        wkey, dkey = jax.random.split(key)
+        n_nodes = 5
+        weights = jax.random.uniform(wkey, (n_nodes, n_nodes)) * 0.5
+        delays = jax.random.uniform(dkey, (n_nodes, n_nodes)) * 5.0
+        graph = DenseDelayGraph(weights=weights, delays=delays)
+        coupling = DelayedLinearCoupling(incoming_states="S", G=0.1)
+        return Network(
+            dynamics=ReducedWongWang(),
+            coupling={"delayed": coupling},
+            graph=graph,
+            noise=AdditiveNoise(sigma=1e-3, key=jax.random.key(0)),
+        )
+
+    def test_welford_matches_compute_fc(self):
+        """Online ``welford_cov`` over a blocked (streaming-noise) run equals the
+        post-hoc ``compute_fc`` on the matching streamed trajectory, for a
+        divisor and a non-divisor block size. The reference uses the SAME
+        ``block_size`` (hence the same per-block seeding), not the monolithic
+        global draw: blocked mode streams noise and reseeds, so the only valid
+        comparison is online-fold vs stack-then-post-hoc at matched seeding."""
+        from tvboptim.observations import compute_fc, welford_cov
+
+        net = self._build_sde_network()
+        for block_size in (50, 37):  # 300 steps: divisor / non-divisor
+            with self.subTest(block_size=block_size):
+                # Stacked trajectory with this block_size (streamed noise) -> FC.
+                fc_ref = compute_fc(
+                    solve(net, Heun(block_size=block_size), t0=0.0, t1=30.0, dt=0.1),
+                    s_var=0,
+                )
+                # Online welford over the same streamed run.
+                fc = solve(
+                    net,
+                    Heun(block_size=block_size),
+                    t0=0.0,
+                    t1=30.0,
+                    dt=0.1,
+                    reduce=welford_cov(s_var=0),
+                )
+                self.assertEqual(fc.shape, fc_ref.shape)
+                self.assertTrue(
+                    jnp.allclose(fc, fc_ref, atol=1e-4),
+                    f"bs={block_size}: max diff {jnp.max(jnp.abs(fc - fc_ref))}",
+                )
+
+    def test_welford_monolithic_equals_compute_fc(self):
+        """``block_size=None`` with a reducer folds the whole stacked trajectory
+        once (the degenerate single-block / post-hoc case) and equals
+        ``compute_fc``."""
+        from tvboptim.observations import compute_fc, welford_cov
+
+        net = self._build_sde_network()
+        solve_full, cfg = prepare(net, Heun(), t0=0.0, t1=30.0, dt=0.1)
+        fc_ref = compute_fc(solve_full(cfg), s_var=0)
+        solve_fc, _ = prepare(
+            net, Heun(), t0=0.0, t1=30.0, dt=0.1, reduce=welford_cov(s_var=0)
+        )
+        self.assertTrue(jnp.allclose(solve_fc(cfg), fc_ref, atol=1e-4))
+
+    def test_welford_differentiable_and_tbptt_invariant(self):
+        """The online FC is differentiable wrt a coupling gain, and (for a fixed
+        ``block_size``, hence fixed noise) its forward value is invariant to
+        ``tbptt_window`` snapped to a multiple of ``block_size`` -- truncation
+        changes only the gradient, not the streamed realisation."""
+        import equinox as eqx
+
+        from tvboptim.observations import welford_cov
+
+        net = self._build_sde_network()
+
+        # Differentiable wrt G on a blocked streaming run.
+        solve_fc, cfg = prepare(
+            net, Heun(block_size=50), t0=0.0, t1=30.0, dt=0.1,
+            reduce=welford_cov(s_var=0),
+        )
+
+        def loss(G):
+            c = eqx.tree_at(lambda c: c.coupling.delayed.G, cfg, G)
+            return jnp.sum(solve_fc(c) ** 2)
+
+        v, g = jax.value_and_grad(loss)(jnp.asarray(0.1))
+        self.assertTrue(jnp.isfinite(g))
+
+        # Forward FC invariant to a truncation window (multiple of block_size).
+        fc_base = solve(
+            net, Heun(block_size=50), t0=0.0, t1=30.0, dt=0.1,
+            reduce=welford_cov(s_var=0),
+        )
+        for window in (100, 150, 300):  # multiples of block_size=50
+            with self.subTest(window=window):
+                fc_w = solve(
+                    net, Heun(block_size=50, tbptt_window=window),
+                    t0=0.0, t1=30.0, dt=0.1, reduce=welford_cov(s_var=0),
+                )
+                self.assertTrue(jnp.array_equal(fc_base, fc_w))
+
+    def test_diffrax_rejects_reduce(self):
+        """``reduce`` is native-only; the Diffrax dispatch raises a clear error
+        rather than a bare TypeError on an unexpected keyword."""
+        import diffrax
+
+        from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
+        from tvboptim.experimental.network_dynamics.solvers.diffrax import (
+            DiffraxSolver,
+        )
+        from tvboptim.observations import welford_cov
+
+        n_nodes = 3
+        net = Network(
+            dynamics=ReducedWongWang(),
+            coupling={"instant": LinearCoupling(incoming_states="S", G=0.1)},
+            graph=DenseGraph(jax.random.uniform(jax.random.PRNGKey(1), (n_nodes, n_nodes))),
+        )
+        with self.assertRaises(ValueError):
+            prepare(
+                net,
+                DiffraxSolver(solver=diffrax.Heun()),
+                t0=0.0,
+                t1=5.0,
+                dt=0.1,
+                reduce=welford_cov(),
+            )
+
+
+class TestStreamingNoise(unittest.TestCase):
+    """Per-block streaming noise (``fold_in``) under ``block_size``.
+
+    Streaming activates for an SDE network with ``block_size`` set and no
+    injected tensor. The realisation is a pure function of
+    ``(key, absolute_block_idx)`` and the block grain, so it is deterministic,
+    invariant to the truncation window, and matches an independent reference
+    that folds the noise in the same way. It deliberately reseeds relative to
+    the monolithic global draw (documented).
+    """
+
+    T1 = 30.0
+    DT = 0.1  # 300 steps
+
+    def _build(self):
+        key = jax.random.PRNGKey(11)
+        wkey, dkey = jax.random.split(key)
+        n_nodes = 5
+        weights = jax.random.uniform(wkey, (n_nodes, n_nodes)) * 0.5
+        delays = jax.random.uniform(dkey, (n_nodes, n_nodes)) * 5.0
+        graph = DenseDelayGraph(weights=weights, delays=delays)
+        coupling = DelayedLinearCoupling(incoming_states="S", G=0.1)
+        return Network(
+            dynamics=ReducedWongWang(),
+            coupling={"delayed": coupling},
+            graph=graph,
+            noise=AdditiveNoise(sigma=1e-3, key=jax.random.key(0)),
+        )
+
+    def test_reseed_and_determinism(self):
+        """Blocked streaming reseeds vs monolithic; is deterministic for a fixed
+        block_size; and a different block grain gives a different realisation."""
+        net = self._build()
+        kw = dict(t0=0.0, t1=self.T1, dt=self.DT)
+        mono = solve(net, Heun(), **kw).ys
+        a = solve(net, Heun(block_size=50), **kw).ys
+        b = solve(net, Heun(block_size=50), **kw).ys
+        c = solve(net, Heun(block_size=37), **kw).ys
+        self.assertFalse(jnp.allclose(mono, a))  # reseed vs global draw
+        self.assertTrue(jnp.array_equal(a, b))  # deterministic
+        self.assertFalse(jnp.allclose(a, c))  # block grain changes realisation
+
+    def test_matches_matched_seeding_reference(self):
+        """Streaming forward equals an independent reference that builds the full
+        noise tensor by the same per-block ``fold_in`` and injects it into a
+        monolithic run, for a divisor and a non-divisor block size (exercising
+        the tail block)."""
+        net = self._build()
+        n_steps = len(jnp.arange(0.0, self.T1, self.DT))
+        n_noise = len(net.noise._state_indices)
+        n_nodes = net.graph.n_nodes
+        key = net.noise.key
+        for block_size in (50, 37):
+            with self.subTest(block_size=block_size):
+                strm = solve(
+                    net, Heun(block_size=block_size), t0=0.0, t1=self.T1, dt=self.DT
+                ).ys
+                # Independent reference: per-block fold_in chunks concatenated.
+                n_blocks = n_steps // block_size
+                rem = n_steps - n_blocks * block_size
+                chunks = [
+                    jax.random.normal(
+                        jax.random.fold_in(key, i), (block_size, n_noise, n_nodes)
+                    )
+                    for i in range(n_blocks)
+                ]
+                if rem:
+                    chunks.append(
+                        jax.random.normal(
+                            jax.random.fold_in(key, n_blocks), (rem, n_noise, n_nodes)
+                        )
+                    )
+                full_noise = jnp.concatenate(chunks, axis=0)
+                solve_fn, cfg = prepare(net, Heun(), t0=0.0, t1=self.T1, dt=self.DT)
+                cfg._internal.noise_samples = full_noise
+                ref = solve_fn(cfg).ys
+                self.assertTrue(
+                    jnp.allclose(strm, ref, atol=1e-5),
+                    f"bs={block_size}: max diff {jnp.max(jnp.abs(strm - ref))}",
+                )
+
+    def test_forward_invariant_to_tbptt_window(self):
+        """For a fixed block_size the streamed forward trajectory is bit-exact
+        across truncation windows (multiples of block_size) -- the absolute
+        block grid does not depend on how windows tile it."""
+        net = self._build()
+        kw = dict(t0=0.0, t1=self.T1, dt=self.DT)
+        base = solve(net, Heun(block_size=50), **kw).ys
+        for window in (100, 150, 300):
+            with self.subTest(window=window):
+                ys = solve(net, Heun(block_size=50, tbptt_window=window), **kw).ys
+                self.assertTrue(jnp.array_equal(base, ys))
+
+    def test_non_multiple_window_snaps_with_warning(self):
+        """A tbptt_window that is not a multiple of block_size is snapped to the
+        nearest multiple with a warning, rather than silently accepted."""
+        net = self._build()
+        with self.assertWarns(UserWarning):
+            solve(
+                net, Heun(block_size=50, tbptt_window=120),
+                t0=0.0, t1=self.T1, dt=self.DT,
+            )
+
+    def test_statistical_sanity(self):
+        """The streamed increments are standard normal: mean ~ 0, variance ~ 1
+        across blocks."""
+        from tvboptim.experimental.network_dynamics.solve import _streaming_noise_gen
+
+        gen = _streaming_noise_gen(jax.random.key(0), (2, 8))
+        sample = jnp.concatenate([gen(i, 64) for i in range(60)], axis=0)
+        self.assertLess(abs(float(jnp.mean(sample))), 0.02)
+        self.assertLess(abs(float(jnp.var(sample)) - 1.0), 0.05)
 
 
 if __name__ == "__main__":
