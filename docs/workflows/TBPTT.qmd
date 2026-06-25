@@ -3,7 +3,7 @@ title: "Truncated Backpropagation for Chaotic Brain Networks"
 subtitle: "Why long-rollout gradients break, and how the `grad_horizon` knob fixes them"
 format:
   html:
-    code-fold: false
+    code-fold: true
     toc: true
     echo: false
     embed-resources: true
@@ -25,11 +25,11 @@ Try this notebook interactively:
 Fitting resting-state functional connectivity (FC) needs **long** simulations:
 FC is a long-time covariance, so a stable estimate requires a long forward
 rollout. Differentiating through that rollout is an RNN backward pass, and its
-sensitivity grows like $\exp(T\,\Lambda)$ over a window of length $T$, where
-$\Lambda$ is the largest Lyapunov exponent of the dynamics. While the network
-sits at a fixed point or a limit cycle ($\Lambda \le 0$) this is harmless. Once
+sensitivity grows like $\exp(T\,\lambda_{\max})$ over a window of length $T$, where
+$\lambda_{\max}$ is the largest Lyapunov exponent of the dynamics. While the network
+sits at a fixed point or a limit cycle ($\lambda_{\max} \le 0$) this is harmless. Once
 a control parameter pushes the network across a bifurcation into **chaos**
-($\Lambda > 0$), the same backward pass amplifies without bound and the gradient
+($\lambda_{\max} > 0$), the same backward pass amplifies without bound and the gradient
 becomes numerically useless.
 
 This notebook makes that failure concrete on a Jansen-Rit whole-brain model,
@@ -97,6 +97,7 @@ from tvboptim.experimental.network_dynamics.solvers import Heun
 from tvboptim.experimental.network_dynamics.analysis.lyapunov import (
     _lyapunov_spectrum_jvp,
 )
+from tvboptim.experimental.network_dynamics.analysis import adiabatic_scan
 from tvboptim.observations.observation import compute_fc, fc_corr, rmse
 from tvboptim.observations.tvb_monitors.bold import HRFBold
 from tvboptim.optim.optax import OptaxOptimizer
@@ -129,6 +130,7 @@ dangerous. The empirical FC is the optimization target.
 ```{python}
 #| echo: true
 #| output: false
+#| code-summary: "Model, connectivity, and solver setup"
 # Model constants (match the chaos regime used on the poster).
 A, MU, SIGMA, DT = 0.1, 0.08, 0.0316, 1.0
 G_LOW, G_HIGH, N_G = 0.0, 40.0, 80          # G sweep grid (divisible by N_DEVICES)
@@ -192,6 +194,7 @@ even though the reverse-mode AD leg is expensive.
 ```{python}
 #| echo: true
 #| output: false
+#| code-summary: "FC-RMSE loss and per-G probe (AD gradient, FD ground truth, Lyapunov)"
 FD_DELTA = 0.3        # finite central-difference step in G
 N_FD_SEEDS = 8        # seeds averaged for the FD ground truth
 FD_SEED_BASE = 0
@@ -264,9 +267,74 @@ def g_crit_from(lam, g):
 G_CRIT = g_crit_from(mot["lam"], mot["g"])
 ```
 
+To see what the network *does* across this sweep, we trace the bifurcation with an
+**adiabatic scan**: ramp $G$ up and back down, carrying the settled state between
+values, and record the oscillation envelope of the pyramidal PSP ($y_1 - y_2$, the
+Jansen-Rit EEG observable) at each $G$. This reads the same transition the
+Lyapunov exponent flags straight off the dynamics, and scanning both directions
+exposes any hysteresis at the onset.
+
+```{python}
+#| echo: true
+#| output: false
+#| code-summary: "Adiabatic G-scan (bifurcation diagram)"
+# Adiabatic G-scan: ramp G up then back down, carrying the settled state, so each
+# step starts from the previous one's attractor (the slow, "adiabatic" ramp). At
+# every G we record the oscillation envelope of the pyramidal PSP y1 - y2 -- the
+# canonical Jansen-Rit EEG observable, the argument of the output sigmoid -- as
+# each node's temporal min/max averaged across the network, plus its mean. The
+# envelope is flat at the fixed point, opens at the limit cycle, and broadens in
+# the chaotic band.
+N_ADIA = 60          # G values per branch (up, then down)
+ADIA_T = 4_000.0     # simulation length per G step (ms)
+ADIA_SKIP = 2_000.0  # transient dropped before the envelope (ms)
+
+
+def _psp(result):  # pyramidal post-synaptic potential y1 - y2 -> [n_time, n_nodes]
+    names = result.variable_names
+    return result.ys[:, names.index("y1"), :] - result.ys[:, names.index("y2"), :]
+
+
+def _env_low(a):   # mean across nodes of each node's temporal trough
+    return a.min(axis=0).mean()
+
+
+def _env_high(a):  # mean across nodes of each node's temporal peak
+    return a.max(axis=0).mean()
+
+
+@cache("adiabatic")
+def compute_adiabatic():
+    res = adiabatic_scan(
+        network,
+        Heun(),
+        accessor=G_lens,
+        low=G_LOW,
+        high=G_HIGH,
+        n=N_ADIA,
+        t=ADIA_T,
+        skip=ADIA_SKIP,
+        dt=DT,
+        bothways=True,
+        observe=_psp,
+        statistics={"mean": lambda a: a.mean(), "lo": _env_low, "hi": _env_high},
+    )
+    p, n_up, s = np.asarray(res.p), res.n_up, res.stats
+    up, dn = slice(0, n_up), slice(n_up, None)
+    return {
+        "g_up": p[up], "g_dn": p[dn],
+        "mean_up": np.asarray(s["mean"])[up], "mean_dn": np.asarray(s["mean"])[dn],
+        "lo_up": np.asarray(s["lo"])[up], "lo_dn": np.asarray(s["lo"])[dn],
+        "hi_up": np.asarray(s["hi"])[up], "hi_dn": np.asarray(s["hi"])[dn],
+    }
+
+
+adia = compute_adiabatic()
+```
+
 ```{python}
 #| label: fig-gradient-breaks
-#| fig-cap: "**The exact FC-loss gradient breaks at the chaos onset.** Top: the FC-RMSE loss $L(G)$ (blue, left axis) and the top Lyapunov exponent $\\lambda_{\\max}$ (red, right axis), which crosses zero at the bifurcation into chaos (red band). The loss optimum (blue dot) sits just below that boundary. Bottom: the gradient $dL/dG$. The seed-averaged finite-difference gradient (line + band) is the ground truth; the autodiff gradient (markers) is colored by how it compares: accurate (within 1%), correct direction, wrong sign, or numerically unstable (NaN/Inf). In the fixed-point and limit-cycle regime the AD gradient matches FD; once $G$ crosses the $\\lambda_{\\max}=0$ boundary it flips sign and blows up, while the finite-difference reference stays bounded. This is the failure truncation is built to avoid."
+#| fig-cap: "**The exact FC-loss gradient breaks at the chaos onset.** All three panels share the global-coupling axis $G$, with the chaotic band ($\\lambda_{\\max}>0$) shaded red. Top: the adiabatic bifurcation diagram. The shaded envelope is the oscillation amplitude of the pyramidal PSP $y_1 - y_2$ (the Jansen-Rit EEG observable; per-node temporal min/max averaged across the network) and the dotted line its mean, swept up ($G\\!\\uparrow$, solid) and back down ($G\\!\\downarrow$, dashed); the envelope is flat at the fixed point, opens at the limit cycle, and broadens into the chaotic band, with the up/down branches revealing any hysteresis. Middle: the FC-RMSE loss $L(G)$ (blue, left axis) and the top Lyapunov exponent $\\lambda_{\\max}$ (red, right axis), which crosses zero at the bifurcation into chaos. The loss optimum (blue dot) sits just below that boundary. Bottom: the gradient $dL/dG$. The seed-averaged finite-difference gradient (line + band) is the ground truth; the autodiff gradient (markers) is colored by how it compares: accurate (within 1%), correct direction, wrong sign, or numerically unstable (NaN/Inf). In the fixed-point and limit-cycle regime the AD gradient matches FD; once $G$ crosses the $\\lambda_{\\max}=0$ boundary it flips sign and blows up, while the finite-difference reference stays bounded. This is the failure truncation is built to avoid."
 #| code-fold: true
 #| code-summary: "Show plotting code"
 g = mot["g"]
@@ -287,9 +355,9 @@ def categorize(ad, fd, eps=0.01):
     return accurate, correct, wrong, unstable
 
 
-fig, (ax_top, ax_bot) = plt.subplots(
-    2, 1, figsize=(8.2, 6.6), sharex=True,
-    gridspec_kw={"height_ratios": [1.0, 1.2], "hspace": 0.08},
+fig, (ax_bif, ax_top, ax_bot) = plt.subplots(
+    3, 1, figsize=(8.2, 9.0), sharex=True,
+    gridspec_kw={"height_ratios": [1.0, 1.0, 1.2], "hspace": 0.08},
 )
 
 
@@ -300,7 +368,26 @@ def chaos_band(ax):
         ax.axvline(G_CRIT, color=ROAD, ls="--", lw=1.2, zorder=0)
 
 
-# ---- top panel: loss value + Lyapunov exponent (chaos onset) ----
+# ---- top panel: adiabatic bifurcation diagram (mean dynamics vs G) ----
+# Oscillation envelope of the pyramidal PSP y1 - y2: flat at the fixed point,
+# opening at the limit cycle, broad in the chaotic band. Both branches share the
+# loss-panel blue; the up (solid) and down (dashed) sweeps overlap where the
+# dynamics are unique and split where they are not (hysteresis).
+chaos_band(ax_bif)
+ax_bif.fill_between(adia["g_up"], adia["lo_up"], adia["hi_up"],
+                    color=ACCENT, alpha=0.16, lw=0, zorder=1)
+ax_bif.plot(adia["g_up"], adia["hi_up"], color=ACCENT, lw=1.3, zorder=2,
+            label=r"$G\!\uparrow$")
+ax_bif.plot(adia["g_up"], adia["lo_up"], color=ACCENT, lw=1.3, zorder=2)
+ax_bif.plot(adia["g_up"], adia["mean_up"], color=ACCENT, lw=0.9, ls=":",
+            alpha=0.8, zorder=2)
+ax_bif.plot(adia["g_dn"], adia["hi_dn"], color=ACCENT, lw=1.3, ls="--", zorder=3,
+            label=r"$G\!\downarrow$")
+ax_bif.plot(adia["g_dn"], adia["lo_dn"], color=ACCENT, lw=1.3, ls="--", zorder=3)
+ax_bif.set_ylabel(r"PSP  $y_1 - y_2$  (mV)")
+ax_bif.legend(loc="upper left", fontsize=9, framealpha=0.5)
+
+# ---- middle panel: loss value + Lyapunov exponent (chaos onset) ----
 # Both series are sampled per G: scatter the measurements with a thin dashed guide,
 # matching the marker style of the gradient panel below.
 lam_ax = ax_top.twinx()
@@ -370,7 +457,7 @@ forward trajectory, then is tiled into windows of $W =$
 `grad_horizon` steps. The loss depends on every window, so **every window is
 differentiated**; what truncation does is sever the carried *state* gradient at
 each window boundary with `stop_gradient`, so credit cannot flow across a
-boundary and the $\exp(T\,\Lambda)$ blow-up is cut off at $W$. The parameter
+boundary and the $\exp(T\,\lambda_{\max})$ blow-up is cut off at $W$. The parameter
 gradient survives the severing because parameters like $G$ are *closed over* by
 the scan body, not threaded through the state carry. The total is the sum of each
 window's local contribution:
@@ -447,11 +534,6 @@ ax.axis("off")
 plt.tight_layout()
 ```
 
-The truncation window is purely a solver setting: `stop_gradient` is the identity
-on the forward pass, so the simulated trajectory, the FC and the loss *value* are
-bit-identical to the untruncated run for every window. Only the backward pass
-changes.
-
 ## The Payoff: Optimizing $G$ With and Without Truncation
 
 Now we fit $G$ to the empirical FC by minimizing the FC-RMSE, starting from a
@@ -467,6 +549,7 @@ differ only in how the gradient is obtained:
 ```{python}
 #| echo: true
 #| output: false
+#| code-summary: "Optimization setup: loss, callbacks, and the two runs"
 G_START = 5.0       # sub-critical start
 LR = 1.0
 MAX_STEPS = 100
@@ -582,20 +665,24 @@ if emax > emin:
 rmse_all = np.concatenate([ad_run[2], tb_run[2]])
 vmin, vmax = float(np.nanmin(rmse_all)), float(np.nanmax(rmse_all))
 runs_plot = [
-    (ad_run, "s", WARN, "Full AD (no truncation)"),
-    (tb_run, "^", SHIP, f"TBPTT ($W={W_TBPTT}$)"),
+    (ad_run, "s", "Full AD (no truncation)"),
+    (tb_run, "^", f"TBPTT ($W={W_TBPTT}$)"),
 ]
 sc = None
-for (steps, G, err), marker, line_c, _ in runs_plot:
-    ax.plot(steps, G, color=line_c, lw=1.0, alpha=0.4, zorder=1)
+for (steps, G, err), marker, _ in runs_plot:
+    ax.plot(steps, G, color="black", lw=1.2, alpha=0.6, zorder=2)
     sc = ax.scatter(steps, G, c=err, cmap="cividis_r", vmin=vmin, vmax=vmax,
                     marker=marker, s=42, edgecolor="black", linewidth=0.4, zorder=3)
 
 ax.set_xlabel("optimization step")
 ax.set_ylabel(r"global coupling $G$")
 fig.colorbar(sc, ax=ax, label="FC RMSE")
-handles = [Line2D([0], [0], color=c, marker=m, lw=1.0, mec="black", label=lab)
-           for _, m, c, lab in runs_plot]
+# Run identity is the marker shape (the line is a neutral path guide); the marker
+# *fill* encodes FC-RMSE (colorbar), so the legend marker is left hollow to not
+# imply a fixed fill the colored points do not have.
+handles = [Line2D([0], [0], color="black", marker=m, lw=1.2, markerfacecolor="none",
+                  markeredgecolor="black", label=lab)
+           for _, m, lab in runs_plot]
 ax.legend(handles=handles, loc="best", fontsize=10)
 
 # ---- bottom panel: simulated FC at each run's optimum vs the empirical target ----
@@ -665,14 +752,14 @@ Truncated backpropagation through time:
 - Tallec, C., & Ollivier, Y. (2017). Unbiasing truncated backpropagation through
   time. *arXiv:1705.08209*. On the bias of a too-short window.
 
-Why the gradient horizon is finite (the $\exp(T\,\Lambda)$ growth):
+Why the gradient horizon is finite (the $\exp(T\,\lambda_{\max})$ growth):
 
 - Bengio, Y., Simard, P., & Frasconi, P. (1994). Learning long-term dependencies
   with gradient descent is difficult. *IEEE Transactions on Neural Networks*,
   5(2), 157-166.
 - Pascanu, R., Mikolov, T., & Bengio, Y. (2013). On the difficulty of training
   recurrent neural networks. *ICML*, PMLR 28(3), 1310-1318. Ties the gradient
-  growth to the recurrent Jacobian's spectral radius (the $\Lambda$ above).
+  growth to the recurrent Jacobian's spectral radius (the $\lambda_{\max}$ above).
 
 Why an FC (covariance) loss's horizon is the system's correlation time:
 
