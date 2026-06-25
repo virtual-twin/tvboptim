@@ -757,6 +757,8 @@ class DelayedCoupling(PrePostCoupling):
           optimization with small dt / large history. Memory: O(T).
         - "preallocated": Pre-allocates full simulation buffer. Best forward-pass
           performance but gradients degrade. Memory: O(T + simulation_steps).
+    interpolate_delays : bool, default False
+        If True ("roll" strategy only), read delayed states by linear interpolation between the two bracketing history steps instead of snapping to the nearest step. Makes the coupling differentiable w.r.t. the continuous delay (e.g. for optimising conduction speed). The delay gradient is only nonzero when the delays (and hence the interpolation fraction) are recomputed under tracing, i.e. when ``prepare`` runs inside the differentiated region.
     **kwargs
         Passed to parent class (incoming_states, local_states, params)
     """
@@ -764,6 +766,7 @@ class DelayedCoupling(PrePostCoupling):
     def __init__(
         self,
         buffer_strategy: BufferStrategy = "roll",
+        interpolate_delays: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -774,7 +777,13 @@ class DelayedCoupling(PrePostCoupling):
                 f"Must be one of: 'roll', 'circular', 'preallocated'"
             )
 
+        if interpolate_delays and buffer_strategy != "roll":
+            raise ValueError(
+                "interpolate_delays=True is only supported with buffer_strategy='roll'"
+            )
+
         self.buffer_strategy = buffer_strategy
+        self.interpolate_delays = interpolate_delays
 
     def prepare(self, network, dt: float, t0: float, t1: float) -> Tuple[Bunch, Bunch]:
         """Standard preparation for delayed coupling.
@@ -835,6 +844,21 @@ class DelayedCoupling(PrePostCoupling):
                 bcoo_shape=bcoo_shape,
                 use_sparse_incoming=use_sparse_incoming,
             )
+
+            if self.interpolate_delays:
+                # Bracket each delay by its two neighbouring history steps and store
+                # the fraction so compute() can linearly blend them.
+                delay_f = delays_dense / dt
+                delay_lo = jnp.floor(delay_f)
+                delay_frac = delay_f - delay_lo  # in [0, 1)
+                idx_lo = (max_delay_steps - delay_lo).astype(jnp.int32)
+                idx_hi = idx_lo - 1
+                idx_lo = jnp.clip(idx_lo, 0, max_delay_steps)
+                idx_hi = jnp.clip(idx_hi, 0, max_delay_steps)
+                coupling_data.delay_indices = idx_lo
+                coupling_data.delay_indices_hi = idx_hi
+                coupling_data.delay_frac = delay_frac
+
             coupling_state = Bunch(history=history_init)
 
         elif self.buffer_strategy == "circular":
@@ -938,10 +962,20 @@ class DelayedCoupling(PrePostCoupling):
         # Extract delayed states using computed indices
         # Result: delayed_states[i, j, k] = history[read_indices[j,k], i, k]
         # i.e., incoming state i from source node k, delayed by τ_jk, going to target j
-        delayed_states = jnp.transpose(
-            coupling_state.history[read_indices, :, coupling_data.state_indices],
-            (2, 0, 1),  # Reorder to [n_incoming, n_nodes_target, n_nodes_source]
-        )
+        def _gather(idx):
+            return jnp.transpose(
+                coupling_state.history[idx, :, coupling_data.state_indices],
+                (2, 0, 1),  # Reorder to [n_incoming, n_nodes_target, n_nodes_source]
+            )
+
+        if self.buffer_strategy == "roll" and self.interpolate_delays:
+            # Interpolated delays: linearly blend the two bracketing history steps.
+            frac = coupling_data.delay_frac
+            delayed_states = (1.0 - frac) * _gather(read_indices) + frac * _gather(
+                coupling_data.delay_indices_hi
+            )
+        else:
+            delayed_states = _gather(read_indices)
 
         # Extract local states
         local_states = state[coupling_data.local_indices]

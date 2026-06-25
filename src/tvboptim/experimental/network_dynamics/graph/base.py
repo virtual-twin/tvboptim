@@ -402,6 +402,7 @@ class DenseDelayGraph(DenseGraph):
         delays: Delay matrix [n_nodes, n_nodes] in same units as integration time
         region_labels: Optional sequence of region labels (list, tuple, or array). If None, defaults to ['Region_0', 'Region_1', ...]
         symmetric: Whether to treat as symmetric (None = auto-detect)
+        max_delay: Optional maximum delay used to size the history buffer. Pass it explicitly to allow ``delays`` to be a JAX tracer (e.g. tract_length / speed); if None, derived from max(delays).
     """
 
     def __init__(
@@ -410,6 +411,7 @@ class DenseDelayGraph(DenseGraph):
         delays: jnp.ndarray,
         region_labels: Optional[Sequence[str]] = None,
         symmetric: Optional[bool] = None,
+        max_delay: Optional[float] = None,
     ):
         # Process delays first (needed for verify method)
         self._delays = jnp.asarray(delays)
@@ -421,8 +423,12 @@ class DenseDelayGraph(DenseGraph):
                 f"Delay matrix shape {self._delays.shape} must match weight matrix shape {weights_array.shape}"
             )
 
-        # Compute and store max_delay to avoid accessing delays during pytree transformations
-        self._max_delay = float(jnp.max(self._delays))
+        # max_delay sizes the (static) history buffer. Passing it explicitly lets
+        # ``delays`` be a JAX tracer; otherwise it is derived from the delays.
+        if max_delay is not None:
+            self._max_delay = float(max_delay)
+        else:
+            self._max_delay = float(jnp.max(self._delays))
 
         # Initialize parent Graph (pass region_labels)
         super().__init__(weights, region_labels=region_labels, symmetric=symmetric)
