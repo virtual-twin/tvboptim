@@ -67,9 +67,6 @@ import copy
 import optax
 from scipy import io
 
-# Jax enable x64
-jax.config.update("jax_enable_x64", True)
-
 # Import from tvboptim
 from tvboptim.types import Parameter, Space, GridAxis
 from tvboptim.types.stateutils import show_parameters
@@ -175,8 +172,8 @@ We combine the RWW dynamics with structural connectivity to create a whole-brain
 
 # Create network components
 graph = DenseGraph(weights, region_labels=region_labels)
-dynamics = ReducedWongWang(w=0.5, I_o=0.32, INITIAL_STATE=(0.3,))
-coupling = FastLinearCoupling(local_states=["S"], G=0.5)
+dynamics = ReducedWongWang(w=0.3, I_o=0.32, INITIAL_STATE=(0.3,))
+coupling = FastLinearCoupling(local_states=["S"], G=0.15)
 noise = AdditiveNoise(sigma=0.00283, apply_to="S")
 
 # Assemble the network
@@ -195,7 +192,7 @@ We prepare the network for simulation and run an initial transient to reach a qu
 ```{python}
 #| echo: true
 # Prepare simulation: compile model and initialize state
-t1 = 120_000  # Total simulation duration (ms) - 2 minutes
+t1 = 90_000  # Total simulation duration (ms) - 1.5 minutes
 dt = 4.0      # Integration timestep (ms)
 model, state = prepare(network, Heun(), t1=t1, dt=dt)
 
@@ -350,7 +347,7 @@ Before optimization, we explore how the model parameters affect FC quality. We s
 #| output: false
 
 # Create grid for parameter exploration
-n = 32
+n = 16
 
 # Set up parameter axes for exploration
 grid_state = copy.deepcopy(state)
@@ -426,8 +423,8 @@ cb = MultiCallback([
 
 @cache("optimize", redo=False)
 def optimize():
-    opt = OptaxOptimizer(loss, optax.adam(0.01, b2=0.9999), callback=cb)
-    fitted_state, fitting_data = opt.run(state, max_steps=300)
+    opt = OptaxOptimizer(loss, optax.adam(0.01), callback=cb)
+    fitted_state, fitting_data = opt.run(state, max_steps=100)
     return fitted_state, fitting_data
 
 fitted_state, fitting_data = optimize()
@@ -500,7 +497,7 @@ plt.tight_layout()
 
 ## Heterogeneous Optimization
 
-Global parameters (same for all regions) may not capture region-specific variations needed for optimal FC fit. We now make parameters heterogeneous: each brain region gets its own `w` and `I_o` values, while keeping `G` global.
+Global parameters (same for all regions) may not capture region-specific variations needed for optimal FC fit. We now make parameters heterogeneous: each brain region gets its own `w` value, while keeping `G` global.
 
 ```{python}
 #| echo: true
@@ -509,10 +506,6 @@ fitted_state_het = copy.deepcopy(fitted_state)
 
 # Make w regional (one value per node)
 fitted_state_het.dynamics.w.shape = (n_nodes,)
-
-# Also make I_o regional and mark as optimizable
-fitted_state_het.dynamics.I_o = Parameter(fitted_state_het.dynamics.I_o)
-fitted_state_het.dynamics.I_o.shape = (n_nodes,)
 
 # Keep global coupling fixed at optimized value
 fitted_state_het.coupling.instant.G = fitted_state_het.coupling.instant.G.value
@@ -526,8 +519,8 @@ show_parameters(fitted_state_het)
 
 @cache("optimize_het", redo=False)
 def optimize_het():
-    opt = OptaxOptimizer(loss, optax.adam(0.004, b2=0.999), callback=cb)
-    fitted_state, fitting_data = opt.run(fitted_state_het, max_steps=200)
+    opt = OptaxOptimizer(loss, optax.adam(0.005), callback=cb)
+    fitted_state, fitting_data = opt.run(fitted_state_het, max_steps=100)
     return fitted_state, fitting_data
 
 fitted_state_het, fitting_data_het = optimize_het()
@@ -631,7 +624,7 @@ Let's examine the fitted region-specific parameters and their relationship to st
 
 ```{python}
 #| label: fig-fitted-params
-#| fig-cap: "**Fitted heterogeneous parameters.** Left: Fitted excitatory recurrence (w) for each region plotted against mean incoming structural connectivity strength. Right: Fitted external input (I_o) vs mean connectivity. Dashed lines show the global optimization values for reference. Regions with stronger structural connections tend to require different parameter values to achieve optimal FC fit, demonstrating the importance of region-specific tuning."
+#| fig-cap: "**Fitted heterogeneous parameters.** Fitted excitatory recurrence (w) for each region plotted against mean incoming structural connectivity strength. The dashed line shows the global optimization value for reference. Regions with stronger structural connections tend to require different parameter values to achieve optimal FC fit, demonstrating the importance of region-specific tuning."
 #| code-fold: true
 #| code-summary: "Show plotting code"
 
@@ -640,14 +633,12 @@ mean_connectivity = np.mean(weights, axis=1)
 
 # Extract fitted regional parameters
 w_fitted = fitted_state_het.dynamics.w.value.flatten()
-I_o_fitted = fitted_state_het.dynamics.I_o.value.flatten()
 
 # Get global optimization values for reference
 w_global = fitted_state.dynamics.w.value
-I_o_global = fitted_state.dynamics.I_o  # Not optimized in global fit, but initial value
 
 # Create figure
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.1, 3.24))
+fig, ax1 = plt.subplots(1, 1, figsize=(4.5, 3.24))
 
 # Plot w vs mean connectivity
 ax1.scatter(mean_connectivity, w_fitted, alpha=0.7, s=30, color='royalblue', edgecolors='k', linewidths=0.5)
@@ -657,15 +648,6 @@ ax1.set_ylabel('Fitted w (Excitatory Recurrence)')
 ax1.set_title('Regional Excitatory Recurrence Parameters')
 ax1.legend(loc='best')
 ax1.grid(True, alpha=0.3)
-
-# Plot I_o vs mean connectivity
-ax2.scatter(mean_connectivity, I_o_fitted, alpha=0.7, s=30, color='royalblue', edgecolors='k', linewidths=0.5)
-ax2.axhline(I_o_global, color='red', linestyle='--', linewidth=2, label=f'Initial I_o = {I_o_global:.3f}')
-ax2.set_xlabel('Mean Incoming Connectivity')
-ax2.set_ylabel('Fitted I_o (External Input)')
-ax2.set_title('Regional External Input Parameters')
-ax2.legend(loc='best')
-ax2.grid(True, alpha=0.3)
 
 plt.tight_layout()
 ```
