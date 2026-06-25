@@ -857,7 +857,7 @@ class TestTruncatedScan(unittest.TestCase):
         for window in (20, 13):  # 200 % 20 == 0, 200 % 13 == 5
             with self.subTest(window=window):
                 solve_trunc, _ = prepare(
-                    network, Heun(tbptt_window=window), t0=0.0, t1=20.0, dt=0.1
+                    network, Heun(grad_horizon=window), t0=0.0, t1=20.0, dt=0.1
                 )
                 self.assertTrue(
                     jnp.array_equal(r_full.ys, solve_trunc(cfg).ys)
@@ -866,10 +866,10 @@ class TestTruncatedScan(unittest.TestCase):
     def test_default_and_bounded_delegation(self):
         """Default constructor leaves truncation off; BoundedSolver forwards the
         knob from its base solver."""
-        self.assertIsNone(Heun().tbptt_window)
-        self.assertEqual(Heun(tbptt_window=50).tbptt_window, 50)
+        self.assertIsNone(Heun().grad_horizon)
+        self.assertEqual(Heun(grad_horizon=50).grad_horizon, 50)
         self.assertEqual(
-            BoundedSolver(Heun(tbptt_window=50), low=0.0, high=1.0).tbptt_window,
+            BoundedSolver(Heun(grad_horizon=50), low=0.0, high=1.0).grad_horizon,
             50,
         )
 
@@ -883,7 +883,7 @@ class TestReduce(unittest.TestCase):
     the sum over the plainly-stacked trajectory), and a network-level online
     ``welford_cov`` FC pinned against the post-hoc ``compute_fc``. The fold must
     match for divisor / non-divisor / degenerate blocks, compose with
-    ``tbptt_window``, and be invariant (value and gradient) to ``block_size``.
+    ``grad_horizon``, and be invariant (value and gradient) to ``block_size``.
     """
 
     N = 20  # toy rollout length
@@ -912,7 +912,7 @@ class TestReduce(unittest.TestCase):
     def _fold_sum(self, a, block_size, window=None):
         from tvboptim.experimental.network_dynamics.solve import run_scan
 
-        solver = Heun(block_size=block_size, tbptt_window=window)
+        solver = Heun(block_size=block_size, grad_horizon=window)
         carry, _ = run_scan(
             self._make_op(a),
             self.C0,
@@ -1019,7 +1019,7 @@ class TestReduce(unittest.TestCase):
     def test_welford_differentiable_and_tbptt_invariant(self):
         """The online FC is differentiable wrt a coupling gain, and (for a fixed
         ``block_size``, hence fixed noise) its forward value is invariant to
-        ``tbptt_window`` snapped to a multiple of ``block_size`` -- truncation
+        ``grad_horizon`` snapped to a multiple of ``block_size`` -- truncation
         changes only the gradient, not the streamed realisation."""
         import equinox as eqx
 
@@ -1048,7 +1048,7 @@ class TestReduce(unittest.TestCase):
         for window in (100, 150, 300):  # multiples of block_size=50
             with self.subTest(window=window):
                 fc_w = solve(
-                    net, Heun(block_size=50, tbptt_window=window),
+                    net, Heun(block_size=50, grad_horizon=window),
                     t0=0.0, t1=30.0, dt=0.1, reduce=welford_cov(s_var=0),
                 )
                 self.assertTrue(jnp.array_equal(fc_base, fc_w))
@@ -1162,7 +1162,7 @@ class TestStreamingNoise(unittest.TestCase):
                     f"bs={block_size}: max diff {jnp.max(jnp.abs(strm - ref))}",
                 )
 
-    def test_forward_invariant_to_tbptt_window(self):
+    def test_forward_invariant_to_grad_horizon(self):
         """For a fixed block_size the streamed forward trajectory is bit-exact
         across truncation windows (multiples of block_size) -- the absolute
         block grid does not depend on how windows tile it."""
@@ -1171,16 +1171,16 @@ class TestStreamingNoise(unittest.TestCase):
         base = solve(net, Heun(block_size=50), **kw).ys
         for window in (100, 150, 300):
             with self.subTest(window=window):
-                ys = solve(net, Heun(block_size=50, tbptt_window=window), **kw).ys
+                ys = solve(net, Heun(block_size=50, grad_horizon=window), **kw).ys
                 self.assertTrue(jnp.array_equal(base, ys))
 
     def test_non_multiple_window_snaps_with_warning(self):
-        """A tbptt_window that is not a multiple of block_size is snapped to the
+        """A grad_horizon that is not a multiple of block_size is snapped to the
         nearest multiple with a warning, rather than silently accepted."""
         net = self._build()
         with self.assertWarns(UserWarning):
             solve(
-                net, Heun(block_size=50, tbptt_window=120),
+                net, Heun(block_size=50, grad_horizon=120),
                 t0=0.0, t1=self.T1, dt=self.DT,
             )
 

@@ -59,7 +59,7 @@ The motivation is throughput, not differentiation: a forward-only statistic that
 fits in a few MB instead of hundreds lets you **pack many independent
 simulations onto one GPU** (parameter sweeps, posterior sampling, seed
 ensembles) where the stacked trajectories would not fit. The same machinery
-composes with `tbptt_window` for a *differentiable* FC over a long rollout, the
+composes with `grad_horizon` for a *differentiable* FC over a long rollout, the
 window bounding the gradient horizon for stability and `block_size` bounding the
 backward memory by the checkpointing model (not the forward's `O(block_size)`,
 see Practical Guidance). That combination is covered in [Truncated
@@ -415,7 +415,7 @@ Rules of thumb:
   history buffer, accumulator), so backward memory follows the
   [checkpointing](gradient_checkpointing.qmd) model
   `O(n_steps/block_size + block_size)`, U-shaped in `block_size`, not constant in
-  `n_steps`. `block_size` bounds that memory; `tbptt_window` is separate, it
+  `n_steps`. `block_size` bounds that memory; `grad_horizon` is separate, it
   bounds the gradient *horizon* (stability), not memory. For a long
   differentiable FC set both; see
   [Truncated Backpropagation](../workflows/TBPTT.qmd).

@@ -333,7 +333,7 @@ def _snap_window(window, block_size):
         return window
     snapped = max(block_size, round(window / block_size) * block_size)
     warnings.warn(
-        f"tbptt_window={window} is not a multiple of block_size={block_size}; "
+        f"grad_horizon={window} is not a multiple of block_size={block_size}; "
         f"snapping to {snapped} so window boundaries align with block "
         "boundaries.",
         stacklevel=2,
@@ -376,7 +376,7 @@ def run_scan(op, state0, scan_inputs, n_steps, solver, fold=None, noise_gen=None
       ``finalize``. Requires ``block_size``; with ``block_size=None`` the caller
       folds the stacked trajectory once instead (the degenerate single-block /
       post-hoc case).
-    - ``tbptt_window`` (gradient horizon): if set, run a windowed scan that
+    - ``grad_horizon`` (gradient horizon): if set, run a windowed scan that
       severs the carry gradient every ``W`` steps. Snapped to a multiple of
       ``block_size`` when both are set so window and block boundaries align.
     - ``block_size`` (block granularity): with no truncation, None is the
@@ -388,7 +388,7 @@ def run_scan(op, state0, scan_inputs, n_steps, solver, fold=None, noise_gen=None
     slice) from its block inputs and is agnostic to how they were produced.
     """
     block_size = solver.block_size
-    window = solver.tbptt_window
+    window = solver.grad_horizon
     if window is not None and block_size is not None:
         window = _snap_window(window, block_size)
 

@@ -1,6 +1,6 @@
 ---
 title: "Truncated Backpropagation for Chaotic Brain Networks"
-subtitle: "Why long-rollout gradients break, and how the `tbptt_window` knob fixes them"
+subtitle: "Why long-rollout gradients break, and how the `grad_horizon` knob fixes them"
 format:
   html:
     code-fold: false
@@ -37,7 +37,7 @@ where the global coupling $G$ drives a bifurcation into chaos. On the stable sid
 the exact autodiff (AD) gradient of an FC loss with respect to $G$ is correct,
 checked against a finite-difference ground truth and the measured Lyapunov
 exponent; past the bifurcation it flips sign and blows up. The fix is truncated
-backpropagation through time (TBPTT), a single solver knob `tbptt_window` that
+backpropagation through time (TBPTT), a single solver knob `grad_horizon` that
 keeps the long forward rollout but pulls the gradient back only through a fixed
 window. With it, optimizing $G$ to fit empirical FC stays on track where the full
 gradient does not.
@@ -363,11 +363,11 @@ plt.tight_layout()
 
 Truncated backpropagation through time keeps the long forward rollout but pulls
 the gradient back only through a fixed-length window. In `tvboptim` it is a
-single solver knob, `tbptt_window`, on the native solvers.
+single solver knob, `grad_horizon`, on the native solvers.
 
 The knob is easy to mis-model. The whole `n_steps` rollout runs as one continuous
 forward trajectory, then is tiled into windows of $W =$
-`tbptt_window` steps. The loss depends on every window, so **every window is
+`grad_horizon` steps. The loss depends on every window, so **every window is
 differentiated**; what truncation does is sever the carried *state* gradient at
 each window boundary with `stop_gradient`, so credit cannot flow across a
 boundary and the $\exp(T\,\Lambda)$ blow-up is cut off at $W$. The parameter
@@ -386,7 +386,7 @@ enough to keep the slow structure the loss actually depends on.
 
 ```{python}
 #| label: fig-tbptt-schematic
-#| fig-cap: "**How `tbptt_window` tiles the rollout.** One continuous forward pass (top strip, color = time) is split into windows of $W$ steps. Every window is differentiated and contributes its local $\\partial L_k/\\partial G$ (blue), but the carried state gradient is cut at every boundary (red dashed). The shared parameter $G$ is closed over by all windows, so its gradient is the sum of the per-window contributions. The window length is kept below the chaotic memory horizon, $W < \\tau_\\lambda$."
+#| fig-cap: "**How `grad_horizon` tiles the rollout.** One continuous forward pass (top strip, color = time) is split into windows of $W$ steps. Every window is differentiated and contributes its local $\\partial L_k/\\partial G$ (blue), but the carried state gradient is cut at every boundary (red dashed). The shared parameter $G$ is closed over by all windows, so its gradient is the sum of the per-window contributions. The window length is kept below the chaotic memory horizon, $W < \\tau_\\lambda$."
 #| code-fold: true
 #| code-summary: "Show diagram code"
 N_WIN, W = 5, 1.0
@@ -462,7 +462,7 @@ differ only in how the gradient is obtained:
   single scalar parameter, forward-mode AD equals full reverse-mode BPTT (same
   $dL/dG$), so this trajectory is the exact, untruncated gradient.
 - **TBPTT** replaces the backward pass with a windowed solver
-  `Heun(tbptt_window=W)`, assigning credit only over the last $W$ steps.
+  `Heun(grad_horizon=W)`, assigning credit only over the last $W$ steps.
 
 ```{python}
 #| echo: true
@@ -510,7 +510,7 @@ def compute_optim():
     ad = run_optim(make_rmse_loss(solve_fc), cfg_ad, "fwd", "Full AD (no truncation)")
 
     # TBPTT: identical forward dynamics, backward pass windowed to W*dt.
-    solve_w, cfg_w = prepare(network, Heun(tbptt_window=W_TBPTT), t1=FC_T1, dt=DT)
+    solve_w, cfg_w = prepare(network, Heun(grad_horizon=W_TBPTT), t1=FC_T1, dt=DT)
     tb = run_optim(make_rmse_loss(solve_w), cfg_w, "rev", f"TBPTT W={W_TBPTT}")
     return {"ad": ad, "tb": tb}
 
@@ -640,15 +640,15 @@ fig.colorbar(im, ax=fc_axes, label="FC", shrink=0.8)
 ::: {.callout-note}
 ## Forward is unchanged
 
-`tbptt_window` only changes the backward pass. The forward trajectory, and hence
+`grad_horizon` only changes the backward pass. The forward trajectory, and hence
 the FC and the loss *value*, are bit-identical to the untruncated run for every
 window. The same long simulation can serve a long-horizon statistic while the
 gradient is taken over a short, stable window.
 :::
 
-`tbptt_window` sets the gradient horizon, not the cost. Bounding runtime and
+`grad_horizon` sets the gradient horizon, not the cost. Bounding runtime and
 memory is the job of `block_size` (gradient checkpointing), an orthogonal knob
-that rematerializes activations within each window and nests with `tbptt_window`.
+that rematerializes activations within each window and nests with `grad_horizon`.
 The same `block_size` seam can also stream the FC so memory scales with the block
 rather than `n_steps`. See the [RWW tutorial](RWW.qmd) for the full FC/BOLD
 pipeline.

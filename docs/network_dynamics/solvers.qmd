@@ -287,15 +287,15 @@ full `O(n_steps)` noise tensor. Forward-only runs are untouched. See
 [Gradient Checkpointing](../advanced/gradient_checkpointing.qmd) for the memory
 model and the `K` sweep.
 
-**`tbptt_window` — truncated backpropagation (gradient horizon).** Sever the carry
+**`grad_horizon` — truncated backpropagation (gradient horizon).** Sever the carry
 gradient every `W` steps so the backward sensitivity stops amplifying past one
 window. The forward is bit-identical (it is a stability knob, not a speed knob);
 only the backward changes. When combined with `block_size` it is snapped to a
 multiple of it so window and block boundaries align:
 
 ```python
-solver = Heun(tbptt_window=2000)                  # bounded gradient horizon
-solver = Heun(tbptt_window=2000, block_size=200)  # horizon + bounded memory
+solver = Heun(grad_horizon=2000)                  # bounded gradient horizon
+solver = Heun(grad_horizon=2000, block_size=200)  # horizon + bounded memory
 ```
 
 See [Truncated Backpropagation](../workflows/TBPTT.qmd).

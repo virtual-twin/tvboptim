@@ -28,7 +28,7 @@ class NativeSolver(AbstractSolver):
         self,
         block_size: int | None = None,
         recompute_coupling_per_stage: bool = False,
-        tbptt_window: int | None = None,
+        grad_horizon: int | None = None,
     ):
         """
         Args:
@@ -87,7 +87,7 @@ class NativeSolver(AbstractSolver):
                 ``n_steps``). Blocking still works correctly with
                 ``preallocated``, but the practical memory win is much
                 smaller because the carry itself dominates.
-            tbptt_window: If None (default), the gradient is exact over the
+            grad_horizon: If None (default), the gradient is exact over the
                 whole rollout. If an int ``W``, the integration runs as an
                 outer scan over windows of ``W`` steps with the carry
                 gradient severed (``jax.lax.stop_gradient``) at each window
@@ -97,13 +97,13 @@ class NativeSolver(AbstractSolver):
                 of the full horizon. The forward rollout is unchanged and
                 bit-exact; only the backward pass differs.
 
-                ``tbptt_window`` and ``block_size`` are independent and
+                ``grad_horizon`` and ``block_size`` are independent and
                 nest. ``block_size`` is a *memory* granularity (how big a
                 block to rematerialize on the backward pass, set by available
-                RAM); ``tbptt_window`` is the *gradient horizon* (how far back
+                RAM); ``grad_horizon`` is the *gradient horizon* (how far back
                 credit is assigned, set by the slowest timescale of interest).
                 The two block sizes are not the same number. When both are set,
-                ``block_size`` tiles ``tbptt_window`` (each window is
+                ``block_size`` tiles ``grad_horizon`` (each window is
                 rematerialized as ``W / block_size`` blocks); the clean case is
                 ``W % block_size == 0`` and ``n_steps % W == 0``, with
                 remainders handled by a tail scan.
@@ -112,8 +112,8 @@ class NativeSolver(AbstractSolver):
                 by itself bound activation memory: the full output is still
                 stacked and the loss taped over the whole rollout. For a long
                 rollout that needs both a bounded horizon and bounded memory,
-                set both knobs (``tbptt_window`` for the horizon,
-                ``block_size`` for memory within it). ``tbptt_window`` set
+                set both knobs (``grad_horizon`` for the horizon,
+                ``block_size`` for memory within it). ``grad_horizon`` set
                 with ``block_size=None`` is a gradient-stability fix only.
 
                 TBPTT biases toward fast timescales: any credit assignment
@@ -125,7 +125,7 @@ class NativeSolver(AbstractSolver):
         """
         self.block_size = block_size
         self.recompute_coupling_per_stage = recompute_coupling_per_stage
-        self.tbptt_window = tbptt_window
+        self.grad_horizon = grad_horizon
 
     def step(
         self,
@@ -371,7 +371,7 @@ class BoundedSolver(NativeSolver):
         high: float | jnp.ndarray = jnp.inf,
     ):
         # Deliberately skip NativeSolver.__init__: block_size,
-        # recompute_coupling_per_stage and tbptt_window are delegated to
+        # recompute_coupling_per_stage and grad_horizon are delegated to
         # base_solver via the properties below so that wrapping a solver does
         # not silently lose those settings.
         self.base_solver = base_solver
@@ -389,8 +389,8 @@ class BoundedSolver(NativeSolver):
         return self.base_solver.recompute_coupling_per_stage
 
     @property
-    def tbptt_window(self):
-        return self.base_solver.tbptt_window
+    def grad_horizon(self):
+        return self.base_solver.grad_horizon
 
     def step(
         self,
