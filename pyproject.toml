@@ -100,6 +100,14 @@ docs = [
     "griffe<2.0.0"
 ]
 
+[tool.uv]
+# tvb-library depends on numba without an upper or lower bound, so a fresh
+# resolution can backtrack numba down to 0.53.1 (-> llvmlite 0.36.0), which
+# only builds on Python <3.10 and breaks CI on the >=3.11 matrix. Floor numba
+# at a version that ships wheels for our supported Pythons. Constraints only
+# bound transitively-pulled packages; they do not add a direct dependency.
+constraint-dependencies = ["numba>=0.61", "llvmlite>=0.44"]
+
 [tool.ruff]
 line-length = 88
 target-version = "py311"
