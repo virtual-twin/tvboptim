@@ -227,7 +227,11 @@ class TestStreamingHrfBold(unittest.TestCase):
         t1 = 800.0  # 8000 steps, a multiple of 2000
         # Streaming reducer.
         bold = solve(
-            net, Heun(block_size=2000), t0=0.0, t1=t1, dt=dt,
+            net,
+            Heun(block_size=2000),
+            t0=0.0,
+            t1=t1,
+            dt=dt,
             reduce=streaming_hrf_bold(mon, dt),
         )
         # Post-hoc on the SAME streamed trajectory (matched per-block seeding).
@@ -255,7 +259,11 @@ class TestStreamingHrfBold(unittest.TestCase):
         # block_size=1500 is not a multiple of period/dt=2000 -> assert at trace.
         with self.assertRaises(AssertionError):
             solve(
-                net, Heun(block_size=1500), t0=0.0, t1=600.0, dt=dt,
+                net,
+                Heun(block_size=1500),
+                t0=0.0,
+                t1=600.0,
+                dt=dt,
                 reduce=streaming_hrf_bold(mon, dt),
             )
 

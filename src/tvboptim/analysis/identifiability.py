@@ -235,8 +235,7 @@ class IdentifiabilityResult:
         """Human-readable one-screen report."""
         label = _KIND_LABELS.get(self.kind, self.kind)
         lines = [
-            f"Identifiability analysis  --  {label}  "
-            f"({self.n_params} parameters)",
+            f"Identifiability analysis  --  {label}  ({self.n_params} parameters)",
             "-" * 60,
         ]
         if self.gradient_norm is not None:
@@ -423,9 +422,7 @@ def eigendecompose_curvature(
     downstream in ``summary()`` / ``__repr__``.
     """
     if kind not in ("hessian", "fisher"):
-        raise ValueError(
-            f"`kind` must be 'hessian' or 'fisher', got {kind!r}."
-        )
+        raise ValueError(f"`kind` must be 'hessian' or 'fisher', got {kind!r}.")
     matrix = jnp.asarray(matrix)
     matrix = 0.5 * (matrix + matrix.T)  # symmetrize against floating-point asymmetry
     eigenvalues, eigenvectors = jnp.linalg.eigh(matrix)

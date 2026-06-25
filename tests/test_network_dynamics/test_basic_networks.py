@@ -283,9 +283,7 @@ class TestBasicNetworks(unittest.TestCase):
         n_steps = int(round((5.0 - 0.0) / 0.1))
         n_noise_states = len(network.noise._state_indices)
         n_nodes = network.graph.n_nodes
-        samples = jax.random.normal(
-            cfg.noise.key, (n_steps, n_noise_states, n_nodes)
-        )
+        samples = jax.random.normal(cfg.noise.key, (n_steps, n_noise_states, n_nodes))
         cfg_inj = eqx.tree_at(
             lambda c: c._internal.noise_samples,
             cfg,
@@ -541,9 +539,7 @@ class TestCheckpointedScan(unittest.TestCase):
         )
 
         dyn = ReducedWongWang()
-        solve_none, cfg = prepare(
-            dyn, Heun(), t0=0.0, t1=10.0, dt=0.1, n_nodes=3
-        )
+        solve_none, cfg = prepare(dyn, Heun(), t0=0.0, t1=10.0, dt=0.1, n_nodes=3)
         solve_ckpt, _ = prepare(
             dyn,
             Heun(block_size=11),  # non-divisor of 100 steps
@@ -586,9 +582,7 @@ class TestPrepareIsolation(unittest.TestCase):
                 Network(
                     dynamics=ReducedWongWang(),
                     coupling={
-                        "delayed": DelayedLinearCoupling(
-                            incoming_states=["S"], G=0.3
-                        )
+                        "delayed": DelayedLinearCoupling(incoming_states=["S"], G=0.3)
                     },
                     graph=DenseDelayGraph(weights, delays),
                 ),
@@ -632,8 +626,9 @@ class TestPrepareIsolation(unittest.TestCase):
                     f"{name}: re-prepare returned mutated value",
                 )
                 self.assertTrue(
-                    jnp.array_equal(jnp.asarray(cfg2.dynamics.w),
-                                    jnp.asarray(original_w)),
+                    jnp.array_equal(
+                        jnp.asarray(cfg2.dynamics.w), jnp.asarray(original_w)
+                    ),
                     f"{name}: re-prepare did not restore original w",
                 )
 
@@ -662,9 +657,7 @@ class TestSolveHelpers(unittest.TestCase):
                 voi = dyn.get_variables_of_interest_indices()
                 n_states = dyn.N_STATES
                 names = dyn.all_variable_names
-                ref_state = jnp.array(
-                    [i for i in voi if i < n_states], dtype=int
-                )
+                ref_state = jnp.array([i for i in voi if i < n_states], dtype=int)
                 ref_aux = jnp.array(
                     [i - n_states for i in voi if i >= n_states], dtype=int
                 )
@@ -679,9 +672,7 @@ class TestSolveHelpers(unittest.TestCase):
                 self.assertEqual(record, ref_record)
                 self.assertEqual(var_names, ref_names)
                 # Labels match the number of recorded rows.
-                self.assertEqual(
-                    len(var_names), len(ref_state) + len(ref_aux)
-                )
+                self.assertEqual(len(var_names), len(ref_state) + len(ref_aux))
 
     def test_materialize_noise_draw_and_injection(self):
         from tvboptim.experimental.network_dynamics.solve import _materialize_noise
@@ -691,9 +682,7 @@ class TestSolveHelpers(unittest.TestCase):
         # Default provider: single fused draw, reproducible from the key.
         drawn = _materialize_noise(key, None, shape)
         self.assertEqual(drawn.shape, shape)
-        self.assertTrue(
-            jnp.array_equal(drawn, jax.random.normal(key, shape))
-        )
+        self.assertTrue(jnp.array_equal(drawn, jax.random.normal(key, shape)))
         # Injection: passed through verbatim, ignoring the key.
         injected = jnp.ones(shape)
         out = _materialize_noise(key, injected, shape)
@@ -713,9 +702,7 @@ class TestSolveHelpers(unittest.TestCase):
         self.assertTrue(jnp.array_equal(out, next_state[jnp.array([0, 2])]))
 
         # States followed by selected auxiliaries.
-        out = _assemble_output(
-            next_state, aux, jnp.array([1]), jnp.array([0]), True
-        )
+        out = _assemble_output(next_state, aux, jnp.array([1]), jnp.array([0]), True)
         expected = jnp.concatenate(
             [next_state[jnp.array([1])], aux[jnp.array([0])]], axis=0
         )
@@ -789,9 +776,7 @@ class TestTruncatedScan(unittest.TestCase):
         for window in (5, 7, self.N + 3):
             with self.subTest(window=window):
                 self.assertTrue(
-                    jnp.array_equal(
-                        self._full(0.5), self._trunc(0.5, window, None)
-                    )
+                    jnp.array_equal(self._full(0.5), self._trunc(0.5, window, None))
                 )
 
     def test_gradient_matches_reference(self):
@@ -859,9 +844,7 @@ class TestTruncatedScan(unittest.TestCase):
                 solve_trunc, _ = prepare(
                     network, Heun(grad_horizon=window), t0=0.0, t1=20.0, dt=0.1
                 )
-                self.assertTrue(
-                    jnp.array_equal(r_full.ys, solve_trunc(cfg).ys)
-                )
+                self.assertTrue(jnp.array_equal(r_full.ys, solve_trunc(cfg).ys))
 
     def test_default_and_bounded_delegation(self):
         """Default constructor leaves truncation off; BoundedSolver forwards the
@@ -1029,7 +1012,11 @@ class TestReduce(unittest.TestCase):
 
         # Differentiable wrt G on a blocked streaming run.
         solve_fc, cfg = prepare(
-            net, Heun(block_size=50), t0=0.0, t1=30.0, dt=0.1,
+            net,
+            Heun(block_size=50),
+            t0=0.0,
+            t1=30.0,
+            dt=0.1,
             reduce=welford_cov(s_var=0),
         )
 
@@ -1042,14 +1029,22 @@ class TestReduce(unittest.TestCase):
 
         # Forward FC invariant to a truncation window (multiple of block_size).
         fc_base = solve(
-            net, Heun(block_size=50), t0=0.0, t1=30.0, dt=0.1,
+            net,
+            Heun(block_size=50),
+            t0=0.0,
+            t1=30.0,
+            dt=0.1,
             reduce=welford_cov(s_var=0),
         )
         for window in (100, 150, 300):  # multiples of block_size=50
             with self.subTest(window=window):
                 fc_w = solve(
-                    net, Heun(block_size=50, grad_horizon=window),
-                    t0=0.0, t1=30.0, dt=0.1, reduce=welford_cov(s_var=0),
+                    net,
+                    Heun(block_size=50, grad_horizon=window),
+                    t0=0.0,
+                    t1=30.0,
+                    dt=0.1,
+                    reduce=welford_cov(s_var=0),
                 )
                 self.assertTrue(jnp.array_equal(fc_base, fc_w))
 
@@ -1068,7 +1063,9 @@ class TestReduce(unittest.TestCase):
         net = Network(
             dynamics=ReducedWongWang(),
             coupling={"instant": LinearCoupling(incoming_states="S", G=0.1)},
-            graph=DenseGraph(jax.random.uniform(jax.random.PRNGKey(1), (n_nodes, n_nodes))),
+            graph=DenseGraph(
+                jax.random.uniform(jax.random.PRNGKey(1), (n_nodes, n_nodes))
+            ),
         )
         with self.assertRaises(ValueError):
             prepare(
@@ -1180,8 +1177,11 @@ class TestStreamingNoise(unittest.TestCase):
         net = self._build()
         with self.assertWarns(UserWarning):
             solve(
-                net, Heun(block_size=50, grad_horizon=120),
-                t0=0.0, t1=self.T1, dt=self.DT,
+                net,
+                Heun(block_size=50, grad_horizon=120),
+                t0=0.0,
+                t1=self.T1,
+                dt=self.DT,
             )
 
     def test_statistical_sanity(self):

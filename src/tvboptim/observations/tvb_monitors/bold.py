@@ -19,8 +19,10 @@ def _bold_variable_names(sol, voi=None):
     monitor does its own voi selection instead of delegating to a downsampler).
     Returns None if the source has no variable_names.
     """
-    names = _slice_variable_names(sol, voi) if voi is not None else getattr(
-        sol, "variable_names", None
+    names = (
+        _slice_variable_names(sol, voi)
+        if voi is not None
+        else getattr(sol, "variable_names", None)
     )
     if names is None:
         return None
@@ -142,6 +144,7 @@ class FirstOrderVolterraHRFKernel(HRFKernel):
             / omega
         )
 
+
 class GammaHRFKernel(HRFKernel):
     """
     Gamma HRF kernel, ported from TVBSim's Gamma class.
@@ -166,7 +169,7 @@ class GammaHRFKernel(HRFKernel):
     J Neurosci 16: 4207-4221.
     """
 
-    tau: float = 1.08       # seconds
+    tau: float = 1.08  # seconds
     n: float = 3.0
     a: float = 0.1
     duration: float = 20_000.0  # ms
@@ -177,18 +180,18 @@ class GammaHRFKernel(HRFKernel):
 
         factorial = math.factorial(int(self.n) - 1)
 
-        kernel = (
-            (t_s / self.tau) ** (self.n - 1)
-            * jnp.exp(-(t_s / self.tau))
-        ) / (self.tau * factorial)
+        kernel = ((t_s / self.tau) ** (self.n - 1) * jnp.exp(-(t_s / self.tau))) / (
+            self.tau * factorial
+        )
 
         # Replicate TVBSim's normalization and amplitude scaling from evaluate()
         peak = jnp.max(kernel)
-        peak = jnp.where(peak > 0, peak, 1.0) # Avoid division by zero
+        peak = jnp.where(peak > 0, peak, 1.0)  # Avoid division by zero
         kernel = kernel / peak
         kernel = kernel * self.a
 
         return kernel
+
 
 class DoubleExponentialHRFKernel(HRFKernel):
     """
@@ -216,36 +219,43 @@ class DoubleExponentialHRFKernel(HRFKernel):
 
     Reference
     ---------
-    	Alex Polonsky, Randolph Blake, Jochen Braun and David J. Heeger
+        Alex Polonsky, Randolph Blake, Jochen Braun and David J. Heeger
         (2000). Neuronal activity in human primary visual cortex correlates with
         perception during binocular rivalry. Nature Neuroscience 3: 1153-1159
 
     """
 
-    tau_1: float = 7.22      
+    tau_1: float = 7.22
     tau_2: float = 7.4
     f_1: float = 0.03
-    f_2: float = 0.12       
+    f_2: float = 0.12
     amp_1: float = 0.1
     amp_2: float = 0.1
-    a: float = 0.1 
+    a: float = 0.1
     duration: float = 40_000.0  # ms
 
     def __call__(self, t: jax.Array, downsample_dt: float) -> jax.Array:
         # Convert ms to seconds
         t_s = t / 1000.0
-        
-        kernel = ((self.amp_1 * jnp.exp(-t_s/self.tau_1) * jnp.sin(2 * math.pi * self.f_1 * t_s)) 
-                  - (self.amp_2 * jnp.exp(-t_s/self.tau_2) * jnp.sin(2 * math.pi * self.f_2 * t_s))
-                  )
+
+        kernel = (
+            self.amp_1
+            * jnp.exp(-t_s / self.tau_1)
+            * jnp.sin(2 * math.pi * self.f_1 * t_s)
+        ) - (
+            self.amp_2
+            * jnp.exp(-t_s / self.tau_2)
+            * jnp.sin(2 * math.pi * self.f_2 * t_s)
+        )
 
         # Replicate TVBSim's normalization + amplitude scaling from evaluate()
         peak = jnp.max(kernel)
-        peak = jnp.where(peak > 0, peak, 1.0) # Avoid division by zero
+        peak = jnp.where(peak > 0, peak, 1.0)  # Avoid division by zero
         kernel = kernel / peak
         kernel = kernel * self.a
 
         return kernel
+
 
 class MixtureOfGammasHRFKernel(HRFKernel):
     """
@@ -285,13 +295,12 @@ class MixtureOfGammasHRFKernel(HRFKernel):
         gamma_a_1 = jsp.special.gamma(self.a_1)
         gamma_a_2 = jsp.special.gamma(self.a_2)
 
-        return (
-            (self.l * t_s) ** (self.a_1 - 1) * jnp.exp(-self.l * t_s) / gamma_a_1
-            - self.c
-            * (self.l * t_s) ** (self.a_2 - 1)
-            * jnp.exp(-self.l * t_s)
-            / gamma_a_2
-        )
+        return (self.l * t_s) ** (self.a_1 - 1) * jnp.exp(
+            -self.l * t_s
+        ) / gamma_a_1 - self.c * (self.l * t_s) ** (self.a_2 - 1) * jnp.exp(
+            -self.l * t_s
+        ) / gamma_a_2
+
 
 def LotkaVolterraHRFKernel(*args, **kwargs):
     """Deprecated: use FirstOrderVolterraHRFKernel.

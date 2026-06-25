@@ -104,7 +104,9 @@ def _block_scan(op, state0, scan_inputs, n_steps, block_size):
     # rather than held live across the whole rollout; only block-boundary
     # carries are retained. Wrapping the tail too keeps peak memory for
     # non-divisor block sizes from spiking above the no-checkpoint baseline.
-    block = jax.checkpoint(lambda state, block_inputs: jax.lax.scan(op, state, block_inputs))
+    block = jax.checkpoint(
+        lambda state, block_inputs: jax.lax.scan(op, state, block_inputs)
+    )
     return _blocked_scan(
         lambda state, block_inputs, block_len: block(state, block_inputs),
         state0,
@@ -141,9 +143,7 @@ def _truncated_scan(op, state0, scan_inputs, n_steps, window_size, block_size):
         state = jax.lax.stop_gradient(state)
         if block_size is None:
             return jax.lax.scan(op, state, window_inputs)
-        return _block_scan(
-            op, state, window_inputs, window_len, block_size
-        )
+        return _block_scan(op, state, window_inputs, window_len, block_size)
 
     return _blocked_scan(run_window, state0, scan_inputs, n_steps, window_size)
 
@@ -224,8 +224,9 @@ def _assemble_output(
     return selected_states
 
 
-def _composed_scan(block_step, carry0, scan_inputs, n_steps, block_size,
-                   window_size=None):
+def _composed_scan(
+    block_step, carry0, scan_inputs, n_steps, block_size, window_size=None
+):
     """Run a block-wise scan with a pluggable per-block ``block_step``.
 
     ``block_step(carry, block_inputs) -> (carry, outs)`` owns the per-block work
@@ -410,8 +411,12 @@ def run_scan(op, state0, scan_inputs, n_steps, solver, fold=None, noise_gen=None
         # streaming stack: unwrap the (state, counter) carry to the bare state.
         block_step = _stream_block(op, noise_gen)
         (state, _counter), outs = _composed_scan(
-            block_step, (state0, jnp.array(0)), scan_inputs, n_steps,
-            block_size, window,
+            block_step,
+            (state0, jnp.array(0)),
+            scan_inputs,
+            n_steps,
+            block_size,
+            window,
         )
         return state, outs
 
@@ -1723,7 +1728,12 @@ def prepare(
         # noise source, and the reduce fold.
         fold = _reduce_fold(reduce, variable_names, n_nodes, n_steps)
         final_carry, res = run_scan(
-            op, config.initial_state, scan_inputs, n_steps, solver, fold=fold,
+            op,
+            config.initial_state,
+            scan_inputs,
+            n_steps,
+            solver,
+            fold=fold,
             noise_gen=noise_gen,
         )
         if reduce is not None:

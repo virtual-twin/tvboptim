@@ -71,8 +71,8 @@ def welford_cov(s_var=0):
         delta = mean_b - mean
         new_count = count + nb
         new_mean = mean + delta * (nb / new_count)
-        new_comoment = comoment + comoment_b + jnp.outer(delta, delta) * (
-            count * nb / new_count
+        new_comoment = (
+            comoment + comoment_b + jnp.outer(delta, delta) * (count * nb / new_count)
         )
         return (new_count, new_mean, new_comoment)
 

@@ -21,6 +21,9 @@ __all__ = [
     "BalloonWindkesselBold",
     "FirstOrderVolterraHRFKernel",
     "HRFKernel",
+    "DoubleExponentialHRFKernel",
+    "GammaHRFKernel",
+    "MixtureOfGammasHRFKernel",
     # Deprecated aliases
     "Bold",
     "LotkaVolterraHRFKernel",
