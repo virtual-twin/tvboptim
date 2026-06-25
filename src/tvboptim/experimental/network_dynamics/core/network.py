@@ -4,6 +4,7 @@ This module implements a single Network class that handles all equation types
 (ODE/DDE/SDE/SDDE) through composition rather than inheritance.
 """
 
+import math
 import warnings
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
@@ -555,8 +556,8 @@ class Network:
                 where n_steps = ceil(max_delay / dt)
         """
         n_steps = max(
-            1, int(jnp.ceil(self.max_delay / dt))
-        )  # at least 1 step (case: speed = inf)
+            1, math.ceil(float(self.max_delay) / dt)
+        )  # at least 1 step (case: speed = inf); float() keeps it static under jit
         return jnp.broadcast_to(
             self.initial_state[None, :, :],
             (n_steps, self.initial_state.shape[0], self.initial_state.shape[1]),

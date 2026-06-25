@@ -807,7 +807,7 @@ class DelayedCoupling(PrePostCoupling):
 
         # Convert delay times to discrete timesteps
         delays_dense = _ensure_dense(graph.delays)
-        max_delay_steps = int(jnp.rint(graph.max_delay / dt))
+        max_delay_steps = int(round(float(graph.max_delay) / dt))
         delay_steps = jnp.rint(delays_dense / dt).astype(jnp.int32)
         base_history_length = max_delay_steps + 1
 

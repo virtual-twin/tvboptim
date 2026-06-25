@@ -447,6 +447,24 @@ class DenseDelayGraph(DenseGraph):
         """Maximum delay in the network."""
         return self._max_delay
 
+    def with_delays(self, delays: jnp.ndarray) -> "DenseDelayGraph":
+        """Return a copy with ``delays`` replaced, reusing the static structure
+        (``max_delay``, labels, symmetry) without re-running ``__init__``/``verify``.
+
+        This is the jit/grad-safe way to vary the delays — e.g.
+        ``graph.with_delays(lengths / speed)`` inside an optimised loss — so the
+        history-buffer length stays fixed by ``max_delay`` while the delays may
+        be JAX tracers. Build the graph once (concrete) to set ``max_delay``,
+        then call this to update the delays.
+        """
+        delays = jnp.asarray(delays)
+        if delays.shape != self._delays.shape:
+            raise ValueError(
+                f"with_delays expects delays of shape {self._delays.shape}, got {delays.shape}"
+            )
+        children, aux_data = self.tree_flatten()
+        return type(self).tree_unflatten(aux_data, (children[0], delays))
+
     def verify(self, verbose: bool = True) -> bool:
         """Verify delay graph structure.
 
