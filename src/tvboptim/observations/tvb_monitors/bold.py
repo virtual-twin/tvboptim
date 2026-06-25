@@ -19,8 +19,10 @@ def _bold_variable_names(sol, voi=None):
     monitor does its own voi selection instead of delegating to a downsampler).
     Returns None if the source has no variable_names.
     """
-    names = _slice_variable_names(sol, voi) if voi is not None else getattr(
-        sol, "variable_names", None
+    names = (
+        _slice_variable_names(sol, voi)
+        if voi is not None
+        else getattr(sol, "variable_names", None)
     )
     if names is None:
         return None
@@ -142,6 +144,7 @@ class FirstOrderVolterraHRFKernel(HRFKernel):
             / omega
         )
 
+
 class GammaHRFKernel(HRFKernel):
     """
     Gamma HRF kernel, ported from TVBSim's Gamma class.
@@ -166,7 +169,7 @@ class GammaHRFKernel(HRFKernel):
     J Neurosci 16: 4207-4221.
     """
 
-    tau: float = 1.08       # seconds
+    tau: float = 1.08  # seconds
     n: float = 3.0
     a: float = 0.1
     duration: float = 20_000.0  # ms
@@ -177,18 +180,18 @@ class GammaHRFKernel(HRFKernel):
 
         factorial = math.factorial(int(self.n) - 1)
 
-        kernel = (
-            (t_s / self.tau) ** (self.n - 1)
-            * jnp.exp(-(t_s / self.tau))
-        ) / (self.tau * factorial)
+        kernel = ((t_s / self.tau) ** (self.n - 1) * jnp.exp(-(t_s / self.tau))) / (
+            self.tau * factorial
+        )
 
         # Replicate TVBSim's normalization and amplitude scaling from evaluate()
         peak = jnp.max(kernel)
-        peak = jnp.where(peak > 0, peak, 1.0) # Avoid division by zero
+        peak = jnp.where(peak > 0, peak, 1.0)  # Avoid division by zero
         kernel = kernel / peak
         kernel = kernel * self.a
 
         return kernel
+
 
 class DoubleExponentialHRFKernel(HRFKernel):
     """
@@ -216,36 +219,43 @@ class DoubleExponentialHRFKernel(HRFKernel):
 
     Reference
     ---------
-    	Alex Polonsky, Randolph Blake, Jochen Braun and David J. Heeger
+        Alex Polonsky, Randolph Blake, Jochen Braun and David J. Heeger
         (2000). Neuronal activity in human primary visual cortex correlates with
         perception during binocular rivalry. Nature Neuroscience 3: 1153-1159
 
     """
 
-    tau_1: float = 7.22      
+    tau_1: float = 7.22
     tau_2: float = 7.4
     f_1: float = 0.03
-    f_2: float = 0.12       
+    f_2: float = 0.12
     amp_1: float = 0.1
     amp_2: float = 0.1
-    a: float = 0.1 
+    a: float = 0.1
     duration: float = 40_000.0  # ms
 
     def __call__(self, t: jax.Array, downsample_dt: float) -> jax.Array:
         # Convert ms to seconds
         t_s = t / 1000.0
-        
-        kernel = ((self.amp_1 * jnp.exp(-t_s/self.tau_1) * jnp.sin(2 * math.pi * self.f_1 * t_s)) 
-                  - (self.amp_2 * jnp.exp(-t_s/self.tau_2) * jnp.sin(2 * math.pi * self.f_2 * t_s))
-                  )
+
+        kernel = (
+            self.amp_1
+            * jnp.exp(-t_s / self.tau_1)
+            * jnp.sin(2 * math.pi * self.f_1 * t_s)
+        ) - (
+            self.amp_2
+            * jnp.exp(-t_s / self.tau_2)
+            * jnp.sin(2 * math.pi * self.f_2 * t_s)
+        )
 
         # Replicate TVBSim's normalization + amplitude scaling from evaluate()
         peak = jnp.max(kernel)
-        peak = jnp.where(peak > 0, peak, 1.0) # Avoid division by zero
+        peak = jnp.where(peak > 0, peak, 1.0)  # Avoid division by zero
         kernel = kernel / peak
         kernel = kernel * self.a
 
         return kernel
+
 
 class MixtureOfGammasHRFKernel(HRFKernel):
     """
@@ -285,13 +295,12 @@ class MixtureOfGammasHRFKernel(HRFKernel):
         gamma_a_1 = jsp.special.gamma(self.a_1)
         gamma_a_2 = jsp.special.gamma(self.a_2)
 
-        return (
-            (self.l * t_s) ** (self.a_1 - 1) * jnp.exp(-self.l * t_s) / gamma_a_1
-            - self.c
-            * (self.l * t_s) ** (self.a_2 - 1)
-            * jnp.exp(-self.l * t_s)
-            / gamma_a_2
-        )
+        return (self.l * t_s) ** (self.a_1 - 1) * jnp.exp(
+            -self.l * t_s
+        ) / gamma_a_1 - self.c * (self.l * t_s) ** (self.a_2 - 1) * jnp.exp(
+            -self.l * t_s
+        ) / gamma_a_2
+
 
 def LotkaVolterraHRFKernel(*args, **kwargs):
     """Deprecated: use FirstOrderVolterraHRFKernel.
@@ -496,6 +505,101 @@ class HRFBold(AbstractMonitor):
             dt=self.period,
             variable_names=_bold_variable_names(downsampled),
         )
+
+
+def streaming_hrf_bold(monitor, dt):
+    """Block-level streaming reducer form of :class:`HRFBold`.
+
+    Returns an ``(init, update, finalize)`` triple for the ``reduce=`` kwarg of
+    ``prepare`` / ``solve``, computing the same BOLD signal as
+    ``monitor(full_solution)`` without ever stacking the full neural trajectory.
+    It reuses the monitor's kernel, periods and BOLD scaling, and carries a
+    downsampled-history ring buffer plus a preallocated BOLD output buffer; each
+    block subsamples, convolves ``[ring; block_downsampled]`` with the HRF
+    (``valid`` mode, same ``fftconvolve`` as the post-hoc monitor), and writes
+    the BOLD samples at TR boundaries into the buffer.
+
+    Requirements (so blocks align with the decimation and BOLD grids):
+
+    - the monitor must use a ``SubSampling`` downsample (uniform integer stride);
+      ``TemporalAverage``'s float-rounded windows are not streamable.
+    - ``block_size`` and ``n_steps`` must be multiples of the BOLD period in raw
+      steps (``period / dt``); the per-block update asserts this.
+
+    Warm start / chaining: ``init`` seeds the ring from ``monitor.history`` when
+    set (the same warm-start the monitor accepts); ``finalize`` returns the BOLD
+    buffer ``[n_bold, n_voi, n_nodes]``.
+    """
+    ds_period = monitor.downsample_period
+    period = monitor.period
+    voi = monitor.voi
+    k_1, V_0 = monitor.k_1, monitor.V_0
+    conv_mode = monitor.convolution_mode
+    kernel = monitor.kernel
+    warm_history = monitor.history
+
+    ds_steps = int(round(ds_period / dt))
+    final_idx_step = int(round(period / ds_period))
+    period_in_steps = ds_steps * final_idx_step
+    kernel_samples = int(math.ceil(kernel.duration / ds_period))
+    hrf = kernel(jnp.linspace(0.0, kernel.duration, kernel_samples), ds_period)
+
+    def _conv_valid(signal):
+        # signal [time, n_voi, n_nodes] -> valid HRF convolution along time,
+        # vectorized over nodes and variables exactly as HRFBold.__call__.
+        def convolve_single(x):
+            return jsp.signal.fftconvolve(x, hrf, mode=conv_mode)
+
+        return jax.vmap(
+            lambda y: jax.vmap(convolve_single, in_axes=1, out_axes=1)(y),
+            in_axes=1,
+            out_axes=1,
+        )(signal)
+
+    def init(template, n_steps):
+        t_sel = template[voi, :]  # [n_voi, n_nodes]
+        n_voi, n_nodes = t_sel.shape
+        # SubSampling emits these indices; n_bold matches HRFBold's bold_indices.
+        n_ds = len(range(ds_steps - 1, n_steps, ds_steps))
+        n_bold = len(range(final_idx_step, n_ds + 1, final_idx_step))
+        ring0 = (
+            jnp.zeros((kernel_samples, n_voi, n_nodes))
+            if warm_history is None
+            else jnp.asarray(warm_history)
+        )
+        bold0 = jnp.zeros((n_bold, n_voi, n_nodes))
+        return (ring0, bold0, jnp.array(0))
+
+    def update(acc, block):
+        ring, bold_buffer, ds_count = acc
+        y = block[:, voi, :]  # [block_len, n_voi, n_nodes]
+        block_len = y.shape[0]
+        assert block_len % period_in_steps == 0, (
+            "streaming_hrf_bold requires each block length to be a multiple of "
+            f"the BOLD period in steps ({period_in_steps} = period/dt); got "
+            f"{block_len}. Set block_size and n_steps to multiples of period/dt."
+        )
+        block_ds = y[ds_steps - 1 :: ds_steps]  # SubSampling, [m_b, n_voi, n_nodes]
+        m_b = block_ds.shape[0]
+        signal = jnp.concatenate([ring, block_ds], axis=0)
+        conv = _conv_valid(signal)  # [m_b + 1, n_voi, n_nodes] (valid)
+        conv = k_1 * V_0 * (conv - 1.0)
+        # BOLD samples at TR boundaries within this block (block-aligned so the
+        # output slots are contiguous). conv[i] == B_full[ds_count + i].
+        idx = jnp.arange(final_idx_step, m_b + 1, final_idx_step)
+        bold_samples = conv[idx]
+        start = ds_count // final_idx_step
+        bold_buffer = jax.lax.dynamic_update_slice(
+            bold_buffer, bold_samples, (start,) + (0,) * (bold_buffer.ndim - 1)
+        )
+        ring = signal[-kernel_samples:]
+        return (ring, bold_buffer, ds_count + m_b)
+
+    def finalize(acc):
+        _ring, bold_buffer, _ds_count = acc
+        return bold_buffer
+
+    return (init, update, finalize)
 
 
 class BalloonWindkesselBold(AbstractMonitor):

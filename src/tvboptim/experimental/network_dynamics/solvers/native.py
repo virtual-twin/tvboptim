@@ -26,8 +26,9 @@ class NativeSolver(AbstractSolver):
 
     def __init__(
         self,
-        checkpoint_every: int | None = None,
+        block_size: int | None = None,
         recompute_coupling_per_stage: bool = False,
+        grad_horizon: int | None = None,
     ):
         """
         Args:
@@ -52,35 +53,79 @@ class NativeSolver(AbstractSolver):
 
                 External inputs are always evaluated per stage regardless
                 of this flag.
-            checkpoint_every: If None (default), no gradient checkpointing —
-                the integration scan runs as a single ``jax.lax.scan`` and
-                every step's carry is saved for the backward pass. If an int
-                ``K``, the scan is split into an outer scan over blocks of
-                ``K`` steps wrapped in ``jax.checkpoint``, with an inner
-                scan running the steps inside each block. The backward pass
-                then only retains block-boundary carries and recomputes
-                inner activations on demand. Trades roughly 1.3–1.7x
-                gradient wall time (one extra forward recompute, added to
-                an already backward-dominated cost) for
-                ``O(n_steps/K + K)`` backward memory instead of
-                ``O(n_steps)``. Peak memory is U-shaped in ``K``: small
-                ``K`` inflates the outer block-boundary tape
-                (``n_steps/K`` term), large ``K`` inflates the per-block
-                inner tape (``K`` term). The minimum sits near
-                ``K ≈ sqrt(n_steps)``. Has no effect on the forward-only
-                path.
+            block_size: The granularity of the nested block scan, and the
+                one block unit for the streaming features. If None (default),
+                the integration runs as a single ``jax.lax.scan`` and every
+                step's carry is saved for the backward pass (the monolithic
+                path; no blocking). If an int ``K``, the scan is split into an
+                outer scan over blocks of ``K`` steps each wrapped in
+                ``jax.checkpoint``, with an inner scan running the steps inside
+                a block. The backward pass then only retains block-boundary
+                carries and recomputes inner activations on demand. Trades
+                roughly 1.3-1.7x gradient wall time (one extra forward
+                recompute, added to an already backward-dominated cost) for
+                ``O(n_steps/K + K)`` backward memory instead of ``O(n_steps)``.
+                Peak memory is U-shaped in ``K``: small ``K`` inflates the
+                outer block-boundary tape (``n_steps/K`` term), large ``K``
+                inflates the per-block inner tape (``K`` term). The minimum
+                sits near ``K = sqrt(n_steps)``. Has no effect on the
+                forward-only path.
+
+                This same block is the unit that carries per-block streaming
+                noise and the online ``reduce`` accumulator when those per-call
+                features are used (so blocking *is* checkpointing; the
+                checkpoint grain is ``block_size``). ``block_size`` was formerly
+                named ``checkpoint_every``; once streaming noise is active a
+                blocked run reseeds the noise relative to the monolithic path
+                (see the Phase 4 plan).
 
                 The memory model assumes a per-step carry whose size does
                 not grow with ``n_steps``. This holds for the ``roll`` and
                 ``circular`` delayed-coupling buffer strategies (history
                 buffer size = ``max_delay_steps + 1``), but **not** for
                 ``preallocated`` (history buffer grows linearly with
-                ``n_steps``). Checkpointing still works correctly with
+                ``n_steps``). Blocking still works correctly with
                 ``preallocated``, but the practical memory win is much
                 smaller because the carry itself dominates.
+            grad_horizon: If None (default), the gradient is exact over the
+                whole rollout. If an int ``W``, the integration runs as an
+                outer scan over windows of ``W`` steps with the carry
+                gradient severed (``jax.lax.stop_gradient``) at each window
+                boundary: truncated backpropagation through time. Credit is
+                assigned only within a window, so the backward ``T`` in the
+                ``exp(T·Lambda)`` sensitivity growth becomes ``W·dt`` instead
+                of the full horizon. The forward rollout is unchanged and
+                bit-exact; only the backward pass differs.
+
+                ``grad_horizon`` and ``block_size`` are independent and
+                nest. ``block_size`` is a *memory* granularity (how big a
+                block to rematerialize on the backward pass, set by available
+                RAM); ``grad_horizon`` is the *gradient horizon* (how far back
+                credit is assigned, set by the slowest timescale of interest).
+                The two block sizes are not the same number. When both are set,
+                ``block_size`` tiles ``grad_horizon`` (each window is
+                rematerialized as ``W / block_size`` blocks); the clean case is
+                ``W % block_size == 0`` and ``n_steps % W == 0``, with
+                remainders handled by a tail scan.
+
+                Severing the carry bounds the gradient horizon but does **not**
+                by itself bound activation memory: the full output is still
+                stacked and the loss taped over the whole rollout. For a long
+                rollout that needs both a bounded horizon and bounded memory,
+                set both knobs (``grad_horizon`` for the horizon,
+                ``block_size`` for memory within it). ``grad_horizon`` set
+                with ``block_size=None`` is a gradient-stability fix only.
+
+                TBPTT biases toward fast timescales: any credit assignment
+                longer than ``W·dt`` is zeroed, so too short a window can null
+                the gradient of genuinely slow parameters. The window is a real
+                hyperparameter. For SDEs it is well-defined because noise is
+                fixed per call (common random numbers), so each window is a
+                deterministic map given its noise.
         """
-        self.checkpoint_every = checkpoint_every
+        self.block_size = block_size
         self.recompute_coupling_per_stage = recompute_coupling_per_stage
+        self.grad_horizon = grad_horizon
 
     def step(
         self,
@@ -325,9 +370,10 @@ class BoundedSolver(NativeSolver):
         low: float | jnp.ndarray = -jnp.inf,
         high: float | jnp.ndarray = jnp.inf,
     ):
-        # Deliberately skip NativeSolver.__init__ — checkpoint_every is
-        # delegated to base_solver via the property below so that wrapping
-        # a checkpointed solver does not silently lose the setting.
+        # Deliberately skip NativeSolver.__init__: block_size,
+        # recompute_coupling_per_stage and grad_horizon are delegated to
+        # base_solver via the properties below so that wrapping a solver does
+        # not silently lose those settings.
         self.base_solver = base_solver
         low = jnp.asarray(low)
         high = jnp.asarray(high)
@@ -335,12 +381,16 @@ class BoundedSolver(NativeSolver):
         self.high = high[:, None] if high.ndim == 1 else high
 
     @property
-    def checkpoint_every(self):
-        return self.base_solver.checkpoint_every
+    def block_size(self):
+        return self.base_solver.block_size
 
     @property
     def recompute_coupling_per_stage(self):
         return self.base_solver.recompute_coupling_per_stage
+
+    @property
+    def grad_horizon(self):
+        return self.base_solver.grad_horizon
 
     def step(
         self,

@@ -5,6 +5,7 @@ support. The prepare() function sets up the integration with all coupling state
 management, and returns a pure function for execution.
 """
 
+import warnings
 from typing import Callable, Tuple
 
 import diffrax
@@ -32,28 +33,23 @@ def _snapshot(tree):
     return jax.tree.map(lambda x: x, tree)
 
 
-def _checkpointed_scan(op, state0, scan_inputs, n_steps, block_size):
-    """Run ``op`` over ``scan_inputs`` as an outer-checkpointed nested scan.
+def _blocked_scan(runner, state0, scan_inputs, n_steps, block_size):
+    """Split the leading axis into ``(n_blocks, block_size)`` plus a tail, scan
+    ``runner`` over the main blocks, run ``runner`` once on the tail, and stitch
+    the outputs back to leading shape ``(n_steps, ...)``.
 
-    The leading axis of every leaf in ``scan_inputs`` is split into
-    ``(n_blocks, block_size)``; an outer ``jax.lax.scan`` runs over blocks
-    with each block wrapped in ``jax.checkpoint``, and an inner
-    ``jax.lax.scan`` runs the ``block_size`` steps inside a block. When
-    ``n_steps`` is not a multiple of ``block_size`` the remainder runs through
-    a plain (uncheckpointed) tail scan; the tail length is fixed at trace
-    time and is at most ``block_size - 1``.
+    ``runner(state, block_inputs, block_len) -> (state, outs)`` is the only
+    per-block behaviour that varies between callers (checkpointed inner scan,
+    truncated window, per-block streaming/reduce); this helper owns the
+    reshape/tail/stitch skeleton they all share. ``block_len`` is a static
+    Python int (``block_size`` for the main blocks, the remainder for the tail).
 
-    Output of the scanned computation is stitched back to leading shape
-    ``(n_steps, ...)`` so the result is indistinguishable from a single
-    ``jax.lax.scan(op, state0, scan_inputs)`` call to downstream code.
+    When ``runner`` emits ``None`` outputs (the reduce/fold case) the ``None``
+    threads through ``jax.tree.map`` and the concatenate untouched, so the
+    accumulator-in-carry path needs no special handling here.
     """
     n_blocks = n_steps // block_size
     remainder = n_steps - n_blocks * block_size
-
-    def inner(state, block_inputs):
-        return jax.lax.scan(op, state, block_inputs)
-
-    ckpt_inner = jax.checkpoint(inner)
 
     if n_blocks > 0:
         main = jax.tree.map(
@@ -62,7 +58,9 @@ def _checkpointed_scan(op, state0, scan_inputs, n_steps, block_size):
             ),
             scan_inputs,
         )
-        state_mid, outs_main = jax.lax.scan(ckpt_inner, state0, main)
+        state_mid, outs_main = jax.lax.scan(
+            lambda s, b: runner(s, b, block_size), state0, main
+        )
         outs_main_flat = jax.tree.map(
             lambda x: x.reshape((n_blocks * block_size,) + x.shape[2:]),
             outs_main,
@@ -75,14 +73,7 @@ def _checkpointed_scan(op, state0, scan_inputs, n_steps, block_size):
         return state_mid, outs_main_flat
 
     tail = jax.tree.map(lambda x: x[n_blocks * block_size :], scan_inputs)
-    # Wrap the tail in jax.checkpoint too so its activation tape is not
-    # held live during the outer backward through the main blocks. Without
-    # this, peak memory for non-divisor K becomes
-    # ``K · c_inner + remainder · c_unchecked`` and large remainders can
-    # spike above the no-checkpoint baseline.
-    state_final, outs_tail = jax.checkpoint(
-        lambda s, t: jax.lax.scan(op, s, t)
-    )(state_mid, tail)
+    state_final, outs_tail = runner(state_mid, tail, remainder)
 
     if outs_main_flat is None:
         return state_final, outs_tail
@@ -91,6 +82,350 @@ def _checkpointed_scan(op, state0, scan_inputs, n_steps, block_size):
         lambda a, b: jnp.concatenate([a, b], axis=0), outs_main_flat, outs_tail
     )
     return state_final, outs
+
+
+def _block_scan(op, state0, scan_inputs, n_steps, block_size):
+    """Run ``op`` over ``scan_inputs`` as an outer-checkpointed nested scan.
+
+    The leading axis of every leaf in ``scan_inputs`` is split into
+    ``(n_blocks, block_size)``; an outer ``jax.lax.scan`` runs over blocks
+    with each block wrapped in ``jax.checkpoint``, and an inner
+    ``jax.lax.scan`` runs the ``block_size`` steps inside a block. When
+    ``n_steps`` is not a multiple of ``block_size`` the remainder runs through
+    a checkpointed tail scan; the tail length is fixed at trace time and is at
+    most ``block_size - 1``.
+
+    Output of the scanned computation is stitched back to leading shape
+    ``(n_steps, ...)`` so the result is indistinguishable from a single
+    ``jax.lax.scan(op, state0, scan_inputs)`` call to downstream code.
+    """
+    # One checkpointed inner scan serves both the main blocks and the tail, so
+    # every block's activation tape is rematerialized on the backward pass
+    # rather than held live across the whole rollout; only block-boundary
+    # carries are retained. Wrapping the tail too keeps peak memory for
+    # non-divisor block sizes from spiking above the no-checkpoint baseline.
+    block = jax.checkpoint(
+        lambda state, block_inputs: jax.lax.scan(op, state, block_inputs)
+    )
+    return _blocked_scan(
+        lambda state, block_inputs, block_len: block(state, block_inputs),
+        state0,
+        scan_inputs,
+        n_steps,
+        block_size,
+    )
+
+
+def _truncated_scan(op, state0, scan_inputs, n_steps, window_size, block_size):
+    """Run ``op`` over ``scan_inputs`` as a windowed scan with truncated BPTT.
+
+    The leading axis of every leaf in ``scan_inputs`` is split into
+    ``(n_windows, window_size)``; an outer ``jax.lax.scan`` runs over windows
+    and the carry gradient is severed with ``jax.lax.stop_gradient`` at the
+    entry to each window, so credit is assigned only within a window
+    (truncated backpropagation through time). Within a window the steps run as
+    a plain inner ``jax.lax.scan`` when ``block_size`` is None, or as a
+    ``_block_scan`` over ``block_size`` blocks when it is set (the memory
+    granularity nests inside the gradient window). When ``n_steps`` is not a
+    multiple of ``window_size`` the remainder runs as a final shorter window
+    with the same carry severing and inner runner.
+
+    The forward computation is identical to a single ``jax.lax.scan(op, ...)``
+    (``stop_gradient`` is the identity on the forward); only the backward pass
+    is truncated. Output is stitched back to leading shape ``(n_steps, ...)`` so
+    the result is indistinguishable from the untruncated scan to downstream code.
+    """
+
+    def run_window(state, window_inputs, window_len):
+        # Sever cross-window credit: the window sees a detached start state, so
+        # gradient flows within the window (and to op's closed-over parameters)
+        # but not back to prior windows. Forward value is unchanged.
+        state = jax.lax.stop_gradient(state)
+        if block_size is None:
+            return jax.lax.scan(op, state, window_inputs)
+        return _block_scan(op, state, window_inputs, window_len, block_size)
+
+    return _blocked_scan(run_window, state0, scan_inputs, n_steps, window_size)
+
+
+def _split_voi(dynamics):
+    """Split variables-of-interest into state and auxiliary index arrays.
+
+    Returns ``(state_voi_indices, aux_voi_indices, record_auxiliaries,
+    variable_names)``. ``variable_names`` labels axis 1 of the output
+    trajectory: selected states first, then selected auxiliaries, matching
+    the concatenation order in ``_assemble_output``.
+    """
+    voi_indices = dynamics.get_variables_of_interest_indices()
+    n_states = dynamics.N_STATES
+    state_voi_indices = jnp.array([i for i in voi_indices if i < n_states], dtype=int)
+    aux_voi_indices = jnp.array(
+        [i - n_states for i in voi_indices if i >= n_states], dtype=int
+    )
+    record_auxiliaries = len(aux_voi_indices) > 0
+    all_variable_names = dynamics.all_variable_names
+    variable_names = tuple(
+        all_variable_names[i] for i in voi_indices if i < n_states
+    ) + tuple(all_variable_names[i] for i in voi_indices if i >= n_states)
+    return state_voi_indices, aux_voi_indices, record_auxiliaries, variable_names
+
+
+def _materialize_noise(noise_key, injected, shape):
+    """Draw the full per-call noise tensor, or pass through an injected override.
+
+    A single fused ``jax.random.normal`` draw of shape ``[n_steps,
+    n_noise_states, n_nodes]`` when no override is present (XLA fuses this with
+    the downstream scan); otherwise the caller-supplied tensor verbatim (the
+    NumPyro-over-increments replay path). Callers gate this on the network
+    actually having noise.
+    """
+    if injected is None:
+        return jax.random.normal(noise_key, shape)
+    return injected
+
+
+def _streaming_noise_gen(noise_key, per_node_shape, provider=None):
+    """Per-block streaming noise generator for the block scan.
+
+    Returns ``noise_gen(block_idx, block_len) -> [block_len, *per_node_shape]``.
+    The default draws ``jax.random.normal(jax.random.fold_in(noise_key,
+    block_idx), ...)``, so the realization is a pure function of
+    ``(key, block_idx)`` and the block grain, regenerated (not stored) on the
+    backward pass. ``per_node_shape`` is ``(n_noise_states, n_nodes)``. A
+    ``provider`` (``config._internal.noise_provider``) overrides the draw for the
+    streaming injection workflow.
+    """
+    if provider is not None:
+        return lambda block_idx, block_len: provider(
+            block_idx, noise_key, (block_len,) + per_node_shape
+        )
+    return lambda block_idx, block_len: jax.random.normal(
+        jax.random.fold_in(noise_key, block_idx), (block_len,) + per_node_shape
+    )
+
+
+def _assemble_output(
+    next_state, auxiliaries, state_voi_indices, aux_voi_indices, record_auxiliaries
+):
+    """Select one step's variables-of-interest slice of the output.
+
+    Concatenates selected state variables and (optionally) selected
+    auxiliaries along axis 0, matching the ordering of ``variable_names``
+    from ``_split_voi``.
+    """
+    if len(state_voi_indices) > 0:
+        selected_states = next_state[state_voi_indices]
+    else:
+        selected_states = jnp.array([]).reshape(0, next_state.shape[1])
+
+    if record_auxiliaries and auxiliaries.size > 0:
+        selected_aux = auxiliaries[aux_voi_indices]
+        return jnp.concatenate([selected_states, selected_aux], axis=0)
+    return selected_states
+
+
+def _composed_scan(
+    block_step, carry0, scan_inputs, n_steps, block_size, window_size=None
+):
+    """Run a block-wise scan with a pluggable per-block ``block_step``.
+
+    ``block_step(carry, block_inputs) -> (carry, outs)`` owns the per-block work
+    (inner step scan, optional noise generation, stack-or-fold of the output);
+    it carries whatever state it needs (e.g. ``(state, acc)`` or
+    ``(state, counter)``). This helper owns only the composition: blocks of
+    ``block_size`` via ``_blocked_scan``, and, when ``window_size`` is set
+    (truncated BPTT), an outer window scan that severs the whole carry with
+    ``jax.lax.stop_gradient`` at each window entry and nests the blocks inside.
+    Returns ``(final_carry, outs)``; ``outs`` is the stitched trajectory for a
+    stacking ``block_step`` and ``None`` for a folding one.
+    """
+
+    def run_blocks(carry, inputs, length):
+        return _blocked_scan(
+            lambda c, b, _len: block_step(c, b), carry, inputs, length, block_size
+        )
+
+    if window_size is None:
+        return run_blocks(carry0, scan_inputs, n_steps)
+
+    def run_window(carry, window_inputs, window_len):
+        # Sever cross-window credit on the whole carry: the window contributes
+        # its local d(.)/d(theta) with the window-start carry detached. Forward
+        # value is unchanged (stop_gradient is the identity on the forward).
+        carry = jax.lax.stop_gradient(carry)
+        return run_blocks(carry, window_inputs, window_len)
+
+    return _blocked_scan(run_window, carry0, scan_inputs, n_steps, window_size)
+
+
+def _fold_block(op, update):
+    """Folding block step (carry ``(state, acc)``), presampled/no-noise path.
+
+    Runs the block's steps through an inner ``jax.lax.scan(op, ...)`` to a
+    stacked ``[block_len, ...]`` output and folds it into ``acc`` at block
+    granularity (one batched ``update`` per block, not per step). The whole
+    block, including the ``update``, is ``jax.checkpoint``-wrapped so it is
+    rematerialized on the backward pass; only the block-boundary ``(state, acc)``
+    is retained. Emits ``None`` (no trajectory stacked).
+    """
+
+    @jax.checkpoint
+    def step(carry, block_inputs):
+        state, acc = carry
+        state, block_out = jax.lax.scan(op, state, block_inputs)
+        return (state, update(acc, block_out)), None
+
+    return step
+
+
+def _stream_block(op, noise_gen):
+    """Streaming stacking block step (carry ``(state, counter)``).
+
+    Generates this block's noise from the absolute block ordinal ``counter``
+    (``noise_gen(counter, block_len)``), threads ``(time_chunk, noise)`` into the
+    inner step scan, and stacks the block output. ``counter`` increments per
+    block so the noise is a pure function of ``(key, absolute_block_idx)``,
+    independent of how truncation windows tile the rollout. ``jax.checkpoint``
+    wraps the block so the draw is *regenerated*, not stored, on the backward
+    pass (the streaming memory win).
+    """
+
+    @jax.checkpoint
+    def step(carry, time_chunk):
+        state, counter = carry
+        noise = noise_gen(counter, time_chunk.shape[0])
+        state, out = jax.lax.scan(op, state, (time_chunk, noise))
+        return (state, counter + 1), out
+
+    return step
+
+
+def _stream_fold_block(op, update, noise_gen):
+    """Streaming folding block step (carry ``(state, acc, counter)``).
+
+    Combines per-block streaming noise (as in ``_stream_block``) with the
+    block-level fold of ``_fold_block``: generates the block noise from
+    ``counter``, runs the inner step scan over ``(time_chunk, noise)``, folds the
+    block output into ``acc``, and increments ``counter``. ``jax.checkpoint``
+    rematerializes the whole block (noise draw + inner scan + update) on the
+    backward pass. Emits ``None``.
+    """
+
+    @jax.checkpoint
+    def step(carry, time_chunk):
+        state, acc, counter = carry
+        noise = noise_gen(counter, time_chunk.shape[0])
+        state, block_out = jax.lax.scan(op, state, (time_chunk, noise))
+        return (state, update(acc, block_out), counter + 1), None
+
+    return step
+
+
+def _snap_window(window, block_size):
+    """Snap a truncation window to the nearest multiple of ``block_size``.
+
+    Window boundaries must align with block boundaries so the blocks nest and
+    (under streaming noise) the absolute block grid is independent of the window
+    tiling. A non-multiple window is rounded to the nearest multiple (floored at
+    one block) with a warning, rather than silently changing the gradient
+    horizon.
+    """
+    if window % block_size == 0:
+        return window
+    snapped = max(block_size, round(window / block_size) * block_size)
+    warnings.warn(
+        f"grad_horizon={window} is not a multiple of block_size={block_size}; "
+        f"snapping to {snapped} so window boundaries align with block "
+        "boundaries.",
+        stacklevel=2,
+    )
+    return snapped
+
+
+def _reduce_fold(reduce, variable_names, n_nodes, n_steps):
+    """Build the ``(acc0, update)`` fold pair for ``run_scan``, or None.
+
+    A reducer is the ``(init, update, finalize)`` triple passed as the ``reduce``
+    kwarg. ``init(template, n_steps)`` sizes the accumulator: the per-step output
+    template is ``[n_vois, n_nodes]`` (the selected variables of interest,
+    matching the leading-after-time shape of a stacked trajectory) and
+    ``n_steps`` is the rollout length. Time-grid reducers that need ``dt`` (e.g.
+    BOLD decimation) take it at construction instead, since their per-block
+    update closes over static strides built before the framework calls ``init``.
+    """
+    if reduce is None:
+        return None
+    init, update, _finalize = reduce
+    template = jnp.zeros((len(variable_names), n_nodes))
+    return (init(template, n_steps), update)
+
+
+def run_scan(op, state0, scan_inputs, n_steps, solver, fold=None, noise_gen=None):
+    """Run the integration scan, dispatching on the solver's gradient/memory knobs.
+
+    The single seam where scan-level features live. Independent, nullable knobs
+    select the path:
+
+    - ``noise_gen`` (streaming noise): ``noise_gen(block_idx, block_len)`` or
+      None. Set only when ``block_size`` is set and the network has noise with no
+      injected tensor; the per-block noise is generated in-scan from the absolute
+      block ordinal, so ``scan_inputs`` carries only the time signal (no noise
+      leaf) and the block step combines them.
+    - ``fold`` (the reduce output handler): ``(acc0, update)`` or None. When set
+      with ``block_size``, the trajectory is folded block-wise into ``acc`` and
+      the final carry exposes ``acc`` at index 1; the caller reads it and applies
+      ``finalize``. Requires ``block_size``; with ``block_size=None`` the caller
+      folds the stacked trajectory once instead (the degenerate single-block /
+      post-hoc case).
+    - ``grad_horizon`` (gradient horizon): if set, run a windowed scan that
+      severs the carry gradient every ``W`` steps. Snapped to a multiple of
+      ``block_size`` when both are set so window and block boundaries align.
+    - ``block_size`` (block granularity): with no truncation, None is the
+      plain single ``jax.lax.scan`` (the monolithic default, no-regression path)
+      and an int is the outer block scan that trades recompute for backward
+      memory and (with ``noise_gen``) streams the per-block noise.
+
+    ``op`` consumes its per-step driving signals (time, and for SDEs the noise
+    slice) from its block inputs and is agnostic to how they were produced.
+    """
+    block_size = solver.block_size
+    window = solver.grad_horizon
+    if window is not None and block_size is not None:
+        window = _snap_window(window, block_size)
+
+    # Streaming and/or fold both ride on the block scan, which requires
+    # block_size. The block step encapsulates the streaming-vs-presampled and
+    # stack-vs-fold choices; _composed_scan owns the window/block composition.
+    if block_size is not None and (fold is not None or noise_gen is not None):
+        if fold is not None:
+            acc0, update = fold
+            if noise_gen is not None:
+                block_step = _stream_fold_block(op, update, noise_gen)
+                carry0 = (state0, acc0, jnp.array(0))
+            else:
+                block_step = _fold_block(op, update)
+                carry0 = (state0, acc0)
+            return _composed_scan(
+                block_step, carry0, scan_inputs, n_steps, block_size, window
+            )
+        # streaming stack: unwrap the (state, counter) carry to the bare state.
+        block_step = _stream_block(op, noise_gen)
+        (state, _counter), outs = _composed_scan(
+            block_step,
+            (state0, jnp.array(0)),
+            scan_inputs,
+            n_steps,
+            block_size,
+            window,
+        )
+        return state, outs
+
+    # Non-streaming, non-fold paths (presampled noise or none).
+    if window is not None:
+        return _truncated_scan(op, state0, scan_inputs, n_steps, window, block_size)
+    if block_size is None:
+        return jax.lax.scan(op, state0, scan_inputs)
+    return _block_scan(op, state0, scan_inputs, n_steps, block_size)
 
 
 def _make_diffusion_matrix_fn(diffusion_fn, state_indices, n_states, n_nodes):
@@ -393,6 +728,7 @@ def prepare(
     t0: float = 0.0,
     t1: float = 1.0,
     dt: float = 0.1,
+    reduce=None,
 ) -> Tuple[Callable, Bunch]:
     """Compile a model into a pure JAX solve function and a config PyTree.
 
@@ -639,24 +975,12 @@ def prepare(
     # =========================================================================
     # VARIABLES OF INTEREST - Determine what to record
     # =========================================================================
-    voi_indices = network.dynamics.get_variables_of_interest_indices()
-    n_states = network.dynamics.N_STATES
-
-    # Split VOI indices into state and auxiliary indices
-    state_voi_indices = jnp.array([i for i in voi_indices if i < n_states], dtype=int)
-    aux_voi_indices = jnp.array(
-        [i - n_states for i in voi_indices if i >= n_states], dtype=int
-    )
-
-    # Flag: do we need to record any auxiliaries?
-    record_auxiliaries = len(aux_voi_indices) > 0
-
-    # Variable names that label axis 1 of the output trajectory.
-    # Ordering mirrors the concatenation below: selected states, then selected auxiliaries.
-    _all_variable_names = network.dynamics.all_variable_names
-    variable_names = tuple(
-        _all_variable_names[i] for i in voi_indices if i < n_states
-    ) + tuple(_all_variable_names[i] for i in voi_indices if i >= n_states)
+    (
+        state_voi_indices,
+        aux_voi_indices,
+        record_auxiliaries,
+        variable_names,
+    ) = _split_voi(network.dynamics)
 
     # Static shape for the full per-call noise tensor.
     n_steps = len(time_steps)
@@ -671,20 +995,30 @@ def prepare(
         # be computed with gradient flow while avoiding per-step redundancy.
         enriched = precompute_all_couplings(config)
 
-        # Materialize the full noise trajectory once per call. Trace-time
-        # branch: if the injection slot is None, sample from config.noise.key
-        # in a single PRNG call (XLA fuses this with the downstream scan);
-        # otherwise use the user-provided tensor verbatim. This avoids the
-        # per-step PRNG cost of an in-scan fold_in while preserving the
-        # seed-scan API (vary config.noise.key per call) and the injection
-        # path (set config._internal.noise_samples).
-        if network.noise is not None:
-            if config._internal.noise_samples is None:
-                noise_samples_all = jax.random.normal(
-                    config.noise.key, noise_samples_shape
-                )
-            else:
-                noise_samples_all = config._internal.noise_samples
+        # Noise source. Streaming (per-block fold_in) activates when blocking is
+        # on, the network has noise, and no full tensor is injected: it skips the
+        # O(n_steps) draw and regenerates each block's noise in-scan (and on the
+        # backward pass). Otherwise the full tensor is drawn once and fused with
+        # the scan (or the injected tensor is used verbatim).
+        streaming = (
+            network.noise is not None
+            and solver.block_size is not None
+            and config._internal.noise_samples is None
+        )
+        noise_gen = None
+        if streaming:
+            noise_samples_all = None
+            noise_gen = _streaming_noise_gen(
+                config.noise.key,
+                (n_noise_states, n_nodes),
+                provider=config._internal.get("noise_provider", None),
+            )
+        elif network.noise is not None:
+            noise_samples_all = _materialize_noise(
+                config.noise.key,
+                config._internal.noise_samples,
+                noise_samples_shape,
+            )
         else:
             noise_samples_all = None
 
@@ -693,18 +1027,16 @@ def prepare(
 
             Args:
                 state: Bunch(dynamics=network_state, coupling=coupling_state_dict, external=external_state_dict)
-                inputs: (t, step_idx) for SDE or just t for ODE
+                inputs: (t, noise_slice) for SDE or just t for ODE
 
             Returns:
                 (next_state, output) tuple for scan
             """
-            # Unpack inputs
+            # Unpack per-step driving signals from the scan inputs.
             if network.noise is not None:
-                t = inputs[0]
-                step_idx = jnp.int32(inputs[1])
+                t, noise = inputs
             else:
                 t = inputs
-                step_idx = None
 
             # By default compute all coupling inputs ONCE per step at the
             # step-start point (t, state.dynamics) and freeze them across
@@ -746,9 +1078,7 @@ def prepare(
             # Prepare noise sample if stochastic
             noise_sample = jnp.zeros_like(state.dynamics)
             if network.noise is not None:
-                # Single indexed read into the per-call noise tensor.
-                noise = noise_samples_all[step_idx]
-
+                # ``noise`` is the per-step slice handed in via scan inputs.
                 # Compute diffusion coefficient
                 diffusion = network.noise.diffusion(t, state.dynamics, config.noise)
 
@@ -785,42 +1115,46 @@ def prepare(
             )
 
             # Apply VARIABLES_OF_INTEREST filtering to build output
-            # Collect selected state variables
-            if len(state_voi_indices) > 0:
-                selected_states = next_dynamics_state[state_voi_indices]
-            else:
-                selected_states = jnp.array([]).reshape(0, next_dynamics_state.shape[1])
-
-            # Collect selected auxiliary variables if needed
-            if record_auxiliaries and auxiliaries.size > 0:
-                selected_aux = auxiliaries[aux_voi_indices]
-                # Concatenate states and auxiliaries
-                output = jnp.concatenate([selected_states, selected_aux], axis=0)
-            else:
-                output = selected_states
+            output = _assemble_output(
+                next_dynamics_state,
+                auxiliaries,
+                state_voi_indices,
+                aux_voi_indices,
+                record_auxiliaries,
+            )
 
             # Return (carry, output)
             return next_state, output
 
-        # Prepare scan inputs
-        if network.noise is None:
-            # ODE/DDE: just time
+        # Prepare scan inputs. The per-step driving signals are the scan xs:
+        # ODE/DDE (and streaming SDE) carry just time; presampled SDE carries
+        # (time, noise_slice). When streaming, ``op`` still consumes (time,
+        # noise) per step but the noise is generated per block in-scan via
+        # ``noise_gen`` rather than sliced from a global tensor.
+        if network.noise is None or streaming:
             scan_inputs = time_steps
         else:
-            # SDE/SDDE: time + step index for noise lookup
-            scan_inputs = jnp.stack([time_steps, jnp.arange(len(time_steps))], axis=1)
+            scan_inputs = (time_steps, noise_samples_all)
 
-        # Run integration. When checkpoint_every is None we go through the
-        # original single-scan path verbatim to guarantee no performance
-        # regression for the default setting; otherwise switch to an
-        # outer-checkpointed nested scan that trades ~2x recompute on the
-        # backward pass for ~O(n_steps/K + K) backward memory.
-        if solver.checkpoint_every is None:
-            _, res = jax.lax.scan(op, state0, scan_inputs)
-        else:
-            _, res = _checkpointed_scan(
-                op, state0, scan_inputs, n_steps, solver.checkpoint_every
-            )
+        # Run integration through the single scan seam, which dispatches on
+        # the solver's block knob (block_size), the streaming noise source,
+        # and the reduce fold.
+        fold = _reduce_fold(reduce, variable_names, n_nodes, n_steps)
+        final_carry, res = run_scan(
+            op, state0, scan_inputs, n_steps, solver, fold=fold, noise_gen=noise_gen
+        )
+
+        # With a reducer, return the finalized aggregate rather than a
+        # trajectory. Blocked: acc is threaded in the (state, acc) carry.
+        # Monolithic (block_size=None): fold the stacked trajectory once (the
+        # degenerate single-block / post-hoc case, no memory win).
+        if reduce is not None:
+            _init, update, finalize = reduce
+            if solver.block_size is None:
+                acc = update(fold[0], res)
+            else:
+                acc = final_carry[1]
+            return finalize(acc)
 
         # Wrap result for consistency
         return wrap_native_result(res, t0, t1, dt, variable_names=variable_names)
@@ -835,6 +1169,7 @@ def prepare(
     t0: float = 0.0,
     t1: float = 1.0,
     dt: float = 0.1,
+    reduce=None,
 ) -> Tuple[Callable, Bunch]:
     """Compile a model into a pure JAX solve function and a config PyTree.
 
@@ -863,6 +1198,16 @@ def prepare(
     # =========================================================================
     # VALIDATION: Check for unsupported features
     # =========================================================================
+
+    # reduce is a native-only feature (it rides on the native block scan).
+    # plum dispatches on the first two positional args only, so a reduce= meant
+    # for the native path can land here; reject it explicitly rather than via a
+    # bare TypeError on an unexpected keyword.
+    if reduce is not None:
+        raise ValueError(
+            "reduce is only supported by NativeSolver, not DiffraxSolver "
+            "(it rides on the native block scan). Use a NativeSolver."
+        )
 
     # Check for delayed coupling (stateful)
     if network.max_delay > 0.0:
@@ -1157,6 +1502,7 @@ def prepare(
     n_nodes: int = 1,
     noise=None,
     externals=None,
+    reduce=None,
 ) -> Tuple[Callable, Bunch]:
     """Compile a model into a pure JAX solve function and a config PyTree.
 
@@ -1274,21 +1620,14 @@ def prepare(
     # References
     dynamics_fn = dynamics.dynamics
     solver_step = solver.step
-    n_states = dynamics.N_STATES
 
     # VOI filtering
-    voi_indices = dynamics.get_variables_of_interest_indices()
-    state_voi_indices = jnp.array([i for i in voi_indices if i < n_states], dtype=int)
-    aux_voi_indices = jnp.array(
-        [i - n_states for i in voi_indices if i >= n_states], dtype=int
-    )
-    record_auxiliaries = len(aux_voi_indices) > 0
-
-    # Variable names matching the output layout: selected states, then selected auxiliaries.
-    _all_variable_names = dynamics.all_variable_names
-    variable_names = tuple(
-        _all_variable_names[i] for i in voi_indices if i < n_states
-    ) + tuple(_all_variable_names[i] for i in voi_indices if i >= n_states)
+    (
+        state_voi_indices,
+        aux_voi_indices,
+        record_auxiliaries,
+        variable_names,
+    ) = _split_voi(dynamics)
 
     # Static shape for the full per-call noise tensor.
     noise_samples_shape = (n_steps, n_noise_states, n_nodes) if has_noise else None
@@ -1296,23 +1635,38 @@ def prepare(
     def _f(config):
         """Pure integration function for bare dynamics."""
 
-        # Materialize the full noise trajectory once per call. See the
-        # network+native dispatch for the rationale; the trace-time branch
-        # on the injection slot keeps both seed-scan and explicit-replay
-        # workflows on the same scan body.
-        if has_noise:
-            if config._internal.noise_samples is None:
-                noise_samples_all = jax.random.normal(
-                    config.noise.key, noise_samples_shape
-                )
-            else:
-                noise_samples_all = config._internal.noise_samples
+        # Noise source. Streaming (per-block fold_in) activates when blocking is
+        # on, the dynamics has noise, and no full tensor is injected; otherwise
+        # the full tensor is drawn once (or the injected tensor used). See the
+        # network+native dispatch for the rationale.
+        streaming = (
+            has_noise
+            and solver.block_size is not None
+            and config._internal.noise_samples is None
+        )
+        noise_gen = None
+        if streaming:
+            noise_samples_all = None
+            noise_gen = _streaming_noise_gen(
+                config.noise.key,
+                (n_noise_states, n_nodes),
+                provider=config._internal.get("noise_provider", None),
+            )
+        elif has_noise:
+            noise_samples_all = _materialize_noise(
+                config.noise.key,
+                config._internal.noise_samples,
+                noise_samples_shape,
+            )
         else:
             noise_samples_all = None
 
         def op(carry, scan_input):
-            t = scan_input[0]
-            step_idx = scan_input[1].astype(int)
+            # Unpack per-step driving signals from the scan inputs.
+            if has_noise:
+                t, noise_raw = scan_input
+            else:
+                t = scan_input
 
             # Unpack carry
             if has_externals:
@@ -1330,9 +1684,8 @@ def prepare(
                     ext_inputs = zero_external
                 return dynamics_fn(t_inner, s, params, zero_coupling, ext_inputs)
 
-            # Noise: single indexed read into the per-call tensor.
+            # Noise: ``noise_raw`` is the per-step slice from the scan inputs.
             if has_noise:
-                noise_raw = noise_samples_all[step_idx]
                 diffusion = noise_diffusion(t, state, config.noise)
                 scaled_noise = diffusion * jnp.sqrt(dt) * noise_raw
                 noise_sample = jnp.zeros_like(state)
@@ -1345,16 +1698,13 @@ def prepare(
             )
 
             # VOI filtering
-            if len(state_voi_indices) > 0:
-                selected_states = next_state[state_voi_indices]
-            else:
-                selected_states = jnp.array([]).reshape(0, next_state.shape[1])
-
-            if record_auxiliaries and auxiliaries.size > 0:
-                selected_aux = auxiliaries[aux_voi_indices]
-                output = jnp.concatenate([selected_states, selected_aux], axis=0)
-            else:
-                output = selected_states
+            output = _assemble_output(
+                next_state,
+                auxiliaries,
+                state_voi_indices,
+                aux_voi_indices,
+                record_auxiliaries,
+            )
 
             # Update carry
             if has_externals:
@@ -1367,20 +1717,32 @@ def prepare(
 
             return next_carry, output
 
-        scan_inputs = jnp.stack(
-            [time_steps, jnp.arange(n_steps, dtype=time_steps.dtype)], axis=1
-        )
-        # See the Network+Native dispatch for the rationale on the branch.
-        if solver.checkpoint_every is None:
-            _, res = jax.lax.scan(op, config.initial_state, scan_inputs)
+        # Per-step driving signals as the scan xs: time alone for ODE (and
+        # streaming SDE, whose noise is generated per block in-scan), or
+        # (time, noise_slice) for presampled SDE.
+        if not has_noise or streaming:
+            scan_inputs = time_steps
         else:
-            _, res = _checkpointed_scan(
-                op,
-                config.initial_state,
-                scan_inputs,
-                n_steps,
-                solver.checkpoint_every,
-            )
+            scan_inputs = (time_steps, noise_samples_all)
+        # Single scan seam; dispatches on the solver's block knob, the streaming
+        # noise source, and the reduce fold.
+        fold = _reduce_fold(reduce, variable_names, n_nodes, n_steps)
+        final_carry, res = run_scan(
+            op,
+            config.initial_state,
+            scan_inputs,
+            n_steps,
+            solver,
+            fold=fold,
+            noise_gen=noise_gen,
+        )
+        if reduce is not None:
+            _init, update, finalize = reduce
+            if solver.block_size is None:
+                acc = update(fold[0], res)
+            else:
+                acc = final_carry[1]
+            return finalize(acc)
         return wrap_native_result(res, t0, t1, dt, variable_names=variable_names)
 
     return _f, config
@@ -1396,6 +1758,7 @@ def prepare(
     n_nodes: int = 1,
     noise=None,
     externals=None,
+    reduce=None,
 ) -> Tuple[Callable, Bunch]:
     """Compile a model into a pure JAX solve function and a config PyTree.
 
@@ -1421,6 +1784,14 @@ def prepare(
     for bare dynamics) and Diffrax limitations (no delays, no auxiliaries,
     no VOI filtering).
     """
+    # reduce is a native-only feature (it rides on the native block scan); plum
+    # dispatches on positional args only, so reject a stray reduce= explicitly.
+    if reduce is not None:
+        raise ValueError(
+            "reduce is only supported by NativeSolver, not DiffraxSolver "
+            "(it rides on the native block scan). Use a NativeSolver."
+        )
+
     # Initial state [N_STATES, n_nodes]
     state0 = dynamics.get_default_initial_state(n_nodes)
 

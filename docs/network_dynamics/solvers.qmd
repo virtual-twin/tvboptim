@@ -259,28 +259,64 @@ This is the same default TVB uses, made explicit. See
 full performance and accuracy analysis.
 :::
 
-### Gradient Checkpointing
+### Long Simulations: Memory, Gradient Horizon, Online Statistics
 
-Differentiating through a long simulation can run out of memory on the backward
-pass: `jax.lax.scan` saves every step's carry, and for delayed couplings that
-carry includes the history buffer. Every native solver takes a `checkpoint_every`
-argument to trade recompute for memory:
+Long simulations stress differentiation in two ways: the backward pass can run
+out of memory, and the gradient itself can explode over a long horizon. Native
+solvers expose three back-compatible knobs (all off by default) for this.
+
+**`block_size` — gradient checkpointing (and the streaming block unit).**
+`jax.lax.scan` saves every step's carry for the backward pass, and for delayed
+couplings that carry includes the history buffer, so backward memory grows with
+`n_steps`. `block_size=K` splits the scan into `jax.checkpoint`-wrapped blocks of
+`K` steps, trading one extra forward recompute for `O(n_steps/K + K)` backward
+memory (minimum near `K ≈ sqrt(n_steps)`):
 
 ```python
 from tvboptim.experimental.network_dynamics.solvers import Heun
 
-# Default: single scan, every step's carry kept for the backward pass
-solver = Heun()
-
-# Checkpoint blocks of K steps: backward memory drops from O(n_steps)
-# to O(n_steps / K + K), at the cost of one extra forward recompute
-solver = Heun(checkpoint_every=200)
+solver = Heun()                # default: single scan, full backward memory
+solver = Heun(block_size=200)  # checkpoint blocks of 200 steps
 ```
 
-This only affects gradient computation; forward-only runs are untouched. Memory
-is minimized near `K ≈ sqrt(n_steps)`. See
+`block_size` is the one block unit for the streaming features below (it was
+formerly named `checkpoint_every`). On a **stochastic** network it also switches
+the noise to per-block generation, which reseeds the realization relative to the
+monolithic single draw; this is intended and lets long SDE runs avoid holding the
+full `O(n_steps)` noise tensor. Forward-only runs are untouched. See
 [Gradient Checkpointing](../advanced/gradient_checkpointing.qmd) for the memory
-model, the `K` sweep, and the buffer-strategy caveats.
+model and the `K` sweep.
+
+**`grad_horizon` — truncated backpropagation (gradient horizon).** Sever the carry
+gradient every `W` steps so the backward sensitivity stops amplifying past one
+window. The forward is bit-identical (it is a stability knob, not a speed knob);
+only the backward changes. When combined with `block_size` it is snapped to a
+multiple of it so window and block boundaries align:
+
+```python
+solver = Heun(grad_horizon=2000)                  # bounded gradient horizon
+solver = Heun(grad_horizon=2000, block_size=200)  # horizon + bounded memory
+```
+
+See [Truncated Backpropagation](../workflows/TBPTT.qmd).
+
+**`reduce` — online statistics (per-call, not a solver attribute).** A
+`reduce=(init, update, finalize)` kwarg on `solve` / `prepare` folds the
+trajectory block-by-block into a running statistic instead of stacking it, so the
+output memory is independent of `n_steps`. `welford_cov` streams functional
+connectivity; `streaming_hrf_bold` streams a BOLD signal:
+
+```python
+from tvboptim.observations import welford_cov
+
+# Online FC over a long, memory-bounded SDE rollout; returns the FC matrix.
+fc = solve(network, Heun(block_size=2000), t0=0.0, t1=100_000.0, dt=0.1,
+           reduce=welford_cov(s_var=0))
+```
+
+`reduce` is native-only (the Diffrax dispatch rejects it). See
+[Streaming Reductions](../advanced/streaming_reductions.qmd) for the streaming
+and `reduce` design, with a memory and runtime comparison.
 
 ---
 

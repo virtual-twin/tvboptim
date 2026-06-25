@@ -211,7 +211,9 @@ class AbstractExternalInput(ABC):
         show_legend = n_nodes <= 8
         for d in range(n_dims):
             for i in range(n_nodes):
-                ax[d].plot(ts, signals[:, d, i], label=f"node {i}" if show_legend else None)
+                ax[d].plot(
+                    ts, signals[:, d, i], label=f"node {i}" if show_legend else None
+                )
             ax[d].set_ylabel(f"input[{d}]" if n_dims > 1 else "input")
             if show_legend and n_nodes > 1:
                 ax[d].legend(loc="best", fontsize="small")

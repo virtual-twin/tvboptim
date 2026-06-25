@@ -25,6 +25,7 @@ website:
       - text: "Workflows"
         menu:
           - file: workflows/RWW.qmd
+          - file: workflows/TBPTT.qmd
           - file: workflows/JR.qmd
           - file: workflows/EI_Tuning.qmd
           - file: workflows/Hopf_Pareto_ParallelOpt.qmd
@@ -42,6 +43,7 @@ website:
         menu:
           - file: advanced/buffer_strategies.qmd
           - file: advanced/gradient_checkpointing.qmd
+          - file: advanced/streaming_reductions.qmd
           - file: advanced/coupling_freezing.qmd
           - file: advanced/subspace_coupling.qmd
       - text: "Reference"
@@ -204,3 +206,12 @@ quartodoc:
       desc: The unified interface for preparing experiments and networks for simulation
       contents:
         - tvbo.prepare
+
+    - title: Analysis
+      desc: Characterizing the dynamical regime
+      package: tvboptim.experimental.network_dynamics.analysis
+      contents:
+        - lyapunov
+        - lyapunov_spectrum
+        - adiabatic_scan
+        - AdiabaticScanResult

@@ -153,7 +153,9 @@ class TestEdgeCases(unittest.TestCase):
         # eigh of [[2,0],[0,8]] -> eigenvalues [2, 8].
         res = eigendecompose_curvature(
             jnp.array([[2.0, 0.0], [0.0, 8.0]]),
-            labels=["p", "q"], theta0=jnp.zeros(2), kind="hessian",
+            labels=["p", "q"],
+            theta0=jnp.zeros(2),
+            kind="hessian",
         )
         np.testing.assert_allclose(np.asarray(res.eigenvalues), [2.0, 8.0])
         self.assertEqual(res.condition_number(), 4.0)
@@ -199,9 +201,7 @@ class TestFisherInformation(unittest.TestCase):
         _, _, residual, _, state = self._linear_problem()
         FIM1, _, _ = fisher_information(residual, state, sigma=1.0)
         FIM2, _, _ = fisher_information(residual, state, sigma=2.0)
-        np.testing.assert_allclose(
-            np.asarray(FIM2), np.asarray(FIM1) / 4.0, atol=1e-9
-        )
+        np.testing.assert_allclose(np.asarray(FIM2), np.asarray(FIM1) / 4.0, atol=1e-9)
 
     def test_per_observation_sigma(self):
         M, _, residual, _, state = self._linear_problem()
@@ -214,9 +214,7 @@ class TestFisherInformation(unittest.TestCase):
         _, _, residual, _, state = self._linear_problem()
         FIM_fwd, _, _ = fisher_information(residual, state, mode="fwd")
         FIM_rev, _, _ = fisher_information(residual, state, mode="rev")
-        np.testing.assert_allclose(
-            np.asarray(FIM_fwd), np.asarray(FIM_rev), atol=1e-9
-        )
+        np.testing.assert_allclose(np.asarray(FIM_fwd), np.asarray(FIM_rev), atol=1e-9)
 
     def test_scalar_model_warns(self):
         _, _, _, _, state = self._linear_problem()
@@ -238,7 +236,6 @@ class TestFisherInformation(unittest.TestCase):
         res = eigendecompose_curvature(FIM, labels, theta0, kind="fisher")
 
         self.assertEqual(res.rank(), 1)
-        flat = res.sloppy_directions(1)[0]
         ia, ib = res.labels.index("a"), res.labels.index("b")
         vec = np.array([res.eigenvectors[ia, 0], res.eigenvectors[ib, 0]])
         vec /= np.linalg.norm(vec)
@@ -345,9 +342,7 @@ class TestStimulationExampleIntegration(unittest.TestCase):
         # The FIM and the FD loss Hessian must share the flat direction.
         v_fim = np.asarray(res.eigenvectors[:, 0])
         v_fd = evecs_fd[:, 0]
-        cos = abs(
-            v_fim @ v_fd / (np.linalg.norm(v_fim) * np.linalg.norm(v_fd))
-        )
+        cos = abs(v_fim @ v_fd / (np.linalg.norm(v_fim) * np.linalg.norm(v_fd)))
         self.assertGreater(cos, 0.95)
 
         # The amplitude / excitability degeneracy is a genuine sloppy ridge.

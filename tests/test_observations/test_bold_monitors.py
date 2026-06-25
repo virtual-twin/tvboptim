@@ -172,5 +172,101 @@ class TestDeprecatedBoldAlias(unittest.TestCase):
         self.assertIsInstance(b, HRFBold)
 
 
+class TestStreamingHrfBold(unittest.TestCase):
+    """The block-level streaming HRF-BOLD reducer matches the post-hoc HRFBold.
+
+    Streaming requires a SubSampling downsample (uniform, streamable) and a
+    block_size / n_steps that are multiples of the BOLD period in raw steps.
+    Because a blocked SDE run streams (reseeds) its noise, the equivalence
+    reference is the post-hoc monitor applied to the SAME streamed trajectory
+    (matched per-block seeding).
+    """
+
+    def _net(self):
+        import jax
+
+        from tvboptim.experimental.network_dynamics import Network
+        from tvboptim.experimental.network_dynamics.coupling import (
+            DelayedLinearCoupling,
+        )
+        from tvboptim.experimental.network_dynamics.dynamics.tvb import (
+            ReducedWongWang,
+        )
+        from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph
+        from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
+
+        k = jax.random.PRNGKey(7)
+        wk, dk = jax.random.split(k)
+        n = 4
+        w = jax.random.uniform(wk, (n, n)) * 0.5
+        d = jax.random.uniform(dk, (n, n)) * 5.0
+        return Network(
+            dynamics=ReducedWongWang(),
+            coupling={"delayed": DelayedLinearCoupling(incoming_states="S", G=0.1)},
+            graph=DenseDelayGraph(weights=w, delays=d),
+            noise=AdditiveNoise(sigma=1e-3, key=jax.random.key(0)),
+        )
+
+    def test_matches_posthoc_hrfbold(self):
+        from tvboptim.experimental.network_dynamics import solve
+        from tvboptim.experimental.network_dynamics.solvers import Heun
+        from tvboptim.observations.tvb_monitors import (
+            HRFBold,
+            SubSampling,
+            streaming_hrf_bold,
+        )
+
+        net = self._net()
+        dt = 0.1
+        # period/dt = (200/40)*(40/0.1) = 5*400 = 2000 raw steps per block.
+        mon = HRFBold(
+            period=200.0,
+            downsample_period=40.0,
+            downsample=SubSampling(period=40.0),
+        )
+        t1 = 800.0  # 8000 steps, a multiple of 2000
+        # Streaming reducer.
+        bold = solve(
+            net,
+            Heun(block_size=2000),
+            t0=0.0,
+            t1=t1,
+            dt=dt,
+            reduce=streaming_hrf_bold(mon, dt),
+        )
+        # Post-hoc on the SAME streamed trajectory (matched per-block seeding).
+        ref = mon(solve(net, Heun(block_size=2000), t0=0.0, t1=t1, dt=dt))
+        self.assertEqual(bold.shape, ref.ys.shape)
+        self.assertTrue(
+            jnp.allclose(bold, ref.ys, atol=1e-5),
+            f"max diff {jnp.max(jnp.abs(bold - ref.ys))}",
+        )
+
+    def test_misaligned_block_size_rejected(self):
+        from tvboptim.experimental.network_dynamics import solve
+        from tvboptim.experimental.network_dynamics.solvers import Heun
+        from tvboptim.observations.tvb_monitors import (
+            HRFBold,
+            SubSampling,
+            streaming_hrf_bold,
+        )
+
+        net = self._net()
+        dt = 0.1
+        mon = HRFBold(
+            period=200.0, downsample_period=40.0, downsample=SubSampling(period=40.0)
+        )
+        # block_size=1500 is not a multiple of period/dt=2000 -> assert at trace.
+        with self.assertRaises(AssertionError):
+            solve(
+                net,
+                Heun(block_size=1500),
+                t0=0.0,
+                t1=600.0,
+                dt=dt,
+                reduce=streaming_hrf_bold(mon, dt),
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
