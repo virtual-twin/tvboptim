@@ -30,10 +30,15 @@ def lyapunov(network, solver=None, t=1000.0, n=10, d0=1e-9, dt=0.1, t0=0.0):
 
     Notes
     -----
-    For networks with delayed coupling the delay history is held fixed
-    across segments (good approximation when t >> max_delay). Run a
-    warmup via network.update_history(result) before calling this
-    function to initialise the delay buffer from a settled trajectory.
+    For delayed coupling the history buffer is held fixed across segments
+    (each rescaling step re-seeds only the point state), so the result is a
+    good approximation only when t >> max_delay, not exact. The two-trajectory
+    method is the natural route to a delay-correct MLE -- each trajectory
+    evolves its own history, so no explicit history-space tangents are needed --
+    but that needs carrying the full final state (point + history) across
+    segments, or running unsegmented. Run a warmup via
+    network.update_history(result) first to initialise the delay buffer from a
+    settled trajectory.
     """
     if solver is None:
         solver = Heun()
@@ -95,6 +100,15 @@ def lyapunov_spectrum(
     Returns
     -------
     jnp.ndarray — top k Lyapunov exponents sorted descending (1/ms)
+
+    Notes
+    -----
+    Exact for instantaneous (non-delayed) coupling only. Both modes propagate a
+    *point* state (perturb/linearize only ``initial_state.dynamics``) and reset
+    the delay history buffer each rescaling step, so for delayed coupling the
+    history is held fixed across segments: a good approximation only when
+    ``t >> max_delay``, not the true DDE spectrum (which would need tangents
+    spanning the augmented history-buffer state).
     """
     if solver is None:
         solver = Heun()

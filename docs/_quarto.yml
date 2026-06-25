@@ -206,3 +206,12 @@ quartodoc:
       desc: The unified interface for preparing experiments and networks for simulation
       contents:
         - tvbo.prepare
+
+    - title: Analysis
+      desc: Characterizing the dynamical regime
+      package: tvboptim.experimental.network_dynamics.analysis
+      contents:
+        - lyapunov
+        - lyapunov_spectrum
+        - adiabatic_scan
+        - AdiabaticScanResult
