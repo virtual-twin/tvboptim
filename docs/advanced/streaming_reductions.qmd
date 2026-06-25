@@ -1,0 +1,424 @@
+---
+title: "Streaming Reductions for Long Forward Simulations"
+subtitle: "Computing BOLD / FC From Long Rollouts Without Holding the Trajectory"
+format:
+  html:
+    code-fold: false
+    toc: true
+    echo: false
+    embed-resources: true
+    fig-width: 8
+    out-width: "100%"
+jupyter: python3
+execute:
+  cache: true
+---
+
+Try this notebook interactively:
+
+[Download .ipynb](https://github.com/virtual-twin/tvboptim/blob/main/docs/advanced/streaming_reductions.ipynb){.btn .btn-primary download="streaming_reductions.ipynb"}
+[Download .qmd](streaming_reductions.qmd){.btn .btn-secondary download="streaming_reductions.qmd"}
+[Open in Colab](https://colab.research.google.com/github/virtual-twin/tvboptim/blob/main/docs/advanced/streaming_reductions.ipynb){.btn .btn-warning target="_blank"}
+
+## Introduction
+
+[Gradient Checkpointing](gradient_checkpointing.qmd) tackles *backward*-pass
+memory: the activation tape that a gradient needs. This notebook tackles the
+other side of the same problem, *forward*-pass memory, which matters even
+when you never take a gradient.
+
+A long forward rollout holds two `O(n_steps)` tensors in memory:
+
+1. the stacked output **trajectory**, `[n_steps, n_voi, n_nodes]`, and
+2. for a stochastic network, the pre-sampled **noise tensor**, the same size.
+
+But most of what we actually want from a long run is a *reduced* statistic:
+functional connectivity (a long-time covariance), a BOLD signal (a kernel
+convolution / hemodynamic ODE), a temporal average. Each is a **reduction** of
+the trajectory: a `fold` that consumes the time series and keeps only a small
+running aggregate, the streaming counterpart of a one-shot
+`compute_fc(trajectory)`. The native solver exposes this through the per-call
+`reduce` kwarg, which folds the trajectory **block-by-block** into the statistic
+instead of stacking it, so resident memory scales with `block_size`, not
+`n_steps`. (If you come from TVB, this is the monitor idea generalized to an
+arbitrary online reduction.)
+
+```{python}
+#| output: false
+#| echo: false
+try:
+    import google.colab
+    print("Running in Google Colab - installing dependencies...")
+    !pip install -q tvboptim
+    print("✓ Dependencies installed!")
+except ImportError:
+    pass
+```
+
+The motivation is throughput, not differentiation: a forward-only statistic that
+fits in a few MB instead of hundreds lets you **pack many independent
+simulations onto one GPU** (parameter sweeps, posterior sampling, seed
+ensembles) where the stacked trajectories would not fit. The same machinery
+composes with `grad_horizon` for a *differentiable* FC over a long rollout, the
+window bounding the gradient horizon for stability and `block_size` bounding the
+backward memory by the checkpointing model (not the forward's `O(block_size)`,
+see Practical Guidance). That combination is covered in [Truncated
+Backpropagation](../workflows/TBPTT.qmd). Here we stay forward-only.
+
+We compare three ways to get a BOLD signal from the same long simulation:
+
+| variant | forward | output | resident memory |
+|---|---|---|---|
+| **classical** | monolithic `Heun()` | full trajectory, monitor post-hoc | trajectory **+** noise tensor |
+| **blocked** | `Heun(block_size=K)` | full trajectory, monitor post-hoc | trajectory only |
+| **streaming** | `Heun(block_size=K)` | `reduce=streaming_hrf_bold` | one block |
+
+The point of the middle row is that **blocking the simulation alone does not
+bound the output memory.** It streams the noise (removing tensor 2), but the
+trajectory is still stacked. Only `reduce` removes the trajectory too.
+
+::: {.callout-note}
+## Scope and requirements
+- **Native solvers only.** The Diffrax dispatch rejects `reduce`.
+- **`streaming_hrf_bold` needs a `SubSampling` downsample** (a uniform integer
+  stride; `TemporalAverage`'s float-rounded windows are not faithfully
+  streamable) and **`block_size` / `n_steps` multiples of the BOLD period in raw
+  steps** so each block emits a whole number of TR samples.
+- **Noise realizations differ by construction.** A blocked SDE run draws its
+  noise per block (`fold_in`), reseeding relative to the monolithic single draw.
+  So *blocked* and *streaming* share one realization (their BOLD is pointwise
+  equal, the equivalence assertion below), while *classical* is a different
+  realization, shown for the memory/runtime axis only. See the
+  [solver reference](../network_dynamics/solvers.qmd) for the streaming-noise
+  and `reduce` design.
+:::
+
+```{python}
+#| output: false
+#| code-fold: true
+#| code-summary: "Environment setup and imports"
+#| echo: true
+
+import time
+import gc
+import threading
+import numpy as np
+import matplotlib.pyplot as plt
+import jax
+import jax.numpy as jnp
+
+try:
+    import psutil
+    _HAS_PSUTIL = True
+except ImportError:
+    _HAS_PSUTIL = False
+
+jax.config.update("jax_enable_x64", True)
+
+from tvboptim.experimental.network_dynamics import Network, solve
+from tvboptim.experimental.network_dynamics.dynamics.tvb import ReducedWongWang
+from tvboptim.experimental.network_dynamics.coupling import DelayedLinearCoupling
+from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph
+from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
+from tvboptim.experimental.network_dynamics.solvers import Heun
+from tvboptim.observations.tvb_monitors import HRFBold, SubSampling, streaming_hrf_bold
+from tvboptim.data import load_structural_connectivity
+from tvboptim.utils import set_cache_path, cache
+
+set_cache_path("./streaming_reductions")
+```
+
+## Workload: RWW + Delays + BOLD
+
+The same delayed Reduced Wong-Wang network as the [gradient checkpointing
+notebook](gradient_checkpointing.qmd): `dk_average` structural connectivity (68
+regions), tract lengths converted to delays at 4 mm/ms. Here we run it
+**long and forward-only** to a BOLD signal.
+
+```{python}
+#| echo: true
+#| output: false
+
+DT = 1.0                   # ms
+T1 = 120_000.0             # ms (120 s), a long statistical rollout
+N_STEPS = int(T1 / DT)     # 120_000 steps
+CONDUCTION_SPEED = 4.0     # mm/ms
+
+weights, lengths, region_labels = load_structural_connectivity(name="dk_average")
+weights = weights / np.max(weights)
+delays = jnp.asarray(lengths / CONDUCTION_SPEED)
+n_nodes = weights.shape[0]
+
+graph = DenseDelayGraph(
+    weights=jnp.asarray(weights), delays=delays, region_labels=region_labels
+)
+dynamics = ReducedWongWang(w=0.5, I_o=0.32, INITIAL_STATE=(0.3,))
+coupling = DelayedLinearCoupling(incoming_states="S", G=0.5, buffer_strategy="roll")
+noise = AdditiveNoise(sigma=0.00283, apply_to="S", key=jax.random.key(0))
+network = Network(
+    dynamics=dynamics, coupling={"delayed": coupling}, graph=graph, noise=noise
+)
+
+# BOLD monitor with a SubSampling downsample (required for streaming). With
+# DT=1.0: period_in_steps = (downsample_period/DT) * (period/downsample_period)
+#                         = period/DT = 1000 raw steps per BOLD sample,
+# so block_size and N_STEPS must be multiples of 1000.
+monitor = HRFBold(
+    period=1000.0,                       # TR = 1 s
+    downsample_period=10.0,
+    downsample=SubSampling(period=10.0),
+    voi=0,
+)
+BLOCK_SIZE = 2000
+PERIOD_IN_STEPS = 1000
+assert N_STEPS % PERIOD_IN_STEPS == 0 and BLOCK_SIZE % PERIOD_IN_STEPS == 0
+
+traj_mb = N_STEPS * n_nodes * 8 / 1e6
+print(f"n_nodes={n_nodes}  n_steps={N_STEPS}  block_size={BLOCK_SIZE}")
+print(f"full trajectory ~{traj_mb:.0f} MB; monolithic noise tensor ~the same again")
+```
+
+## Benchmark
+
+`RSSPeakMonitor` records the peak process-RSS delta during a call (a pragmatic
+CPU proxy; on GPU/TPU read `jax.devices()[0].memory_stats()` instead). We
+measure compile time, peak RSS, and best wall time for each of the three
+variants, then compare the BOLD outputs.
+
+```{python}
+#| echo: true
+#| output: false
+#| code-fold: true
+#| code-summary: "Benchmark setup"
+
+
+class RSSPeakMonitor:
+    """Record peak process RSS over the with-block (peak minus entry baseline).
+
+    A background thread polls ``psutil`` RSS at ``sample_interval`` and tracks
+    the max. On CPU, XLA buffers live in process RSS, so transient activations
+    and the stacked trajectory show up here. ``None`` if psutil is missing."""
+
+    def __init__(self, sample_interval=0.02):
+        self.sample_interval = sample_interval
+        self.peak_delta_bytes = None
+
+    def __enter__(self):
+        if not _HAS_PSUTIL:
+            return self
+        self._process = psutil.Process()
+        self._baseline = self._process.memory_info().rss
+        self._peak = self._baseline
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._sample, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        if not _HAS_PSUTIL:
+            return False
+        self._stop.set()
+        self._thread.join()
+        self.peak_delta_bytes = max(0, self._peak - self._baseline)
+        return False
+
+    def _sample(self):
+        while not self._stop.is_set():
+            try:
+                self._peak = max(self._peak, self._process.memory_info().rss)
+            except Exception:
+                break
+            self._stop.wait(self.sample_interval)
+
+
+# Variants (2) and (3) share one noise realization (same block_size forward);
+# (1) is the vanilla monolithic forward, a different draw.
+blocked_solver = Heun(block_size=BLOCK_SIZE)
+monolithic_solver = Heun()
+
+
+def classical():
+    sol = solve(network, monolithic_solver, t0=0.0, t1=T1, dt=DT)
+    return monitor(sol).ys
+
+
+def blocked():
+    sol = solve(network, blocked_solver, t0=0.0, t1=T1, dt=DT)
+    return monitor(sol).ys
+
+
+def streaming():
+    return solve(
+        network, blocked_solver, t0=0.0, t1=T1, dt=DT,
+        reduce=streaming_hrf_bold(monitor, DT),
+    )
+
+
+def measure(fn, n_rep=3):
+    t0 = time.perf_counter()
+    jax.block_until_ready(fn())  # compile + first call
+    compile_s = time.perf_counter() - t0
+    gc.collect()
+    mon = RSSPeakMonitor()
+    with mon:
+        out = fn()
+        jax.block_until_ready(out)
+    best = float("inf")
+    for _ in range(n_rep):
+        t = time.perf_counter()
+        jax.block_until_ready(fn())
+        best = min(best, time.perf_counter() - t)
+    return {
+        "compile_s": compile_s,
+        "peak_mb": (mon.peak_delta_bytes / 1e6) if mon.peak_delta_bytes else None,
+        "best_s": best,
+        "bold": np.asarray(out),
+    }
+
+
+@cache("streaming_bold_sweep", redo=True)
+def run_sweep():
+    results = {}
+    for name, fn in (("classical", classical), ("blocked", blocked),
+                     ("streaming", streaming)):
+        print(f"{name} ...", flush=True)
+        results[name] = measure(fn)
+        gc.collect()
+    return results
+
+
+results = run_sweep()
+```
+
+## Results
+
+```{python}
+#| label: fig-streaming-memory
+#| fig-cap: "**Streaming reductions: the forward-memory ladder.** Left: peak process-RSS delta for the three variants (log y). Classical holds the trajectory *and* the noise tensor; blocking the forward streams the noise away but still stacks the trajectory; only the streaming `reduce` bounds memory to one block. Right: the BOLD signal of one region. Blocked and streaming overlap exactly (shared noise); classical is a different but statistically equivalent realization."
+#| echo: true
+#| code-fold: true
+#| code-summary: "Plotting code"
+
+names = ["classical", "blocked", "streaming"]
+colors = {"classical": "firebrick", "blocked": "darkorange", "streaming": "seagreen"}
+
+fig, (ax_mem, ax_bold) = plt.subplots(1, 2, figsize=(13, 5))
+
+# --- Left: peak memory ladder ---
+mems = [results[n]["peak_mb"] for n in names]
+if all(m is not None for m in mems):
+    bars = ax_mem.bar(names, mems, color=[colors[n] for n in names])
+    ax_mem.set_yscale("log")
+    ax_mem.set_ylabel("peak RSS delta (MB)")
+    ax_mem.set_title("Forward memory")
+    for b, m in zip(bars, mems):
+        ax_mem.text(b.get_x() + b.get_width() / 2, m, f"{m:.0f}",
+                    ha="center", va="bottom", fontsize=11)
+else:
+    ax_mem.text(0.5, 0.5, "Peak memory unavailable\n(psutil not installed)",
+                transform=ax_mem.transAxes, ha="center", va="center")
+ax_mem.grid(alpha=0.3, axis="y", which="both")
+
+# --- Right: one region's BOLD time course ---
+node = 0
+for n in names:
+    y = results[n]["bold"][:, 0, node]
+    t = (np.arange(len(y)) + 1) * monitor.period / 1000.0  # s
+    ax_bold.plot(t, y, color=colors[n], lw=1.6,
+                 alpha=0.9 if n != "blocked" else 0.6,
+                 ls="--" if n == "streaming" else "-", label=n)
+ax_bold.set_xlabel("time (s)")
+ax_bold.set_ylabel(f"BOLD (region {node})")
+ax_bold.set_title("BOLD signal")
+ax_bold.legend(framealpha=0.9)
+ax_bold.grid(alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+```
+
+## Equivalence
+
+Blocked and streaming share a noise realization, so their BOLD must agree to FFT
+float-reassociation error. Classical is a different draw, compared on amplitude
+only.
+
+```{python}
+#| echo: true
+
+bold_classical = results["classical"]["bold"]
+bold_blocked = results["blocked"]["bold"]
+bold_streaming = results["streaming"]["bold"]
+
+max_abs = float(np.max(np.abs(bold_blocked - bold_streaming)))
+scale = float(np.max(np.abs(bold_blocked))) + 1e-12
+print(f"BOLD shape {bold_streaming.shape}  ({bold_streaming.shape[0]} samples)\n")
+print(f"blocked vs streaming (shared noise): max abs {max_abs:.2e} "
+      f"(rel {max_abs / scale:.2e})  "
+      f"{'MATCH' if max_abs / scale < 1e-4 else 'MISMATCH'}")
+print(f"classical (different noise draw): std {bold_classical.std():.3e} vs "
+      f"streaming std {bold_streaming.std():.3e}  (statistically comparable)")
+```
+
+## Summary Table
+
+```{python}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Table code"
+
+base = results["classical"]["peak_mb"]
+header = f"{'variant':<12} {'peak_MB':<10} {'vs classical':<14} {'best_s':<10} {'compile_s':<10}"
+print(header)
+print("-" * len(header))
+for n in names:
+    r = results[n]
+    peak = f"{r['peak_mb']:.1f}" if r["peak_mb"] is not None else "NA"
+    rel = f"{r['peak_mb'] / base:.2f}x" if (r["peak_mb"] and base) else "NA"
+    print(f"{n:<12} {peak:<10} {rel:<14} {r['best_s']:<10.3f} {r['compile_s']:<10.3f}")
+
+print()
+print(f"# workload: n_nodes={n_nodes}, n_steps={N_STEPS}, dt={DT}, T={T1/1000:.0f}s, "
+      f"block_size={BLOCK_SIZE}")
+print(f"# device: {jax.devices()[0].platform}  jax {jax.__version__}")
+```
+
+## Practical Guidance
+
+```python
+from tvboptim.experimental.network_dynamics import solve
+from tvboptim.experimental.network_dynamics.solvers import Heun
+from tvboptim.observations import welford_cov
+from tvboptim.observations.tvb_monitors import HRFBold, SubSampling, streaming_hrf_bold
+
+# Streamed functional connectivity: returns the FC matrix, never stacks ys.
+fc = solve(network, Heun(block_size=2000), t0=0.0, t1=120_000.0, dt=1.0,
+           reduce=welford_cov(s_var=0))
+
+# Streamed BOLD: SubSampling downsample, block_size a multiple of period/dt.
+monitor = HRFBold(period=1000.0, downsample_period=10.0,
+                  downsample=SubSampling(period=10.0), voi=0)
+bold = solve(network, Heun(block_size=2000), t0=0.0, t1=120_000.0, dt=1.0,
+             reduce=streaming_hrf_bold(monitor, dt=1.0))
+```
+
+Rules of thumb:
+
+- **Reach for `reduce` when the trajectory itself is the binding memory cost**,
+  like long statistical rollouts you pack many of onto a GPU. For a single run
+  that fits, the stacked trajectory is simpler.
+- **`block_size` trades throughput for memory.** Larger blocks amortize the
+  per-block work toward the monolithic forward speed; very small blocks serialize
+  it. Pick the smallest block whose chunk comfortably fits.
+- **Differentiating the FC does not keep the forward's `O(block_size)` win.**
+  Reverse mode retains every block's boundary carry (dynamics state, delay
+  history buffer, accumulator), so backward memory follows the
+  [checkpointing](gradient_checkpointing.qmd) model
+  `O(n_steps/block_size + block_size)`, U-shaped in `block_size`, not constant in
+  `n_steps`. `block_size` bounds that memory; `grad_horizon` is separate, it
+  bounds the gradient *horizon* (stability), not memory. For a long
+  differentiable FC set both; see
+  [Truncated Backpropagation](../workflows/TBPTT.qmd).
+- **`welford_cov` is a memory win, not a flop win**: post-hoc `compute_fc` is one
+  GEMM; the streamed reducer is `n_blocks` batched merges of the same total cost.
+```

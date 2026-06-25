@@ -216,6 +216,7 @@ For direct model specification and optimization workflows:
 - [Network Dynamics Introduction](./network_dynamics/network_dynamics.qmd) - Overview of the framework architecture
 - [Complete Optimization Workflows](./network_dynamics/network_dynamics.qmd#complete-optimization-workflows) - End-to-end examples:
   - [Reduced Wong-Wang BOLD FC Optimization](./workflows/RWW.qmd) - Fitting functional connectivity from fMRI
+  - [Truncated Backpropagation for Long Simulations](./workflows/TBPTT.qmd) - Bounding the gradient horizon with `grad_horizon`
   - [Jansen-Rit MEG Peak Frequency Gradient](./workflows/JR.qmd) - Reproducing spatial frequency patterns in MEG data
   - [Excitation Inhibition Balance Tuning](./workflows/EI_Tuning.qmd) - Connectivity scale optimization with and without automatic differentiation
 

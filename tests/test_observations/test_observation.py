@@ -140,11 +140,13 @@ class TestFCDDistribution(unittest.TestCase):
 class TestDistributionDistances(unittest.TestCase):
     def setUp(self):
         self.x = jnp.linspace(-1.0, 1.0, 200)
-        self.p = jnp.exp(-(self.x ** 2) / 0.1)
+        self.p = jnp.exp(-(self.x**2) / 0.1)
         self.q = jnp.exp(-((self.x - 0.3) ** 2) / 0.1)
 
     def test_w1_self_distance_is_zero(self):
-        self.assertAlmostEqual(float(wasserstein_1d(self.p, self.p, self.x)), 0.0, places=6)
+        self.assertAlmostEqual(
+            float(wasserstein_1d(self.p, self.p, self.x)), 0.0, places=6
+        )
 
     def test_w1_symmetric(self):
         self.assertAlmostEqual(

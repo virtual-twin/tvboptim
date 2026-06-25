@@ -35,6 +35,57 @@ def compute_fc(timeseries, s_var=0, mode=0, skip_t=0):
     return _fc.at[jnp.diag_indices(_fc.shape[0])].set(0)
 
 
+def welford_cov(s_var=0):
+    """Online functional-connectivity reducer for the network solver.
+
+    Returns a ``(init, update, finalize)`` triple for the ``reduce=`` kwarg of
+    ``prepare`` / ``solve``. It maintains a running mean and co-moment of the
+    chosen state variable's region time series via a block-wise Welford / Chan
+    merge (one batched ``X^T X`` per block, not a per-step rank-1 update), so
+    the accumulator is ``O(N^2)`` in the region count ``N`` and independent of
+    ``n_steps``. ``finalize`` returns the correlation matrix with a zeroed
+    diagonal, matching ``compute_fc(result, s_var=s_var)`` on the full
+    trajectory (the equivalence reference).
+
+    Args:
+        s_var: Index into the variables-of-interest axis (axis 1 of the stacked
+            trajectory), matching ``compute_fc``'s ``s_var``.
+    """
+
+    def init(template, n_steps):
+        # template is one step's output [n_vois, n_nodes]; size from the
+        # region (node) axis. n_steps is unused (the state is O(1) in time).
+        n = template.shape[-1]
+        return (jnp.array(0.0), jnp.zeros(n), jnp.zeros((n, n)))
+
+    def update(acc, block):
+        # block is [block_len, n_vois, n_nodes]; pick the chosen variable's
+        # region series and merge its block mean / co-moment into the running
+        # accumulator (Chan's parallel formula, exact up to float error).
+        count, mean, comoment = acc
+        x = block[:, s_var, :]
+        nb = x.shape[0]
+        mean_b = jnp.mean(x, axis=0)
+        xc = x - mean_b
+        comoment_b = xc.T @ xc
+        delta = mean_b - mean
+        new_count = count + nb
+        new_mean = mean + delta * (nb / new_count)
+        new_comoment = (
+            comoment + comoment_b + jnp.outer(delta, delta) * (count * nb / new_count)
+        )
+        return (new_count, new_mean, new_comoment)
+
+    def finalize(acc):
+        count, _mean, comoment = acc
+        cov = comoment / count
+        d = jnp.sqrt(jnp.diag(cov))
+        corr = cov / jnp.outer(d, d)
+        return corr.at[jnp.diag_indices(corr.shape[0])].set(0.0)
+
+    return (init, update, finalize)
+
+
 def compute_fcd(timeseries, t_window, step_size, s_var=0, mode=0, skip_t=0):
     """Compute the functional connectivity dynamics (FCD) matrix.
 

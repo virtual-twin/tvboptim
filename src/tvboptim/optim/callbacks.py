@@ -62,13 +62,9 @@ class SavingLossCallback(SavingCallback):
         super().__init__(
             every,
             key="loss",
-            save_fun=lambda i,
-            diff_state,
-            static_state,
-            fitting_data,
-            aux_data,
-            loss_value,
-            grads: loss_value,
+            save_fun=lambda i, diff_state, static_state, fitting_data, aux_data, loss_value, grads: (
+                loss_value
+            ),
         )
 
 
@@ -77,13 +73,9 @@ class SavingParametersCallback(SavingCallback):
         super().__init__(
             every,
             key="parameters",
-            save_fun=lambda i,
-            diff_state,
-            static_state,
-            fitting_data,
-            aux_data,
-            loss_value,
-            grads: diff_state,
+            save_fun=lambda i, diff_state, static_state, fitting_data, aux_data, loss_value, grads: (
+                diff_state
+            ),
         )
 
 

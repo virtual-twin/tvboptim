@@ -1,0 +1,680 @@
+---
+title: "Truncated Backpropagation for Chaotic Brain Networks"
+subtitle: "Why long-rollout gradients break, and how the `grad_horizon` knob fixes them"
+format:
+  html:
+    code-fold: false
+    toc: true
+    echo: false
+    embed-resources: true
+    fig-width: 8
+    out-width: "100%"
+jupyter: python3
+execute:
+  cache: true
+---
+
+Try this notebook interactively:
+
+[Download .ipynb](https://github.com/virtual-twin/tvboptim/blob/main/docs/workflows/TBPTT.ipynb){.btn .btn-primary download="TBPTT.ipynb"}
+[Download .qmd](TBPTT.qmd){.btn .btn-secondary download="TBPTT.qmd"}
+[Open in Colab](https://colab.research.google.com/github/virtual-twin/tvboptim/blob/main/docs/workflows/TBPTT.ipynb){.btn .btn-warning target="_blank"}
+
+## Introduction
+
+Fitting resting-state functional connectivity (FC) needs **long** simulations:
+FC is a long-time covariance, so a stable estimate requires a long forward
+rollout. Differentiating through that rollout is an RNN backward pass, and its
+sensitivity grows like $\exp(T\,\Lambda)$ over a window of length $T$, where
+$\Lambda$ is the largest Lyapunov exponent of the dynamics. While the network
+sits at a fixed point or a limit cycle ($\Lambda \le 0$) this is harmless. Once
+a control parameter pushes the network across a bifurcation into **chaos**
+($\Lambda > 0$), the same backward pass amplifies without bound and the gradient
+becomes numerically useless.
+
+This notebook makes that failure concrete on a Jansen-Rit whole-brain model,
+where the global coupling $G$ drives a bifurcation into chaos. On the stable side
+the exact autodiff (AD) gradient of an FC loss with respect to $G$ is correct,
+checked against a finite-difference ground truth and the measured Lyapunov
+exponent; past the bifurcation it flips sign and blows up. The fix is truncated
+backpropagation through time (TBPTT), a single solver knob `grad_horizon` that
+keeps the long forward rollout but pulls the gradient back only through a fixed
+window. With it, optimizing $G$ to fit empirical FC stays on track where the full
+gradient does not.
+
+```{python}
+#| output: false
+#| echo: false
+# Install dependencies if running in Google Colab
+try:
+    import google.colab
+    print("Running in Google Colab - installing dependencies...")
+    !pip install -q tvboptim
+    print("✓ Dependencies installed!")
+except ImportError:
+    pass  # Not in Colab, assume dependencies are available
+```
+
+```{python}
+#| output: false
+#| code-fold: true
+#| code-summary: "Environment setup and imports"
+#| echo: true
+import os
+
+# Mock host devices so the G-sweep can shard across pmap on CPU. Keep this modest:
+# each device runs a heavy reverse-mode AD sim and oversubscribing crashes the kernel.
+N_DEVICES = 4
+os.environ.setdefault(
+    "XLA_FLAGS", f"--xla_force_host_platform_device_count={N_DEVICES}"
+)
+
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
+import jax
+import jax.numpy as jnp
+import equinox as eqx
+import optax
+
+# 64-bit precision for reliable gradients and Lyapunov exponents
+jax.config.update("jax_enable_x64", True)
+
+from tvboptim.utils import set_cache_path, cache
+from tvboptim.data import (
+    load_structural_connectivity,
+    load_functional_connectivity,
+)
+from tvboptim.execution import ParallelExecution
+from tvboptim.types import GridAxis, Space, Parameter
+from tvboptim.experimental.network_dynamics import Network, prepare
+from tvboptim.experimental.network_dynamics.dynamics.tvb import JansenRit
+from tvboptim.experimental.network_dynamics.coupling import SigmoidalJansenRit
+from tvboptim.experimental.network_dynamics.graph import DenseGraph
+from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
+from tvboptim.experimental.network_dynamics.solvers import Heun
+from tvboptim.experimental.network_dynamics.analysis.lyapunov import (
+    _lyapunov_spectrum_jvp,
+)
+from tvboptim.observations.observation import compute_fc, fc_corr, rmse
+from tvboptim.observations.tvb_monitors.bold import HRFBold
+from tvboptim.optim.optax import OptaxOptimizer
+from tvboptim.optim.callbacks import (
+    DefaultPrintCallback,
+    MultiCallback,
+    SavingCallback,
+)
+
+set_cache_path("./tbptt")
+
+# Semantic palette (self-contained, no external style file).
+INK = "#003754"     # text / reference lines
+ACCENT = "#0a5170"  # accurate gradient / differentiated windows
+WARN = "#AF1821"    # wrong or unstable gradient / stop-gradient cuts
+SHIP = "#3E8E68"    # TBPTT run
+ROAD = "#6b7280"    # boundaries, guides
+WIN_FILL = "#dce4f0"
+```
+
+## The Jansen-Rit Whole-Brain Model
+
+We use a whole-brain Jansen-Rit network on Desikan-Killiany structural
+connectivity, with instantaneous sigmoidal coupling scaled by the global
+coupling $G$ and additive noise on the $y_4$ population. Sweeping $G$ takes the
+network from a quiescent fixed point, through synchronized oscillation, into
+chaos, which is exactly the regime where long-rollout gradients become
+dangerous. The empirical FC is the optimization target.
+
+```{python}
+#| echo: true
+#| output: false
+# Model constants (match the chaos regime used on the poster).
+A, MU, SIGMA, DT = 0.1, 0.08, 0.0316, 1.0
+G_LOW, G_HIGH, N_G = 0.0, 40.0, 80          # G sweep grid (divisible by N_DEVICES)
+G_RANGE = np.linspace(G_LOW, G_HIGH, N_G)
+
+WARMUP_T = 20_000.0   # settle out the transient before any measurement (ms)
+FC_T1 = 60_000.0      # long BOLD/FC rollout (ms): the gradient horizon at stake
+BOLD_PERIOD = 720.0   # BOLD sampling period (ms)
+BOLD_SKIP = 25        # BOLD samples dropped before FC
+LE_SEGMENT_T = 1_000.0  # Lyapunov segment length (ms)
+LE_N = 5                # Lyapunov rescaling steps
+
+assert N_G % N_DEVICES == 0, "N_G must be divisible by N_DEVICES for the pmap sweep"
+
+
+def build_network(weights, region_labels, G=8.0):
+    """Jansen-Rit whole-brain network with instantaneous sigmoidal coupling."""
+    return Network(
+        dynamics=JansenRit(a=A, mu=MU),
+        coupling={"instant": SigmoidalJansenRit(incoming_states=("y1", "y2"), G=G)},
+        graph=DenseGraph(weights, region_labels=region_labels),
+        noise=AdditiveNoise(sigma=SIGMA, apply_to="y4"),
+    )
+
+
+coupling_key = "instant"
+G_lens = lambda c: c.coupling[coupling_key].G  # noqa: E731
+
+weights, lengths, region_labels = load_structural_connectivity("dk_average")
+weights = weights / jnp.max(weights)
+fc_target = load_functional_connectivity("dk_average")
+
+network = build_network(weights, region_labels)
+
+# Warm up to a settled state; the FC sim's BOLD monitor reuses it as history.
+warm_solve, warm_cfg = prepare(network, Heun(), t1=WARMUP_T, dt=DT)
+warm_res = jax.block_until_ready(jax.jit(warm_solve)(warm_cfg))
+network.update_history(warm_res)
+
+# Two prepared solve functions: the long FC/BOLD rollout, and a short Lyapunov
+# segment used to locate the chaos onset.
+solve_fc, config_fc = prepare(network, Heun(), t1=FC_T1, dt=DT)
+solve_le, config_le = prepare(network, Heun(), t1=LE_SEGMENT_T, dt=DT)
+bold = HRFBold(period=BOLD_PERIOD, voi=0, history=warm_res)
+```
+
+## The Problem: the Exact Gradient Breaks at the Bifurcation
+
+The loss is the RMSE between the simulated FC and the empirical target. We sweep
+$G$ and, at each value, compute the exact reverse-mode AD gradient $dL/dG$, a
+finite-difference (FD) ground truth on the same loss, and the top Lyapunov
+exponent $\lambda_{\max}$ that marks the chaos onset.
+
+The FD control is the honest reference here. A single secant is butterfly
+dominated in the chaotic band, so we use a central difference of the
+**seed-averaged** loss: at each $G$ we run several forward sims at $G \pm \delta$
+that share one noise key per seed (common random numbers), average, then form the
+central difference. Forward sims carry no autodiff tape, so this stays affordable
+even though the reverse-mode AD leg is expensive.
+
+```{python}
+#| echo: true
+#| output: false
+FD_DELTA = 0.3        # finite central-difference step in G
+N_FD_SEEDS = 8        # seeds averaged for the FD ground truth
+FD_SEED_BASE = 0
+fd_keys = jax.random.split(jax.random.key(FD_SEED_BASE), N_FD_SEEDS)
+
+
+def fc_rmse_loss(cfg):
+    """FC-RMSE loss for a config: long BOLD rollout -> FC -> RMSE vs target."""
+    fc = compute_fc(bold(solve_fc(cfg)), skip_t=BOLD_SKIP)
+    return rmse(fc, fc_target)
+
+
+def run_motivation(cfg):
+    """Per-G probe: [loss, AD grad, seed-averaged FD grad, FD sem, lambda_max]."""
+    G0 = G_lens(cfg)
+
+    def f(g):  # single-seed loss at the config's own noise key (AD value + grad)
+        return fc_rmse_loss(eqx.tree_at(G_lens, cfg, g))
+
+    val, grad_ad = jax.value_and_grad(f)(G0)
+
+    def central_fd(key):  # common random numbers across G +/- delta
+        c = eqx.tree_at(lambda c: c.noise.key, cfg, key)
+        fp = fc_rmse_loss(eqx.tree_at(G_lens, c, G0 + FD_DELTA))
+        fm = fc_rmse_loss(eqx.tree_at(G_lens, c, G0 - FD_DELTA))
+        return (fp - fm) / (2.0 * FD_DELTA)
+
+    fd_seeds = jax.lax.map(central_fd, fd_keys)  # sequential over seeds
+    fd_mean = jnp.mean(fd_seeds)
+    fd_sem = jnp.std(fd_seeds) / jnp.sqrt(N_FD_SEEDS)
+
+    # Top Lyapunov exponent on a short segment at this G. The public
+    # `lyapunov_spectrum(network, Heun(), t, n, k=1)` is the single-network
+    # equivalent; here we reuse the prepared segment solver so it vmaps cleanly.
+    cfg_le = eqx.tree_at(G_lens, config_le, jnp.asarray(G0))
+    lam = _lyapunov_spectrum_jvp(solve_le, cfg_le, t=LE_SEGMENT_T, n=LE_N, k=1)[0]
+
+    return jnp.stack([val, grad_ad, fd_mean, fd_sem, lam])
+
+
+@cache("motivation")
+def compute_motivation():
+    _, sweep_cfg = prepare(network, Heun(), t1=FC_T1, dt=DT)
+    sweep_cfg.coupling[coupling_key].G = GridAxis(G_LOW, G_HIGH, N_G)
+    space = Space(sweep_cfg, mode="product")
+    results = ParallelExecution(run_motivation, space, n_pmap=N_DEVICES).run()
+    s = np.array([np.asarray(results[i]) for i in range(len(results))])
+    return {
+        "g": np.asarray(G_RANGE),
+        "loss": s[:, 0],      # FC-RMSE(G): also the optimization profile
+        "grad_ad": s[:, 1],
+        "grad_fd": s[:, 2],
+        "fd_sem": s[:, 3],
+        "lam": s[:, 4],
+    }
+
+
+mot = compute_motivation()
+
+
+def g_crit_from(lam, g):
+    """First G where lambda_max crosses zero (linear interp), or None."""
+    pos = np.where(lam > 0)[0]
+    if pos.size == 0 or pos[0] == 0:
+        return None
+    i = pos[0]
+    return float(np.interp(0.0, [lam[i - 1], lam[i]], [g[i - 1], g[i]]))
+
+
+G_CRIT = g_crit_from(mot["lam"], mot["g"])
+```
+
+```{python}
+#| label: fig-gradient-breaks
+#| fig-cap: "**The exact FC-loss gradient breaks at the chaos onset.** Top: the FC-RMSE loss $L(G)$ (blue, left axis) and the top Lyapunov exponent $\\lambda_{\\max}$ (red, right axis), which crosses zero at the bifurcation into chaos (red band). The loss optimum (blue dot) sits just below that boundary. Bottom: the gradient $dL/dG$. The seed-averaged finite-difference gradient (line + band) is the ground truth; the autodiff gradient (markers) is colored by how it compares: accurate (within 1%), correct direction, wrong sign, or numerically unstable (NaN/Inf). In the fixed-point and limit-cycle regime the AD gradient matches FD; once $G$ crosses the $\\lambda_{\\max}=0$ boundary it flips sign and blows up, while the finite-difference reference stays bounded. This is the failure truncation is built to avoid."
+#| code-fold: true
+#| code-summary: "Show plotting code"
+g = mot["g"]
+loss, grad_ad, grad_fd, fd_sem, lam = (
+    mot["loss"], mot["grad_ad"], mot["grad_fd"], mot["fd_sem"], mot["lam"]
+)
+
+
+def categorize(ad, fd, eps=0.01):
+    ad, fd = np.asarray(ad, float), np.asarray(fd, float)
+    ad_ok = ~(np.isnan(ad) | np.isinf(ad))
+    rel = np.where(np.abs(fd) > 1e-12, np.abs(ad - fd) / np.abs(fd), np.inf)
+    same_sign = np.sign(np.where(ad_ok, ad, 0.0)) == np.sign(fd)
+    accurate = ad_ok & (rel < eps)
+    correct = ad_ok & same_sign & ~accurate
+    wrong = ad_ok & ~same_sign
+    unstable = ~ad_ok
+    return accurate, correct, wrong, unstable
+
+
+fig, (ax_top, ax_bot) = plt.subplots(
+    2, 1, figsize=(8.2, 6.6), sharex=True,
+    gridspec_kw={"height_ratios": [1.0, 1.2], "hspace": 0.08},
+)
+
+
+def chaos_band(ax):
+    """Shade the chaotic band and mark the lambda_max=0 boundary on an axis."""
+    if G_CRIT is not None:
+        ax.axvspan(G_CRIT, g.max(), color=WARN, alpha=0.07, zorder=0)
+        ax.axvline(G_CRIT, color=ROAD, ls="--", lw=1.2, zorder=0)
+
+
+# ---- top panel: loss value + Lyapunov exponent (chaos onset) ----
+# Both series are sampled per G: scatter the measurements with a thin dashed guide,
+# matching the marker style of the gradient panel below.
+lam_ax = ax_top.twinx()
+chaos_band(ax_top)
+ax_top.plot(g, loss, "--", color=ACCENT, lw=1.0, alpha=0.5, zorder=2)
+ax_top.scatter(g, loss, color=ACCENT, s=14, zorder=3)
+kbest = int(np.nanargmin(loss))
+ax_top.scatter([g[kbest]], [loss[kbest]], color=ACCENT, s=90, edgecolor="black",
+               linewidth=1.0, zorder=4, label="Optimum")
+ax_top.set_ylabel("FC RMSE  $L(G)$", color=ACCENT)
+ax_top.tick_params(axis="y", labelcolor=ACCENT)
+ax_top.legend(loc="upper left", fontsize=9, framealpha=0.5)
+
+lam_s = 1000.0 * lam
+lam_ax.plot(g, lam_s, "--", color=WARN, lw=1.0, alpha=0.5, zorder=2)
+lam_ax.scatter(g, lam_s, color=WARN, s=14, alpha=0.85, zorder=3)
+lam_ax.axhline(0.0, color=WARN, lw=0.6, ls=":", alpha=0.6)
+lam_ax.set_ylabel(r"$\lambda_{max}$  (1/s)", color=WARN)
+lam_ax.tick_params(axis="y", labelcolor=WARN)
+if G_CRIT is not None:
+    lam_ax.text(G_CRIT, 0.97, r" $\lambda_{max}=0$", color=ROAD, va="top",
+                ha="left", transform=lam_ax.get_xaxis_transform(), fontsize=10)
+
+# ---- bottom panel: gradient vs FD ground truth ----
+# Adaptive symlog scale tied to the FD magnitude, so the physical gradient fills
+# the frame and the chaotic-band AD blowups clip to the edge instead of stretching
+# the axis over empty decades.
+fd_abs = np.abs(grad_fd[np.isfinite(grad_fd)])
+cap = float(6.0 * np.nanmax(fd_abs))
+lin = float(max(0.3 * np.nanmedian(fd_abs), 1e-9))
+
+chaos_band(ax_bot)
+ax_bot.fill_between(g, grad_fd - fd_sem, grad_fd + fd_sem, color=INK, alpha=0.18, lw=0)
+ax_bot.plot(g, grad_fd, "x--", color=INK, alpha=0.85,
+            label="Finite difference (seed-averaged, ground truth)")
+
+acc, cor, wro, uns = categorize(grad_ad, grad_fd)
+ad_disp = np.clip(np.asarray(grad_ad, float), -cap * 0.96, cap * 0.96)
+for mask, color, marker, label in [
+    (acc, ACCENT, "o", "AD accurate"),
+    (cor, "#6f9bd1", "o", "AD correct direction"),
+    (wro, WARN, "s", "AD wrong sign"),
+    (uns, WARN, "X", "AD unstable (NaN/Inf)"),
+]:
+    if np.any(mask):
+        y = np.where(uns, 0.0, ad_disp)[mask] if label.endswith("(NaN/Inf)") else ad_disp[mask]
+        ax_bot.scatter(g[mask], y, color=color, marker=marker, s=42,
+                       edgecolor="black", linewidth=0.5, zorder=3, label=label)
+
+ax_bot.set_yscale("symlog", linthresh=lin, linscale=0.8)
+ax_bot.set_ylim(-cap, cap)
+ax_bot.axhline(0.0, color=ROAD, lw=0.8, alpha=0.5)
+ax_bot.set_xlabel(r"global coupling $G$")
+ax_bot.set_ylabel(r"$dL/dG$")
+ax_bot.legend(loc="lower left", fontsize=8, framealpha=0.5)
+plt.tight_layout()
+```
+
+## The Fix: Truncating the Gradient Horizon
+
+Truncated backpropagation through time keeps the long forward rollout but pulls
+the gradient back only through a fixed-length window. In `tvboptim` it is a
+single solver knob, `grad_horizon`, on the native solvers.
+
+The knob is easy to mis-model. The whole `n_steps` rollout runs as one continuous
+forward trajectory, then is tiled into windows of $W =$
+`grad_horizon` steps. The loss depends on every window, so **every window is
+differentiated**; what truncation does is sever the carried *state* gradient at
+each window boundary with `stop_gradient`, so credit cannot flow across a
+boundary and the $\exp(T\,\Lambda)$ blow-up is cut off at $W$. The parameter
+gradient survives the severing because parameters like $G$ are *closed over* by
+the scan body, not threaded through the state carry. The total is the sum of each
+window's local contribution:
+
+$$
+\frac{dL}{dG} \;\approx\; \sum_{k=0}^{n_\text{windows}-1}
+  \left.\frac{\partial L_k}{\partial G}\right|_{s_k\ \text{detached}} .
+$$
+
+The window must be shorter than the gradient's memory horizon
+$\tau_\lambda \sim 1/\lambda_{\max}$ to tame the chaotic amplification, but long
+enough to keep the slow structure the loss actually depends on.
+
+```{python}
+#| label: fig-tbptt-schematic
+#| fig-cap: "**How `grad_horizon` tiles the rollout.** One continuous forward pass (top strip, color = time) is split into windows of $W$ steps. Every window is differentiated and contributes its local $\\partial L_k/\\partial G$ (blue), but the carried state gradient is cut at every boundary (red dashed). The shared parameter $G$ is closed over by all windows, so its gradient is the sum of the per-window contributions. The window length is kept below the chaotic memory horizon, $W < \\tau_\\lambda$."
+#| code-fold: true
+#| code-summary: "Show diagram code"
+N_WIN, W = 5, 1.0
+BOX_Y0, BOX_H = 0.0, 0.95
+TOP_Y0, TOP_H = 1.55, 0.30
+
+fig, ax = plt.subplots(figsize=(8.4, 2.7))
+
+# top: one continuous forward rollout, cividis encodes the time axis
+ax.imshow(np.linspace(0, 1, 256)[None, :], extent=(0, N_WIN * W, TOP_Y0, TOP_Y0 + TOP_H),
+          aspect="auto", cmap="cividis", zorder=1)
+ax.add_patch(FancyBboxPatch((0, TOP_Y0), N_WIN * W, TOP_H,
+             boxstyle="round,pad=0,rounding_size=0.04", fill=False,
+             edgecolor=INK, lw=1.4, zorder=2))
+ax.text(N_WIN * W / 2, TOP_Y0 + TOP_H + 0.14,
+        "one continuous forward rollout  (long simulation for slow statistics: FC, FCD)",
+        ha="center", va="bottom", fontsize=12, color=INK)
+ax.annotate("", xy=(N_WIN * W - 0.35, TOP_Y0 + TOP_H / 2), xytext=(1.55, TOP_Y0 + TOP_H / 2),
+            arrowprops=dict(arrowstyle="-|>", color="white", lw=2.2))
+ax.text(0.9, TOP_Y0 + TOP_H / 2, "time", ha="center", va="center",
+        fontsize=11, color="white", style="italic")
+
+# windows: each differentiated, local gradient inside, stop-gradient cut at boundaries
+for k in range(N_WIN):
+    x0 = k * W
+    ax.add_patch(FancyBboxPatch((x0 + 0.03, BOX_Y0), W - 0.06, BOX_H,
+                 boxstyle="round,pad=0,rounding_size=0.05", facecolor=WIN_FILL,
+                 edgecolor=INK, lw=1.6, zorder=3))
+    ax.text(x0 + W / 2, BOX_Y0 + BOX_H * 0.66, f"window {k}", ha="center",
+            va="center", fontsize=12, color=INK)
+    ax.text(x0 + W / 2, BOX_Y0 + BOX_H * 0.28, r"$\partial L_{%d}/\partial G$" % k,
+            ha="center", va="center", fontsize=11, color=ACCENT)
+    ax.add_patch(FancyArrowPatch((x0 + W / 2, BOX_Y0 - 0.04), (x0 + W / 2, BOX_Y0 - 0.30),
+                 arrowstyle="-|>", mutation_scale=16, color=ACCENT, lw=2.0, zorder=4))
+    if k > 0:
+        ax.plot([x0, x0], [BOX_Y0 - 0.02, BOX_Y0 + BOX_H + 0.22], color=WARN,
+                lw=2.4, ls=(0, (4, 3)), zorder=5)
+
+ax.text(N_WIN * W / 2, BOX_Y0 + BOX_H + 0.30, "stop-gradient on carried state",
+        ha="center", va="bottom", fontsize=11, color=WARN, weight="bold")
+ax.annotate("", xy=(W - 0.03, BOX_Y0 + BOX_H + 0.12), xytext=(0.03, BOX_Y0 + BOX_H + 0.12),
+            arrowprops=dict(arrowstyle="<|-|>", color=INK, lw=1.4))
+ax.text(W / 2, BOX_Y0 + BOX_H + 0.16, r"$W < \tau_\lambda$", ha="center",
+        va="bottom", fontsize=12, color=INK)
+
+# bottom: shared parameter, gradient is the sum over windows
+sum_top, box_h, box_w = BOX_Y0 - 0.36, 0.46, 4.8
+ax.add_patch(FancyBboxPatch((N_WIN * W / 2 - box_w / 2, sum_top - box_h), box_w, box_h,
+             boxstyle="round,pad=0.02,rounding_size=0.08", facecolor=INK,
+             edgecolor="none", zorder=4))
+ax.text(N_WIN * W / 2, sum_top - box_h / 2,
+        r"shared $G$:   $dL/dG \;=\; \sum\, \partial L_k/\partial G$",
+        ha="center", va="center", fontsize=11, color="white", zorder=5)
+
+ax.set_xlim(-0.45, N_WIN * W + 0.45)
+ax.set_ylim(sum_top - box_h - 0.15, TOP_Y0 + TOP_H + 0.5)
+ax.axis("off")
+plt.tight_layout()
+```
+
+The truncation window is purely a solver setting: `stop_gradient` is the identity
+on the forward pass, so the simulated trajectory, the FC and the loss *value* are
+bit-identical to the untruncated run for every window. Only the backward pass
+changes.
+
+## The Payoff: Optimizing $G$ With and Without Truncation
+
+Now we fit $G$ to the empirical FC by minimizing the FC-RMSE, starting from a
+sub-critical $G$ and taking the same optimizer and learning rate in two runs that
+differ only in how the gradient is obtained:
+
+- **Full AD** runs forward-mode autodiff through the untruncated solver. For a
+  single scalar parameter, forward-mode AD equals full reverse-mode BPTT (same
+  $dL/dG$), so this trajectory is the exact, untruncated gradient.
+- **TBPTT** replaces the backward pass with a windowed solver
+  `Heun(grad_horizon=W)`, assigning credit only over the last $W$ steps.
+
+```{python}
+#| echo: true
+#| output: false
+G_START = 5.0       # sub-critical start
+LR = 1.0
+MAX_STEPS = 100
+PRINT_EVERY = 25
+W_TBPTT = 100       # gradient horizon for the truncated run (steps)
+
+
+def make_rmse_loss(solve):
+    """FC-RMSE loss through a given solve function (full or windowed)."""
+    def loss(state):
+        fc = compute_fc(bold(solve(state)), skip_t=BOLD_SKIP)
+        err = rmse(fc, fc_target)
+        return err, {"rmse": err, "G": jnp.asarray(G_lens(state))}
+    return loss
+
+
+def save_traj(i, diff_state, static_state, fitting_data, aux, loss_value, grads):
+    return {"step": int(i), "G": float(aux["G"]), "rmse": float(aux["rmse"])}
+
+
+def run_optim(loss_fn, cfg, mode, label):
+    """One optimization from G_START; returns (steps, G, rmse) arrays."""
+    cfg.coupling[coupling_key].G = Parameter(jnp.asarray(G_START))
+    cb = MultiCallback([
+        DefaultPrintCallback(every=PRINT_EVERY),
+        SavingCallback(key="traj", save_fun=save_traj),
+    ])
+    opt = OptaxOptimizer(loss_fn, optax.adam(LR), callback=cb, has_aux=True)
+    print(f"\n=== {label} ===")
+    _, data = opt.run(cfg, max_steps=MAX_STEPS, mode=mode)
+    rows = list(data["traj"]["save"])
+    return (np.array([r["step"] for r in rows]),
+            np.array([r["G"] for r in rows]),
+            np.array([r["rmse"] for r in rows]))
+
+
+@cache("optim_runs")
+def compute_optim():
+    # Full AD (forward-mode == full BPTT for scalar G), untruncated solver.
+    _, cfg_ad = prepare(network, Heun(), t1=FC_T1, dt=DT)
+    ad = run_optim(make_rmse_loss(solve_fc), cfg_ad, "fwd", "Full AD (no truncation)")
+
+    # TBPTT: identical forward dynamics, backward pass windowed to W*dt.
+    solve_w, cfg_w = prepare(network, Heun(grad_horizon=W_TBPTT), t1=FC_T1, dt=DT)
+    tb = run_optim(make_rmse_loss(solve_w), cfg_w, "rev", f"TBPTT W={W_TBPTT}")
+    return {"ad": ad, "tb": tb}
+
+
+runs = compute_optim()
+
+
+def _last_finite(arr):
+    a = np.asarray(arr, float)
+    fin = np.flatnonzero(np.isfinite(a))
+    return float(a[fin[-1]]) if fin.size else float("nan")
+
+
+@cache("final_fc")
+def compute_final_fc():
+    """Simulated FC at each run's optimized G (last finite step), vs the target."""
+    def fc_at(G):
+        cfg = eqx.tree_at(G_lens, config_fc, jnp.asarray(float(G)))
+        fc = compute_fc(bold(solve_fc(cfg)), skip_t=BOLD_SKIP)
+        return np.asarray(fc), float(rmse(fc, fc_target)), float(fc_corr(fc, fc_target))
+
+    out = {"fc_target": np.asarray(fc_target)}
+    for key in ("ad", "tb"):
+        G = _last_finite(runs[key][1])
+        fc, err, r = fc_at(G)
+        out[key] = {"G": G, "fc": fc, "rmse": err, "r": r}
+    return out
+
+
+final_fc = compute_final_fc()
+```
+
+```{python}
+#| label: fig-optim-trajectories
+#| fig-cap: "**Optimizing $G$ to fit FC, with and without truncation.** Top: each trajectory is one run; the y-axis is $G$ at each optimization step, points colored by the FC-RMSE they reached (lower is better). The dashed line is the $\\lambda_{max}=0$ boundary and the red band above it is the chaotic regime. The grey curve on the left is the $RMSE(G)$ profile from the sweep above, bulging right at the optimum. The full-AD run is driven by the unstable gradient into the chaotic band; the TBPTT ($W=100$) run descends on a stable, short-horizon gradient and settles near the RMSE optimum on the stable side. Bottom: the simulated FC at each run's optimized $G$ beside the empirical target. The TBPTT fit reproduces the target structure; the full-AD run, stranded in the chaotic band, does not."
+#| code-fold: true
+#| code-summary: "Show plotting code"
+ad_run, tb_run = runs["ad"], runs["tb"]
+
+fig = plt.figure(figsize=(9.0, 8.0), layout="constrained")
+gs = fig.add_gridspec(2, 1, height_ratios=[1.5, 1.0])
+ax = fig.add_subplot(gs[0])
+gs_fc = gs[1].subgridspec(1, 3, wspace=0.08)
+fc_axes = [fig.add_subplot(gs_fc[0, j]) for j in range(3)]
+
+# ---- top panel: step-vs-G trajectories ----
+g_top = max(np.nanmax(ad_run[1]), np.nanmax(tb_run[1]))
+
+# chaos boundary + band
+if G_CRIT is not None:
+    ax.axhline(G_CRIT, color=ROAD, ls="--", lw=1.5, zorder=0)
+    ax.axhspan(G_CRIT, g_top * 1.05, color=WARN, alpha=0.07, zorder=0)
+    ax.text(0.99, G_CRIT, r"$\lambda_{max}=0$ ", color=ROAD, va="bottom", ha="right",
+            transform=ax.get_yaxis_transform(), fontsize=10)
+
+# sideways RMSE(G) reference profile (bulges right at the minimum = optimum)
+PROFILE_X0, PROFILE_W = 0.0, 0.18 * MAX_STEPS
+err_prof = mot["loss"]
+emin, emax = float(np.nanmin(err_prof)), float(np.nanmax(err_prof))
+if emax > emin:
+    xprof = PROFILE_X0 + PROFILE_W * (emax - err_prof) / (emax - emin)
+    ax.fill_betweenx(mot["g"], PROFILE_X0, xprof, color=ROAD, alpha=0.12, lw=0, zorder=0)
+    ax.plot(xprof, mot["g"], color=ROAD, lw=1.2, alpha=0.6, zorder=1)
+    kbest = int(np.nanargmin(err_prof))
+    ax.annotate(r"RMSE$(G)$", xy=(xprof[kbest], mot["g"][kbest]), xytext=(6, 0),
+                textcoords="offset points", color=ROAD, fontsize=11, va="center")
+
+# trajectories, colored by RMSE on a shared scale
+rmse_all = np.concatenate([ad_run[2], tb_run[2]])
+vmin, vmax = float(np.nanmin(rmse_all)), float(np.nanmax(rmse_all))
+runs_plot = [
+    (ad_run, "s", WARN, "Full AD (no truncation)"),
+    (tb_run, "^", SHIP, f"TBPTT ($W={W_TBPTT}$)"),
+]
+sc = None
+for (steps, G, err), marker, line_c, _ in runs_plot:
+    ax.plot(steps, G, color=line_c, lw=1.0, alpha=0.4, zorder=1)
+    sc = ax.scatter(steps, G, c=err, cmap="cividis_r", vmin=vmin, vmax=vmax,
+                    marker=marker, s=42, edgecolor="black", linewidth=0.4, zorder=3)
+
+ax.set_xlabel("optimization step")
+ax.set_ylabel(r"global coupling $G$")
+fig.colorbar(sc, ax=ax, label="FC RMSE")
+handles = [Line2D([0], [0], color=c, marker=m, lw=1.0, mec="black", label=lab)
+           for _, m, c, lab in runs_plot]
+ax.legend(handles=handles, loc="best", fontsize=10)
+
+# ---- bottom panel: simulated FC at each run's optimum vs the empirical target ----
+panels = [
+    ("Empirical target", final_fc["fc_target"], None),
+    (rf"TBPTT ($W={W_TBPTT}$)", final_fc["tb"]["fc"], final_fc["tb"]),
+    ("Full AD", final_fc["ad"]["fc"], final_fc["ad"]),
+]
+mats = np.array([p[1] for p in panels])
+offdiag = ~np.eye(mats.shape[1], dtype=bool)
+vmax_fc = float(np.nanpercentile(mats[:, offdiag], 95))
+im = None
+for fa, (title, mat, info) in zip(fc_axes, panels):
+    m = np.array(mat, float)
+    np.fill_diagonal(m, np.nan)
+    im = fa.imshow(m, cmap="cividis", vmin=0.0, vmax=vmax_fc, aspect="equal", interpolation="none")
+    fa.set_xticks([])
+    fa.set_yticks([])
+    sub = title if info is None else (
+        f"{title}\n$G={info['G']:.1f}$,  RMSE$={info['rmse']:.3f}$,  "
+        rf"$r_{{FC}}={info['r']:.3f}$"
+    )
+    fa.set_title(sub, fontsize=10, color=INK)
+fig.colorbar(im, ax=fc_axes, label="FC", shrink=0.8)
+```
+
+## Interpretation and Practical Recipe
+
+- **The exact gradient is correct until the dynamics turn chaotic.** Below the
+  $\lambda_{\max}=0$ boundary the AD gradient agrees with the finite-difference
+  ground truth. Above it the AD gradient flips sign and diverges, so an optimizer
+  driven by it is pushed into the chaotic regime instead of toward the fit.
+- **Truncation restores a usable gradient.** Severing the carry gradient at the
+  window boundary caps the backward horizon at $W\,dt$, so the runaway
+  amplification never accumulates. The windowed run descends on a stable gradient
+  and settles near the FC optimum on the stable side.
+- **The window is a real hyperparameter.** A too-short window is blind to slow
+  FC structure and biases toward fast timescales; a too-long window lets the
+  chaotic amplification back in. Choose $W$ from the slowest timescale you need
+  credit for, not from the simulation length.
+
+::: {.callout-note}
+## Forward is unchanged
+
+`grad_horizon` only changes the backward pass. The forward trajectory, and hence
+the FC and the loss *value*, are bit-identical to the untruncated run for every
+window. The same long simulation can serve a long-horizon statistic while the
+gradient is taken over a short, stable window.
+:::
+
+`grad_horizon` sets the gradient horizon, not the cost. Bounding runtime and
+memory is the job of `block_size` (gradient checkpointing), an orthogonal knob
+that rematerializes activations within each window and nests with `grad_horizon`.
+The same `block_size` seam can also stream the FC so memory scales with the block
+rather than `n_steps`. See the [RWW tutorial](RWW.qmd) for the full FC/BOLD
+pipeline.
+
+## References
+
+Truncated backpropagation through time:
+
+- Werbos, P. J. (1990). Backpropagation through time: what it does and how to do
+  it. *Proceedings of the IEEE*, 78(10), 1550-1560.
+- Williams, R. J., & Peng, J. (1990). An efficient gradient-based algorithm for
+  on-line training of recurrent network trajectories. *Neural Computation*, 2(4),
+  490-501. The windowed truncated-BPTT scheme used here.
+- Tallec, C., & Ollivier, Y. (2017). Unbiasing truncated backpropagation through
+  time. *arXiv:1705.08209*. On the bias of a too-short window.
+
+Why the gradient horizon is finite (the $\exp(T\,\Lambda)$ growth):
+
+- Bengio, Y., Simard, P., & Frasconi, P. (1994). Learning long-term dependencies
+  with gradient descent is difficult. *IEEE Transactions on Neural Networks*,
+  5(2), 157-166.
+- Pascanu, R., Mikolov, T., & Bengio, Y. (2013). On the difficulty of training
+  recurrent neural networks. *ICML*, PMLR 28(3), 1310-1318. Ties the gradient
+  growth to the recurrent Jacobian's spectral radius (the $\Lambda$ above).
+
+Why an FC (covariance) loss's horizon is the system's correlation time:
+
+- Kubo, R. (1966). The fluctuation-dissipation theorem. *Reports on Progress in
+  Physics*, 29(1), 255-284.
