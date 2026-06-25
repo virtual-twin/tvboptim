@@ -24,7 +24,7 @@ jax.config.update("jax_enable_x64", True)
 
 import optax
 
-from tvboptim.experimental.network_dynamics import Network, prepare, solve
+from tvboptim.experimental.network_dynamics import Network, solve
 from tvboptim.experimental.network_dynamics.coupling import DelayedLinearCoupling
 from tvboptim.experimental.network_dynamics.dynamics.tvb import Generic2dOscillator
 from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph
@@ -215,7 +215,9 @@ class TestDifferentiability(unittest.TestCase):
         self.assertLess(abs(ad - fd) / (abs(fd) + 1e-30), 1e-3)
 
     def test_jitted_optimization_recovers_speed(self):
-        loss = lambda s: self._loss(s, True)
+        def loss(s):
+            return self._loss(s, True)
+
         grad = jax.jit(jax.grad(loss))
         v = jnp.asarray(4.0)
         opt = optax.adam(0.1)
