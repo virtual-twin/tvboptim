@@ -35,7 +35,9 @@ T1 = 40.0
 
 
 def _osc():
-    return Generic2dOscillator(a=-1.5, b=-15.0, d=0.015, tau=4.0, INITIAL_STATE=(0.1, 0.1))
+    return Generic2dOscillator(
+        a=-1.5, b=-15.0, d=0.015, tau=4.0, INITIAL_STATE=(0.1, 0.1)
+    )
 
 
 def _conn(n, seed):
@@ -49,16 +51,22 @@ def _conn(n, seed):
 
 
 def _net_from_graph(graph, interpolate, G=0.3):
-    coup = DelayedLinearCoupling(incoming_states="V", G=G, interpolate_delays=interpolate)
+    coup = DelayedLinearCoupling(
+        incoming_states="V", G=G, interpolate_delays=interpolate
+    )
     return Network(_osc(), {"delayed": coup}, graph)
 
 
 def _run_graph(graph, interpolate, G=0.3):
-    return solve(_net_from_graph(graph, interpolate, G), Heun(), t0=0.0, t1=T1, dt=DT).ys
+    return solve(
+        _net_from_graph(graph, interpolate, G), Heun(), t0=0.0, t1=T1, dt=DT
+    ).ys
 
 
 def _run(weights, delays, interpolate, max_delay, G=0.3):
-    return _run_graph(DenseDelayGraph(weights, delays, max_delay=max_delay), interpolate, G)
+    return _run_graph(
+        DenseDelayGraph(weights, delays, max_delay=max_delay), interpolate, G
+    )
 
 
 class TestForward(unittest.TestCase):
@@ -104,7 +112,9 @@ class TestForward(unittest.TestCase):
         md = float(jnp.max(delays))
         snap = _run(w, delays, interpolate=False, max_delay=md)
         interp = _run(w, delays, interpolate=True, max_delay=md)
-        np.testing.assert_allclose(np.asarray(interp), np.asarray(snap), rtol=0, atol=1e-12)
+        np.testing.assert_allclose(
+            np.asarray(interp), np.asarray(snap), rtol=0, atol=1e-12
+        )
 
 
 class TestConstructorGuards(unittest.TestCase):
@@ -150,12 +160,14 @@ class TestMaxDelay(unittest.TestCase):
         w, length = _conn(6, seed=3)
         # Without max_delay, a tracer ``delays`` cannot size the static buffer.
         with self.assertRaises(Exception):
-            jax.grad(lambda v: jnp.sum(DenseDelayGraph(w, length / v).delays))(jnp.asarray(3.0))
+            jax.grad(lambda v: jnp.sum(DenseDelayGraph(w, length / v).delays))(
+                jnp.asarray(3.0)
+            )
         # With max_delay set, it is fine and differentiable.
         md = float(jnp.max(length)) / 2.0
-        g = jax.grad(lambda v: jnp.sum(DenseDelayGraph(w, length / v, max_delay=md).delays))(
-            jnp.asarray(3.0)
-        )
+        g = jax.grad(
+            lambda v: jnp.sum(DenseDelayGraph(w, length / v, max_delay=md).delays)
+        )(jnp.asarray(3.0))
         self.assertTrue(np.isfinite(float(g)))
         self.assertNotEqual(float(g), 0.0)
 
@@ -238,7 +250,9 @@ class TestHeterogeneousDelayEquation(unittest.TestCase):
         self.w, self.length = _conn(6, seed=11)
         self.n = 6
         self.max_delay = float(jnp.max(self.length)) / 1.5
-        self.graph = DenseDelayGraph(self.w, self.length / 3.0, max_delay=self.max_delay)
+        self.graph = DenseDelayGraph(
+            self.w, self.length / 3.0, max_delay=self.max_delay
+        )
 
     def _delays(self, theta):
         return theta["offset"] + self.length / theta["speed"][None, :]

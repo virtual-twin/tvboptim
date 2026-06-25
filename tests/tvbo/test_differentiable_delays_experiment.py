@@ -94,7 +94,9 @@ def _is_conduction_speed_unsupported(exc: Exception) -> bool:
     return "conduction_speed" in str(exc)
 
 
-@unittest.skipUnless(_HAS_INTERPOLATE, "tvbo build lacks the interpolate_delays coupling slot")
+@unittest.skipUnless(
+    _HAS_INTERPOLATE, "tvbo build lacks the interpolate_delays coupling slot"
+)
 class TestDifferentiableDelaysExperiment(unittest.TestCase):
     def test_codegen_emits_interpolate_delays(self):
         """The tvboptim code generator wires interpolate_delays into the coupling."""
@@ -103,14 +105,18 @@ class TestDifferentiableDelaysExperiment(unittest.TestCase):
 
     def test_run_tvboptim_forward(self):
         """A forward run integrates the interpolated-delay network to a finite series."""
-        result = SimulationExperiment.from_string(exp_yaml).run("tvboptim", mode="simulation")
+        result = SimulationExperiment.from_string(exp_yaml).run(
+            "tvboptim", mode="simulation"
+        )
         ys = np.asarray(getattr(result.integration, "data", result.integration))
         self.assertEqual(ys.shape[-1], 4)  # 4 nodes
         self.assertTrue(bool(np.all(np.isfinite(ys))))
 
     def test_conduction_speed_exploration(self):
         """The experiment sweeps conduction_speed over a 3-point grid (interpolated delays)."""
-        result = SimulationExperiment.from_string(exp_yaml).run("tvboptim", mode="exploration")
+        result = SimulationExperiment.from_string(exp_yaml).run(
+            "tvboptim", mode="exploration"
+        )
         axis = result.explorations.speed_sweep.axes[0]
         self.assertEqual(axis.name, "conduction_speed")
         self.assertEqual(len(np.asarray(axis.explored_values)), 3)
@@ -136,7 +142,9 @@ class TestDifferentiableDelaysExperiment(unittest.TestCase):
                     "(the tvboptim interpolate_delays path then makes the gradient flow)."
                 )
             raise
-        self.assertIsNotNone(result.optimizations.speed_fit)  # gradient built; optimizer stepped
+        self.assertIsNotNone(
+            result.optimizations.speed_fit
+        )  # gradient built; optimizer stepped
 
 
 if __name__ == "__main__":
