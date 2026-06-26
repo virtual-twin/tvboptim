@@ -429,6 +429,7 @@ class DenseDelayGraph(DenseGraph):
             self._max_delay = float(max_delay)
         else:
             self._max_delay = float(jnp.max(self._delays))
+        self._check_delays_within_buffer(self._delays)
 
         # Initialize parent Graph (pass region_labels)
         super().__init__(weights, region_labels=region_labels, symmetric=symmetric)
@@ -447,6 +448,21 @@ class DenseDelayGraph(DenseGraph):
         """Maximum delay in the network."""
         return self._max_delay
 
+    def _check_delays_within_buffer(self, delays) -> None:
+        """Raise if *concrete* delays exceed ``max_delay`` — the fixed-size history
+        buffer (``ceil(max_delay/dt)`` steps) would silently truncate them. Skipped
+        for traced delays (under jit/grad the check cannot run; size ``max_delay``
+        for the slowest conduction speed you will explore, e.g. max(length) / v_min)."""
+        if isinstance(delays, jax.core.Tracer):
+            return
+        dmax = float(jnp.max(delays))
+        if dmax > self._max_delay:
+            raise ValueError(
+                f"Largest delay ({dmax:g}) exceeds max_delay ({self._max_delay:g}); the "
+                f"fixed history buffer would truncate it. Set max_delay >= max(delays) "
+                f"(e.g. max(tract_length) / v_min when optimising conduction speed)."
+            )
+
     def with_delays(self, delays: jnp.ndarray) -> "DenseDelayGraph":
         """Return a copy with ``delays`` replaced, reusing the static structure
         (``max_delay``, labels, symmetry) without re-running ``__init__``/``verify``.
@@ -462,6 +478,7 @@ class DenseDelayGraph(DenseGraph):
             raise ValueError(
                 f"with_delays expects delays of shape {self._delays.shape}, got {delays.shape}"
             )
+        self._check_delays_within_buffer(delays)
         children, aux_data = self.tree_flatten()
         return type(self).tree_unflatten(aux_data, (children[0], delays))
 
