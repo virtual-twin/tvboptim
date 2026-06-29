@@ -60,6 +60,33 @@ def format_pytree_as_string(
             result.append(f"{current_prefix}{name}: NoneType")
         return "\n".join(result)
 
+    # Check if the object is a Parameter (duck-typed to avoid a circular import).
+    # Lead with the constrained value the model actually uses; only show the raw
+    # differentiable leaf when it differs (transformed / out-of-bounds cases).
+    if hasattr(pytree, "constrained_value") and hasattr(pytree, "value"):
+        if show_array_values:
+            used = pytree.constrained_value
+            leaf = pytree.value
+            label = type(pytree).__name__
+            if hasattr(pytree, "low") and hasattr(pytree, "high"):
+                label = f"{label} [{pytree.low}, {pytree.high}]"
+            used_arr = np.asarray(used)
+            if used_arr.size <= 1:
+                # Scalar: show the value, plus the raw leaf when it differs.
+                if not np.array_equal(used_arr, np.asarray(leaf)):
+                    label = f"{label}, leaf={leaf}"
+                result.append(f"{current_prefix}{name}: {used}  ({label})")
+            else:
+                # Array: summarize to one line instead of dumping every element.
+                summary = (
+                    f"shape {used_arr.shape}, "
+                    f"range [{float(used_arr.min()):.3g}, {float(used_arr.max()):.3g}]"
+                )
+                result.append(f"{current_prefix}{name}: {summary}  ({label})")
+        elif not show_numerical_only:
+            result.append(f"{current_prefix}{name}: {type(pytree).__name__}")
+        return "\n".join(result)
+
     # Check if the object is a JAX array
     if isinstance(pytree, (jnp.ndarray, np.ndarray)):
         # result.append(f"{current_prefix}{name}: Array(shape={pytree.shape}, dtype={pytree.dtype})")
