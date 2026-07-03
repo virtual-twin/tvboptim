@@ -23,6 +23,10 @@ class Parameter:
 
     If placed at a position in the state tree, that position will take part in optimizations and will be differentiated. A state can be split into parameters and static parts by partition_state and combined by combine_state.
 
+    ``.value`` is the raw differentiable leaf updated by the optimizer. The value
+    used in computation is ``.constrained_value`` (or ``collect_parameters``);
+    for plain ``Parameter`` the two coincide, but subclasses differ.
+
     Parameters
     ----------
     value : Union[float, int, jnp.ndarray]
@@ -106,6 +110,15 @@ class Parameter:
     def size(self) -> int:
         """Total number of elements."""
         return self.value.size
+
+    @property
+    def constrained_value(self) -> jnp.ndarray:
+        """Value as used in computation (post-transform / post-clip).
+
+        Unlike ``.value`` (the raw differentiable leaf), this is consistent
+        across all parameter types and always satisfies the constraints.
+        """
+        return self.__jax_array__()
 
     # Arithmetic Operations - Return JAX arrays for seamless integration
     def __add__(self, other) -> jnp.ndarray:
@@ -318,6 +331,9 @@ class TransformedParameter(Parameter):
     The parameter is stored internally in unconstrained space for smooth
     optimization, but presents constrained values when used.
 
+    Note: ``.value`` is the unconstrained pre-image; the constrained value is
+    ``forward_transform(.value)``, exposed as ``.constrained_value``.
+
     Parameters
     ----------
     value : Union[float, int, jnp.ndarray]
@@ -389,6 +405,9 @@ class SigmoidBoundedParameter(TransformedParameter):
     Uses sigmoid transformation to map from unconstrained real space to
     bounded interval [low, high]. This provides smooth gradients and
     avoids the gradient issues of hard clipping.
+
+    Note: ``.value`` is in logit space and may be negative; this is expected.
+    Use ``.constrained_value`` for the value in [low, high].
 
     Parameters
     ----------
@@ -690,6 +709,9 @@ class BoundedParameter(Parameter):
 
     The bounds are applied transparently whenever the parameter is used
     as a JAX array, ensuring constraints are always satisfied.
+
+    Note: ``.value`` is the unclipped value and may sit outside the bounds;
+    clipping happens on read. Use ``.constrained_value`` for the clipped value.
 
     Parameters
     ----------

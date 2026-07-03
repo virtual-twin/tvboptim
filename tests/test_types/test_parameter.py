@@ -14,11 +14,15 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import numpy.testing as np_testing
+import pytest
 
 from tvboptim.types.parameter import (
     BoundedParameter,
+    LogPositiveParameter,
+    MaskedParameter,
     NormalizedParameter,
     Parameter,
+    SigmoidBoundedParameter,
     extract_values,
     is_parameter,
 )
@@ -562,6 +566,29 @@ class TestParameterInteroperability(unittest.TestCase):
         # Regular parameter gradients
         expected_regular = 2 * jnp.array([2.0, 3.0])
         np_testing.assert_array_equal(gradients["regular"], expected_regular)
+
+
+# (constructor, expected constrained value used in computation)
+CONSTRAINED_VALUE_CASES = [
+    (lambda: Parameter(0.641), 0.641),
+    (lambda: BoundedParameter(0.5, low=0.0, high=1.0), 0.5),
+    (lambda: BoundedParameter(-0.0001, low=0.0, high=1.0), 0.0),  # clipped on read
+    (lambda: NormalizedParameter(100.0), 100.0),
+    (lambda: SigmoidBoundedParameter(0.641, low=0.0, high=1.0), 0.641),
+    (lambda: LogPositiveParameter(2.0), 2.0),
+    (
+        lambda: MaskedParameter(jnp.array([1.0, 3.0]), jnp.array([True, False])),
+        [1.0, 3.0],
+    ),
+]
+
+
+@pytest.mark.parametrize("make, expected", CONSTRAINED_VALUE_CASES)
+def test_constrained_value(make, expected):
+    """`.constrained_value` mirrors `__jax_array__` and gives the in-bounds value."""
+    p = make()
+    np_testing.assert_allclose(p.constrained_value, p.__jax_array__())
+    np_testing.assert_allclose(p.constrained_value, expected, rtol=1e-5)
 
 
 if __name__ == "__main__":

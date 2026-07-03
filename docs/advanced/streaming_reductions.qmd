@@ -23,25 +23,23 @@ Try this notebook interactively:
 ## Introduction
 
 [Gradient Checkpointing](gradient_checkpointing.qmd) tackles *backward*-pass
-memory: the activation tape that a gradient needs. This notebook tackles the
-other side of the same problem, *forward*-pass memory, which matters even
-when you never take a gradient.
+memory: the activation tape a gradient needs. This notebook tackles the forward
+pass, which matters even when you never take a gradient.
 
-A long forward rollout holds two `O(n_steps)` tensors in memory:
+A long forward rollout holds two `O(n_steps)` tensors:
 
 1. the stacked output **trajectory**, `[n_steps, n_voi, n_nodes]`, and
-2. for a stochastic network, the pre-sampled **noise tensor**, the same size.
+2. for a stochastic network, the pre-sampled **noise tensor** of the same size.
 
-But most of what we actually want from a long run is a *reduced* statistic:
-functional connectivity (a long-time covariance), a BOLD signal (a kernel
-convolution / hemodynamic ODE), a temporal average. Each is a **reduction** of
-the trajectory: a `fold` that consumes the time series and keeps only a small
-running aggregate, the streaming counterpart of a one-shot
+But what you usually want from a long run is a *reduced* statistic: functional
+connectivity (a long-time covariance), a BOLD signal (a kernel convolution or
+hemodynamic ODE), a temporal average. Each is a `fold` over the time series that
+keeps only a small running aggregate, the streaming counterpart of a one-shot
 `compute_fc(trajectory)`. The native solver exposes this through the per-call
-`reduce` kwarg, which folds the trajectory **block-by-block** into the statistic
+`reduce` kwarg: it folds the trajectory block-by-block into the statistic
 instead of stacking it, so resident memory scales with `block_size`, not
-`n_steps`. (If you come from TVB, this is the monitor idea generalized to an
-arbitrary online reduction.)
+`n_steps`. (In TVB terms, this is the monitor idea generalized to an arbitrary
+online reduction.)
 
 ```{python}
 #| output: false
@@ -55,15 +53,14 @@ except ImportError:
     pass
 ```
 
-The motivation is throughput, not differentiation: a forward-only statistic that
-fits in a few MB instead of hundreds lets you **pack many independent
-simulations onto one GPU** (parameter sweeps, posterior sampling, seed
-ensembles) where the stacked trajectories would not fit. The same machinery
-composes with `grad_horizon` for a *differentiable* FC over a long rollout, the
-window bounding the gradient horizon for stability and `block_size` bounding the
-backward memory by the checkpointing model (not the forward's `O(block_size)`,
-see Practical Guidance). That combination is covered in [Truncated
-Backpropagation](../workflows/TBPTT.qmd). Here we stay forward-only.
+The motivation is throughput, not differentiation. A statistic that fits in a
+few MB instead of hundreds lets you pack many independent simulations onto one
+GPU (parameter sweeps, posterior sampling, seed ensembles) where the stacked
+trajectories would not fit. The same machinery composes with `grad_horizon` for
+a *differentiable* FC over a long rollout: `grad_horizon` bounds the gradient
+horizon for stability, `block_size` bounds the backward memory by the
+checkpointing model. See [Truncated Backpropagation](../workflows/TBPTT.qmd) for
+that combination; here we stay forward-only.
 
 We compare three ways to get a BOLD signal from the same long simulation:
 
@@ -73,9 +70,9 @@ We compare three ways to get a BOLD signal from the same long simulation:
 | **blocked** | `Heun(block_size=K)` | full trajectory, monitor post-hoc | trajectory only |
 | **streaming** | `Heun(block_size=K)` | `reduce=streaming_hrf_bold` | one block |
 
-The point of the middle row is that **blocking the simulation alone does not
-bound the output memory.** It streams the noise (removing tensor 2), but the
-trajectory is still stacked. Only `reduce` removes the trajectory too.
+The middle row makes the point: **blocking the simulation alone does not bound
+the output memory.** It streams the noise away (tensor 2), but still stacks the
+trajectory. Only `reduce` removes the trajectory too.
 
 ::: {.callout-note}
 ## Scope and requirements
@@ -87,9 +84,9 @@ trajectory is still stacked. Only `reduce` removes the trajectory too.
 - **Noise realizations differ by construction.** A blocked SDE run draws its
   noise per block (`fold_in`), reseeding relative to the monolithic single draw.
   So *blocked* and *streaming* share one realization (their BOLD is pointwise
-  equal, the equivalence assertion below), while *classical* is a different
-  realization, shown for the memory/runtime axis only. See the
-  [solver reference](../network_dynamics/solvers.qmd) for the streaming-noise
+  equal, asserted below), while *classical* is a different realization shown for
+  the memory/runtime axis only. The
+  [solver reference](../network_dynamics/solvers.qmd) covers the streaming-noise
   and `reduce` design.
 :::
 
@@ -414,11 +411,9 @@ Rules of thumb:
   Reverse mode retains every block's boundary carry (dynamics state, delay
   history buffer, accumulator), so backward memory follows the
   [checkpointing](gradient_checkpointing.qmd) model
-  `O(n_steps/block_size + block_size)`, U-shaped in `block_size`, not constant in
-  `n_steps`. `block_size` bounds that memory; `grad_horizon` is separate, it
-  bounds the gradient *horizon* (stability), not memory. For a long
-  differentiable FC set both; see
+  `O(n_steps/block_size + block_size)`: U-shaped in `block_size`, not constant in
+  `n_steps`. `block_size` bounds that memory; `grad_horizon` separately bounds
+  the gradient *horizon* for stability. A long differentiable FC needs both, see
   [Truncated Backpropagation](../workflows/TBPTT.qmd).
 - **`welford_cov` is a memory win, not a flop win**: post-hoc `compute_fc` is one
   GEMM; the streamed reducer is `n_blocks` batched merges of the same total cost.
-```

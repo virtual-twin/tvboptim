@@ -4,8 +4,8 @@
 
 # TVB-Optim
 
-[![Tests](https://github.com/virtual-twin/tvboptim/actions/workflows/python-package.yml/badge.svg)](https://github.com/virtual-twin/tvboptim/actions/workflows/python-package.yml)
 <!-- [![Ruff](https://github.com/virtual-twin/tvboptim/actions/workflows/ruff.yml/badge.svg)](https://github.com/virtual-twin/tvboptim/actions/workflows/ruff.yml) -->
+[![Tests](https://github.com/virtual-twin/tvboptim/actions/workflows/python-package.yml/badge.svg)](https://github.com/virtual-twin/tvboptim/actions/workflows/python-package.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![PyPI version](https://img.shields.io/pypi/v/tvboptim.svg)](https://pypi.org/project/tvboptim/)
 [![Documentation](https://img.shields.io/badge/docs-online-brightgreen.svg)](https://virtual-twin.github.io/tvboptim)
@@ -44,12 +44,13 @@ from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph
 from tvboptim.observations.tvb_monitors import Bold
 from tvboptim.observations import compute_fc, rmse
 from tvboptim.optim import OptaxOptimizer
+from tvboptim.types import Parameter
 import optax
 
 # Build brain network model
 network = Network(
     dynamics=ReducedWongWang(),
-    coupling={'delayed': LinearCoupling(incoming_states="S", G=0.5)},
+    coupling={'delayed': LinearCoupling(incoming_states="S", G=Parameter(0.5))},
     graph=DenseDelayGraph(weights, delays)
 )
 

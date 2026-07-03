@@ -23,17 +23,16 @@ Try this notebook interactively:
 ## Introduction
 
 Long simulations of delay-coupled brain network models are cheap to run forward
-but expensive to differentiate through. Every step of `jax.lax.scan` saves its
-carry state for the backward pass, and for DDEs that carry includes the per-coupling
-history buffer of shape `[history_length, n_states, n_nodes]`. Backward memory
-therefore grows as
+but expensive to differentiate. Every `jax.lax.scan` step saves its carry for the
+backward pass, and for DDEs that carry includes the per-coupling history buffer of
+shape `[history_length, n_states, n_nodes]`. Backward memory therefore grows as
 
 $$ \text{memory} \;\propto\; n_\text{steps} \times \text{history length} \times n_\text{states} \times n_\text{nodes} $$
 
-For a BOLD/FC fitting workload at `dt = 1 ms`, `T = 60 s`, ~80 regions and ~20 ms
-maximum delay, this works out to **hundreds of megabytes of activations just
-for the history buffers** — enough to push a gradient computation over the edge
-of RAM on a workstation, even though the forward pass fits comfortably.
+For a BOLD/FC fit at `dt = 1 ms`, `T = 60 s`, ~80 regions and ~20 ms maximum
+delay, the history buffers alone reach hundreds of megabytes of activations, which
+can push a gradient over the RAM limit on a workstation even when the forward pass
+fits comfortably.
 
 ```{python}
 #| output: false
@@ -47,53 +46,43 @@ except ImportError:
     pass
 ```
 
-The standard remedy is **gradient checkpointing**: instead of saving every
-step's activations for the backward pass, save only a sparse subset and
-recompute the missing ones on demand. TVB-Optim implements this for the native
-solver path as a single optional knob on `NativeSolver`, `block_size`:
+The standard remedy is **gradient checkpointing**: save only a sparse subset of
+activations and recompute the rest on demand during the backward pass. TVB-Optim
+exposes this on the native solver path through one optional knob, `block_size`:
 
 ```python
 solver = Heun(block_size=256)
 ```
 
-When `block_size` is `None` (the default) the integration runs as a
-single `jax.lax.scan` exactly as before — there is no overhead and no behaviour
-change. When set to an integer `K`, the scan is split into an outer scan over
-blocks of `K` steps wrapped in `jax.checkpoint`, with an inner scan running
-the `K` steps inside each block. Backward memory then scales as
-`O(n_steps/K + K)` instead of `O(n_steps)`, at the cost of a **modest gradient
-overhead — typically 1.3–1.7× depending on workload**, since backward is
-usually already several times more expensive than forward and one extra
-forward pass adds only a fraction to that total. Forward time is unchanged. The optimum for memory minimisation lies near `K ≈ √n_steps`.
+With `block_size=None` (the default) the integration runs as a single
+`jax.lax.scan`, with no overhead and no change in behaviour. With an integer `K`,
+the scan splits into an outer scan over blocks of `K` steps wrapped in
+`jax.checkpoint`, each block running an inner scan of `K` steps. Backward memory
+then scales as `O(n_steps/K + K)` instead of `O(n_steps)`, for a modest gradient
+overhead (one extra forward recompute, small next to an already heavier backward).
+Forward time is unchanged, and memory is minimised near `K ≈ √n_steps`.
 
-`block_size` is the one block unit for the solver's streaming features (it was
-formerly named `checkpoint_every`). Two consequences matter for this notebook:
+`block_size` is the solver's single block unit for all streaming features. Two
+consequences matter here:
 
-- On a **stochastic** network, setting `block_size` also switches the noise to
-  per-block generation, which *reseeds* the realization relative to the
-  monolithic single draw. To keep this a clean checkpointing benchmark (common
-  random numbers, bit-exact across `block_size`), we inject one fixed noise
-  tensor so the block path uses it verbatim instead of streaming. The
-  streaming-noise memory saving is a separate axis; see
+- On a **stochastic** network it also switches noise to per-block generation, which
+  reseeds the realization. To keep a clean checkpointing benchmark (common random
+  numbers, bit-exact across `block_size`), we inject one fixed noise tensor so the
+  block path uses it verbatim. Streaming-noise memory is a separate axis; see
   [Streaming Reductions](streaming_reductions.qmd).
-- The same `block_size` is also the grain for online `reduce` statistics (e.g.
-  streamed FC), not covered here.
+- It is also the grain for online `reduce` statistics (e.g. streamed FC), not
+  covered here.
 
 ::: {.callout-note}
 ## Scope and limitations
-- **Native solvers only.** `DiffraxSolver` is not affected; Diffrax exposes
-  its own `RecursiveCheckpointAdjoint` for adaptive ODE solves, but it does
-  not support delays.
-- **No effect when `block_size is None`.** The call site falls through to
-  the original `jax.lax.scan(op, state0, scan_inputs)` line. The default
-  behaviour is bit-exact with prior versions.
-- **Forward is unaffected by memory savings.** Forward simulations do not retain
-  step activations regardless; checkpointing only matters when you take a
-  gradient.
-- **SDE noise is held fixed here.** With a stochastic network, `block_size`
-  streams (reseeds) the noise; this benchmark injects a fixed noise tensor so
-  every config integrates the same path and the checkpointed gradient stays
-  bit-exact to the uncheckpointed one.
+- **Native solvers only.** `DiffraxSolver` is unaffected; Diffrax has its own
+  `RecursiveCheckpointAdjoint`, which does not support delays.
+- **No effect when `block_size is None`.** The default falls through to the
+  original `jax.lax.scan` and is bit-exact with prior versions.
+- **Forward is unaffected.** Forward sims never retain step activations;
+  checkpointing only matters for gradients.
+- **SDE noise is held fixed here.** A fixed noise tensor is injected so every
+  config integrates the same path and the checkpointed gradient stays bit-exact.
 :::
 
 ```{python}
@@ -138,12 +127,12 @@ set_cache_path("./gradient_checkpointing_benchmark")
 
 ## Workload: RWW + Delays + BOLD FC Fitting
 
-We use the same Reduced Wong-Wang / BOLD / FC workflow as
-[`RWW.qmd`](../workflows/RWW.qmd), but with **`DelayedLinearCoupling`** in place of
-`FastLinearCoupling`. This is the configuration where gradient memory
-typically becomes the bottleneck for empirical fits. The structural
-connectivity is the `dk_average` parcellation (68 regions); tract lengths are
-converted to delays assuming a conduction speed of 4 mm/ms.
+We reuse the Reduced Wong-Wang / BOLD / FC workflow from
+[`RWW.qmd`](../workflows/RWW.qmd), swapping `FastLinearCoupling` for
+**`DelayedLinearCoupling`**: the configuration where gradient memory usually
+becomes the bottleneck for empirical fits. Structural connectivity is the
+`dk_average` parcellation (68 regions), with tract lengths converted to delays at a
+conduction speed of 4 mm/ms.
 
 ```{python}
 #| echo: true
@@ -191,23 +180,21 @@ print(f"n_nodes={n_nodes}  n_steps={N_STEPS}  history_length={history_length}")
 print(f"max delay = {max_delay:.2f} ms")
 ```
 
-The history buffer for a single coupling is therefore roughly
-`history_length × n_states × n_nodes × 8 bytes ≈ history_length × 544 bytes` per
-step. With ~60 000 steps the total *forward-saved* activation footprint for
-the coupling state alone runs into the hundreds of megabytes — and that is on
-top of the dynamics state, the noise tensor, and the auxiliary tape.
+A single coupling's history buffer is roughly
+`history_length × n_states × n_nodes × 8 bytes` per step. Over ~60 000 steps the
+forward-saved coupling state alone runs into hundreds of megabytes, on top of the
+dynamics state, noise tensor, and auxiliary tape.
 
 ## Benchmark
 
-We benchmark forward time, gradient time, and (where the backend supports it)
-peak device memory across a sweep of `block_size` values. The sweep
-covers:
+We sweep `block_size` and measure forward time, gradient time, and peak memory
+(where the backend supports it). The grid spans:
 
-- `None` — the default, single `jax.lax.scan`. Reference for performance.
-- Small `K` — frequent checkpoints, maximal recompute, minimal saved memory.
-- `K ≈ √n_steps` — theoretical memory minimum.
-- Large `K` — sparse checkpoints, close to no-checkpointing in cost.
-- A non-divisor `K` — exercises the main-scan + tail-scan path.
+- `None`: the default single `jax.lax.scan`, the performance reference.
+- small `K`: frequent checkpoints, maximal recompute, minimal saved memory.
+- `K ≈ √n_steps`: the theoretical memory minimum.
+- large `K`: sparse checkpoints, near no-checkpoint cost.
+- a non-divisor `K`: exercises the main-scan plus tail-scan path.
 
 ```{python}
 #| echo: true
@@ -368,7 +355,7 @@ def benchmark_one(block_size, fc_target):
     }
 
 
-@cache("block_size_sweep", redo=True)
+@cache("block_size_sweep")
 def run_sweep():
     results = {}
     for k in BLOCK_SIZE_VALUES:
@@ -386,7 +373,7 @@ sweep_results = run_sweep()
 
 ```{python}
 #| label: fig-checkpoint-benchmark
-#| fig-cap: "**Gradient checkpointing benchmark.** Top row — *time*. Top-left: Forward and gradient wall time vs `block_size` on a shared log y-axis (the two sit about a decade apart); dashed horizontals mark each curve's `None` baseline, the dashed vertical marks `√n_steps`. Top-right: Per-call gradient-to-forward ratio. Bottom row — *memory*. Bottom-left: Peak RSS delta during a gradient call vs `block_size` (linear y), showing the `O(n_steps/K + K)` minimum near `√n_steps`. Bottom-right: Memory–time Pareto (front and `None` points labelled), with the `None` star at the low-time / high-memory extreme and checkpointed points tracing the front."
+#| fig-cap: "**Gradient checkpointing benchmark.** Top row, *time*. Top-left: forward and gradient wall time vs `block_size` on a shared log y-axis (about a decade apart); dashed horizontals mark each curve's `None` baseline and the dashed vertical marks `√n_steps`. Top-right: per-call gradient-to-forward ratio. Bottom row, *memory*. Bottom-left: peak RSS delta during a gradient call vs `block_size` (linear y), showing the `O(n_steps/K + K)` minimum near `√n_steps`. Bottom-right: memory vs time Pareto (front and `None` labelled), with the `None` star at the low-time, high-memory extreme and checkpointed points tracing the front."
 #| echo: true
 #| code-fold: true
 #| code-summary: "Plotting code"
@@ -583,7 +570,7 @@ with plt.rc_context({
         ax.set_xlabel("gradient time (s)")
         ax.set_ylabel("peak RSS delta during grad (MB)")
         ax.set_yscale("log")
-        ax.set_title("Memory–time Pareto")
+        ax.set_title("Memory vs time Pareto")
         ax.grid(alpha=0.3, which="both")
         # Custom legend: front line + filled marker (on front) + hollow
         # marker (dominated) + None star.
@@ -611,7 +598,7 @@ with plt.rc_context({
                 bbox=dict(boxstyle="round,pad=0.5", facecolor="lightyellow"))
         ax.set_xticks([])
         ax.set_yticks([])
-        ax.set_title("Memory–time Pareto (unavailable)")
+        ax.set_title("Memory vs time Pareto (unavailable)")
 
     plt.tight_layout()
     plt.show()
@@ -619,98 +606,45 @@ with plt.rc_context({
 
 ## Reading the Memory Curve
 
-The memory-vs-`block_size` panel (bottom-left) shows the classical analysis. Peak gradient
-memory scales as
+The bottom-left panel follows the classical analysis. Peak gradient memory scales as
 
 $$ \mathrm{peak\,memory} \;\approx\; \underbrace{\frac{n_\text{steps}}{K} \cdot c_\text{outer}}_{\text{block-boundary tape}} \;+\; \underbrace{K \cdot c_\text{inner}}_{\text{per-block inner tape during backward}} $$
 
-with a minimum near $K \approx \sqrt{n_\text{steps} \cdot c_\text{outer} / c_\text{inner}}$.
-For our workload this puts the optimum within a small factor of
-$\sqrt{n_\text{steps}}$, which matches what the plot shows. Three real-world
-deviations from the textbook curve all show up in the data:
+with a minimum near $K \approx \sqrt{n_\text{steps} \cdot c_\text{outer} / c_\text{inner}}$,
+close to $\sqrt{n_\text{steps}}$ for this workload. Three effects bend the textbook
+curve:
 
-**1. `jax.checkpoint` boundaries inflate the per-step inner tape.** Inside a
-`jax.checkpoint` region, XLA cannot fuse intermediates across the boundary
-and must preserve the per-step VJP tape in a form that the rematerialise
-step can later consume. The result is that $c_\text{inner}$ is larger than
-the per-step tape size XLA picks when it sees the whole scan
-uncheckpointed. The inflation is biggest for short inner scans (where XLA
-cannot amortise its setup) and shrinks toward the uncheckpointed value as
-$K$ grows. The `None` baseline is therefore an unfair lower bound — even
-the memory-optimal checkpointed `K` carries more per-step state than a
-hypothetical "no checkpoint at this `K`" reference would. This is
-intrinsic to how rematerialisation works and is the price you pay for
-asking JAX to discard activations.
+1. **Checkpoint boundaries inflate the inner tape.** XLA cannot fuse across a
+   `jax.checkpoint` boundary and must keep the per-step VJP tape for
+   rematerialisation, so $c_\text{inner}$ exceeds the uncheckpointed per-step cost,
+   most of all for short inner scans. The `None` baseline is thus an optimistic
+   lower bound.
+2. **A non-divisor `K` leaves a tail.** When `n_steps % K != 0` the remainder runs
+   as a plain `jax.lax.scan` whose tape stays live through the backward pass,
+   adding $\mathrm{remainder} \cdot c_\text{unchecked}$ to the peak. Prefer `K` that
+   divides, or nearly divides, `n_steps`.
+3. **`K = n_steps` saves nothing.** It still wraps one scan in `jax.checkpoint`, so
+   backward rematerialises the full tape (peak near `None`) while paying an extra
+   forward.
 
-**2. Non-divisor `K` leaves a tail that holds its own tape.** When
-`n_steps % K != 0`, the implementation runs the remainder as a plain
-(uncheckpointed) `jax.lax.scan` after the checkpointed main scan. That
-tail's activation tape is laid down on the forward pass and **stays live
-in memory while the outer backward descends into the checkpointed main
-block**. Peak memory then becomes roughly $K \cdot c_\text{inner} +
-\mathrm{remainder} \cdot c_\text{unchecked}$ instead of just
-$K \cdot c_\text{inner}$. For small remainders this is invisible; for
-large remainders it can spike the peak above the `None` baseline. In this
-sweep, $K = 60000$ divides $n_\text{steps}$ exactly (`remainder = 0`) and
-shows clean behaviour, whereas a value like $K = 32768$ would produce a
-27 232-step tail and inflate peak memory accordingly. **Practical
-implication: prefer `K` values that divide `n_steps`** (or come close).
-For $n_\text{steps} = 60\,000$ the divisor-friendly grid is 30, 120, 250,
-500, 1000, 2000, 7500, 30 000.
-
-**3. `K = n_steps` gives no memory benefit.** The single-block degenerate
-case still wraps one `jax.lax.scan` in `jax.checkpoint`. Forward saves
-only the entry carry; backward materialises the full activation tape for
-the one block, runs backward, then frees it. Peak memory equals the full
-uncheckpointed activation tape — about the same as `None` — except now
-you also pay one extra forward recompute. `K = n_steps` is **single-pass
-rematerialisation**: useful when you cannot pay even one set of saved
-activations but otherwise dominated by smaller `K`.
-
-The memory curve traces a U-shape:
-
-- a steep left wall driven by the outer-scan boundary cost
-  ($n_\text{steps}/K$) and the per-step inflation that hurts short inner
-  scans most;
-- a shallow minimum bracketing $\sqrt{n_\text{steps}}$;
-- a steady rise on the right driven by the linear $K \cdot c_\text{inner}$
-  term and, for non-divisor `K`, an extra bump from tail tape;
-- the `None` reference sitting at the asymptote that the curve's right
-  arm approaches.
-
-The sweet spot lands within a factor of 2 of theory's prediction (`K ≈ 244`);
-the optimum cuts gradient memory roughly $10\times$ versus `None`.
+The result is a U-shape with its minimum near $\sqrt{n_\text{steps}}$, cutting
+gradient memory by roughly an order of magnitude versus `None`.
 
 ## Correctness Check
 
-A checkpointed gradient must agree with the uncheckpointed gradient to floating
-point precision — the forward path is bit-exact (the scan body is identical;
-only the loop nesting changes) and the backward path differs only in
-floating-point rounding because activations are recomputed rather than read
-from the saved tape.
-
-```{python}
-#| echo: true
-
-baseline = sweep_results["None"]
-print(f"{'block_size':<20} {'loss':<22} {'grad':<22} {'|Δgrad / grad|':<18}")
-print("-" * 82)
-for label, res in sweep_results.items():
-    rel = abs((res["grad_value"] - baseline["grad_value"]) / baseline["grad_value"])
-    print(f"{label:<20} {res['loss']:<22.16f} {res['grad_value']:<22.16e} {rel:<18.3e}")
-```
-
-The relative gradient error is at the level of double-precision rounding
-(~1e-15 to 1e-13) for every block size — confirming that checkpointing does not change the answer.
+A checkpointed gradient must match the uncheckpointed one to floating-point
+precision: the forward path is bit-exact (same scan body, only the loop nesting
+changes) and the backward path differs only by recompute rounding. The
+`|Δgrad/grad|` column of the summary table below stays at double-precision rounding
+(around 1e-15 to 1e-13) for every block size, confirming checkpointing does not
+change the result.
 
 ## Summary Table
 
-A single self-contained table of all measured quantities. Copy-pasteable into
-an issue, a discussion, or back to an LLM for analysis. `fwd_ratio` and
-`grad_ratio` are normalised against the `None` baseline; `peak_MB` is the
-peak process-RSS delta during a single gradient call (CPU proxy via psutil),
-or the device-memory delta if `jax.devices()[0].memory_stats()` is available
-(GPU / TPU). `NA` when neither is available.
+All measured quantities in one self-contained table, copy-pasteable into an issue
+or back to an LLM. `fwd_ratio` and `grad_ratio` are normalised to the `None`
+baseline; `peak_MB` is the peak process-RSS delta during one gradient call (CPU
+proxy via psutil), or the device-memory delta on GPU/TPU, else `NA`.
 
 ```{python}
 #| echo: true
@@ -770,15 +704,12 @@ print(f"# device: {jax.devices()[0].platform}  jax {jax.__version__}")
 
 ## No-Regression Check
 
-Because `block_size=None` selects the original `jax.lax.scan` call site
-verbatim (a literal if-branch), forward and gradient times for the default
-must be **within timing noise** of the previous non-checkpointed implementation.
-The benchmark above implicitly verifies this: the `None` row should be
-statistically indistinguishable from any prior measurement of the unchecked
-path. `K = n_steps` is **not** equivalent to `None` — it still
-wraps the (single) inner scan in `jax.checkpoint`, so the backward pass
-recomputes the entire forward once, costing roughly 1.3× the `None`
-gradient time. Only `block_size=None` skips checkpointing entirely.
+Because `block_size=None` selects the original `jax.lax.scan` call site verbatim,
+the default's forward and gradient times stay **within timing noise** of the
+non-checkpointed implementation. Note that `K = n_steps` is **not** the same as
+`None`: it still wraps the single inner scan in `jax.checkpoint`, so backward
+recomputes the whole forward once and costs more than `None`. Only `block_size=None`
+skips checkpointing entirely.
 
 ## Practical Guidance
 
@@ -797,6 +728,6 @@ solver = Heun(block_size=int(math.sqrt(n_steps)))
 solver = Heun(block_size=64)
 ```
 
-The same field works on `Euler`, `Heun`, `RungeKutta4`, and any
-`BoundedSolver` wrapping one of those — the setting is delegated through the
-wrapper to the base solver.
+The same field works on `Euler`, `Heun`, `RungeKutta4`, and any `BoundedSolver`
+wrapping one of those; the setting is delegated through the wrapper to the base
+solver.

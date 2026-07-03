@@ -16,8 +16,10 @@ execute:
 
 Parameters serve two purposes:
 
-1. Define which values get differentiated and subsequently optimized.
-2. Enforce constraints during optimization by applying transformations, eg a positive constraint on a parameter.
+1. Define which values get differentiated and subsequently optimized (see [Marking Parameters for Optimization](#marking-parameters-for-optimization)).
+2. Enforce constraints during optimization by applying transformations, eg a positive constraint on a parameter (see [Enforcing Constraints](#enforcing-constraints)).
+
+This page walks through both, then ties them together in a worked [example](#a-simple-example) that finds a fixed point of the reduced Wong-Wang model.
 
 ## General Properties of Parameters
 
@@ -44,9 +46,31 @@ from tvboptim.types import collect_parameters
 collect_parameters(p) # collect all arrays from the Parameters in a PyTree
 ```
 
+### Two views: `.value` and `.constrained_value`
+
+Every parameter has two distinct views, and mixing them up is a common source of confusion:
+
+- `.value` is the raw differentiable **leaf** the optimizer updates. For the constrained types introduced in [Enforcing Constraints](#enforcing-constraints) this lives in an internal space and may look surprising (logit space, possibly outside the bounds, normalized to ones, ...).
+- `.constrained_value` is the value actually **used in computation**, always satisfying the constraints. It is just a convenience name for `__jax_array__()`, i.e. the conversion described above.
+
+Because of the `__jax_array__` protocol you rarely call it explicitly: passing the parameter directly into any jnp/np function or arithmetic already applies that conversion, so the constrained value is what the math sees. `.constrained_value` (and `collect_parameters` for a whole PyTree) is mainly for pulling the value out explicitly during postprocessing.
+
+For a plain `Parameter` the two views coincide. The example below uses a sigmoid-bounded parameter (introduced later) to show how far they can differ: the leaf is in logit space, while the value used in the model is back in `[0, 1]`.
+
+```{python}
+from tvboptim.types import SigmoidBoundedParameter
+
+sp = SigmoidBoundedParameter(0.641, low=0.0, high=1.0)
+print(".value (unconstrained leaf):", sp.value)
+print(".constrained_value (used in computation):", sp.constrained_value)
+
+# Used directly in a jnp function: the constrained value is what the math sees
+print("jnp.sqrt(sp):", jnp.sqrt(sp), "== jnp.sqrt(sp.constrained_value):", jnp.sqrt(sp.constrained_value))
+```
+
 ## Marking Parameters for Optimization
 
-After using `prepare` on an experiment (TVB-O) or network (tvboptim.experimental.network_dynamics), we have a state object which is a PyTree with jax arrays at its leaves. The state helps structuring the many values and inputs needed for the simulation in a simple object for convenience. But in most cases we only want to subject a fraction of the state to optimization. We can mark the values in the state for optimization by wrapping them in the `Parameter` type:
+After using `prepare` on an experiment (TVB-O) or network (tvboptim.experimental.network_dynamics), we have a state object: a PyTree with jax arrays at its leaves that bundles the values and inputs the simulation needs. Usually we only want to optimize a fraction of the state. We mark those values by wrapping them in the `Parameter` type:
 
 ```{python}
 from tvboptim.experimental.network_dynamics import Bunch # A dictionary with attribute access
@@ -65,7 +89,7 @@ simple_state.global_coupling = Parameter(simple_state.global_coupling)
 show_parameters(simple_state)
 ```
 
-Inside e.g. `OptaxOptimizer` we can use the knowledge of what to consider a parameter to partition the state into two sub PyTrees, one that gets differentiated and one that stays static:
+Inside e.g. `OptaxOptimizer` the parameter markers tell us how to partition the state into two sub PyTrees, one that gets differentiated and one that stays static:
 
 ```{python}
 from tvboptim.types import partition_state, combine_state
@@ -111,16 +135,18 @@ print("Gradient with fulfilled constraint:", jax.grad(loss)(p2))
 print("Gradient with violated constraint:", jax.grad(loss)(p3))
 ```
 
-We provide several predefined parameter types:
+We provide several predefined parameter types. Recall the [two views](#two-views-value-and-constrained_value): the "leaf" column is what `.value` holds, while `.constrained_value` always returns the usable value.
 
-* `Parameter`
-* `BoundedParameter`
-* `NormalizedParameter`
-* `TransformedParameter`
-* `SigmoidBoundedParameter`
-* `MaskedParameter`
+| Type | Constraint | `.value` (leaf) |
+| --- | --- | --- |
+| `Parameter` | none | the value itself |
+| `BoundedParameter` | clipped to `[low, high]` on read | unclipped, may sit outside bounds |
+| `SigmoidBoundedParameter` | smoothly mapped into `[low, high]` | logit space, may be negative |
+| `NormalizedParameter` | none; rescales for balanced gradients | normalized to ones |
+| `MaskedParameter` | freezes masked entries | unconstrained entries only |
+| `TransformedParameter` | custom forward/inverse transform | unconstrained pre-image |
 
-Custom constraints can be implemented as well, for that either `Parameter` can be subclassed directly or we use `TransformedParameter` and define our constraint as forward and reverse transforms. As an example lets look at how we would build a sigmoid bounded parameter. This has the advantage over `BoundedParameter` that we always get a gradient, while the `BoundedParameter` returns 0 when the constraint is violated and it then stays at the lower or upper bound indefinitely.
+Custom constraints can be implemented as well, for that either `Parameter` can be subclassed directly or we use `TransformedParameter` and define our constraint as forward and reverse transforms. The example below builds a sigmoid bounded parameter from scratch, which is exactly how the built-in `SigmoidBoundedParameter` is defined. It has the advantage over `BoundedParameter` that we always get a gradient, while the `BoundedParameter` returns 0 when the constraint is violated and it then stays at the lower or upper bound indefinitely.
 
 ```{python}
 from tvboptim.types import TransformedParameter, SigmoidBoundedParameter
@@ -140,7 +166,7 @@ print("Custom TransformedParameter:", p_custom)
 print("Gradient with smooth constraint:", jax.grad(loss)(p_custom))
 ```
 
-To check if the constraint is fulfilled we run an Optimization on the simple loss function, the parameter should stay below 1:
+Running an optimization on the simple loss confirms the constraint holds: the parameter stays below 1.
 
 ```{python}
 from tvboptim.optim import OptaxOptimizer
@@ -153,7 +179,7 @@ print("Smaller than 1:", p_opt < 1.0)
 ```
 # A Simple Example
 
-As a simple example on how to use parameters we try to find the fixed point of the reduced Wong-Wang model. This example demonstrates the key concepts of parameter optimization in TVB-Optim by finding parameter values where the neural activity reaches equilibrium.
+As a simple example we use parameters to find a fixed point of the reduced Wong-Wang model: parameter values where the neural activity reaches equilibrium.
 
 ## Setting up the Model
 
@@ -193,7 +219,7 @@ print("Gradients for all parameters:", gradients)
 
 ## Running the Optimization
 
-Now we'll set up and run the optimization using both regular and normalized parameters to compare their performance.
+We run the optimization with both regular and normalized parameters and compare their performance.
 
 ### Setting up the Optimizer
 
@@ -216,7 +242,7 @@ opt = OptaxOptimizer(loss_fixed_point, optax.adam(0.01), callback=cbs)
 
 ### Optimization with Regular Parameters
 
-First, let's optimize using regular `Parameter` objects, focusing only on `gamma` and `tau_s`:
+First, optimize `gamma` and `tau_s` as regular `Parameter` objects:
 
 ```{python}
 # Mark specific parameters for optimization
@@ -230,7 +256,7 @@ print(f"Final loss: {fitting_data['loss'].save.values[-1]:.8f}")
 
 ### Optimization with Normalized Parameters
 
-Now let's compare with `NormalizedParameter`, which can lead to better convergence by normalizing parameter scales (gamma = 0.681 -> 1.0, tau_s = 100 -> 1.0):
+For comparison, `NormalizedParameter` can converge better by normalizing parameter scales (gamma = 0.641 -> 1.0, tau_s = 100 -> 1.0):
 
 ```{python}
 from tvboptim.types import NormalizedParameter
@@ -249,7 +275,7 @@ The normalized parameters converge faster than regular parameters. With regular 
 
 ### Visualization of Convergence
 
-Let's create plots to visualize the optimization convergence and parameter trajectories:
+The plots below show the optimization convergence and the parameter trajectories:
 
 ```{python}
 #| code-fold: true
@@ -287,7 +313,7 @@ plt.show()
 
 ### Validating the Fixed Point Solution
 
-Finally, let's run simulations with the optimized parameters to verify that we've achieved the desired fixed point at 0.8:
+Finally, run simulations with the optimized parameters to verify they reach the target fixed point at 0.8:
 
 ```{python}
 # Run simulation with default parameters
@@ -305,7 +331,7 @@ m = ReducedWongWang(gamma = p_opt_norm.gamma, tau_s = p_opt_norm.tau_s)
 ts_opt_norm = m.simulate(t1 = 1000, dt = 1.0)
 ```
 
-Now let's visualize how well each optimization approach achieved the target fixed point:
+The plot below shows how well each optimization approach reached the target fixed point:
 
 ```{python}
 #| code-fold: true
@@ -331,4 +357,4 @@ plt.tight_layout()
 plt.show()
 ```
 
-This visualization shows how the different parameter optimization approaches perform in achieving the desired fixed point.
+Both optimized parameter sets settle at the target 0.8, while the default parameters equilibrate elsewhere.
