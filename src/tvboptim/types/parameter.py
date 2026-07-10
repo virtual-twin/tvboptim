@@ -16,6 +16,12 @@ import numpy as np
 from jax.tree_util import register_pytree_node_class
 
 
+def _coerce_operand(value: Any) -> Any:
+    """Convert array-like operands only when they expose a callable protocol."""
+    jax_array = getattr(value, "__jax_array__", None)
+    return jax_array() if callable(jax_array) else value
+
+
 @register_pytree_node_class
 class Parameter:
     """
@@ -123,72 +129,72 @@ class Parameter:
     # Arithmetic Operations - Return JAX arrays for seamless integration
     def __add__(self, other) -> jnp.ndarray:
         """Addition: param + other"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return self.__jax_array__() + other_val
 
     def __radd__(self, other) -> jnp.ndarray:
         """Reverse addition: other + param"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return other_val + self.__jax_array__()
 
     def __sub__(self, other) -> jnp.ndarray:
         """Subtraction: param - other"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return self.__jax_array__() - other_val
 
     def __rsub__(self, other) -> jnp.ndarray:
         """Reverse subtraction: other - param"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return other_val - self.__jax_array__()
 
     def __mul__(self, other) -> jnp.ndarray:
         """Multiplication: param * other"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return self.__jax_array__() * other_val
 
     def __rmul__(self, other) -> jnp.ndarray:
         """Reverse multiplication: other * param"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return other_val * self.__jax_array__()
 
     def __truediv__(self, other) -> jnp.ndarray:
         """Division: param / other"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return self.__jax_array__() / other_val
 
     def __rtruediv__(self, other) -> jnp.ndarray:
         """Reverse division: other / param"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return other_val / self.__jax_array__()
 
     def __floordiv__(self, other) -> jnp.ndarray:
         """Floor division: param // other"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return self.__jax_array__() // other_val
 
     def __rfloordiv__(self, other) -> jnp.ndarray:
         """Reverse floor division: other // param"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return other_val // self.__jax_array__()
 
     def __mod__(self, other) -> jnp.ndarray:
         """Modulo: param % other"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return self.__jax_array__() % other_val
 
     def __rmod__(self, other) -> jnp.ndarray:
         """Reverse modulo: other % param"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return other_val % self.__jax_array__()
 
     def __pow__(self, other) -> jnp.ndarray:
         """Power: param ** other"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return self.__jax_array__() ** other_val
 
     def __rpow__(self, other) -> jnp.ndarray:
         """Reverse power: other ** param"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return other_val ** self.__jax_array__()
 
     # Unary Operations
@@ -207,32 +213,32 @@ class Parameter:
     # Comparison Operations
     def __eq__(self, other) -> jnp.ndarray:
         """Equality: param == other"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return self.__jax_array__() == other_val
 
     def __ne__(self, other) -> jnp.ndarray:
         """Inequality: param != other"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return self.__jax_array__() != other_val
 
     def __lt__(self, other) -> jnp.ndarray:
         """Less than: param < other"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return self.__jax_array__() < other_val
 
     def __le__(self, other) -> jnp.ndarray:
         """Less than or equal: param <= other"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return self.__jax_array__() <= other_val
 
     def __gt__(self, other) -> jnp.ndarray:
         """Greater than: param > other"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return self.__jax_array__() > other_val
 
     def __ge__(self, other) -> jnp.ndarray:
         """Greater than or equal: param >= other"""
-        other_val = other.__jax_array__() if hasattr(other, "__jax_array__") else other
+        other_val = _coerce_operand(other)
         return self.__jax_array__() >= other_val
 
     # Indexing
