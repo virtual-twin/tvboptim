@@ -1,1 +1,7 @@
 /.quarto/
+
+# Local-only @cache pickles (see src/tvboptim/utils/caching.py). These store live
+# JAX/equinox objects and go stale across library upgrades, so they are not committed.
+# CI renders from the committed _freeze/ outputs instead (execute: freeze in _quarto.yml).
+cache/
+.jupyter_cache/

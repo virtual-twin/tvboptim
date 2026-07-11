@@ -6,7 +6,13 @@ project:
     - "!*.ipynb"  # Don't render notebooks (they're for Colab)
     - "!workflows/Hopf.qmd"  # Work in progress, excluded from builds
     - "!workflows/Hopf_w_GenOpt.qmd"  # Work in progress, excluded from builds
-  
+
+# Render notebooks from committed _freeze/ outputs instead of executing Python in CI.
+# Notebooks are re-executed locally only when their .qmd source changes; commit the
+# updated docs/_freeze/ afterwards. See docs/BUILDING.md.
+execute:
+  freeze: auto
+
 website:
   title: ""
   favicon: images/tvboptim_compact_2.png
