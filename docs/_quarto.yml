@@ -36,6 +36,7 @@ website:
           - file: workflows/EI_Tuning.qmd
           - file: workflows/Hopf_Pareto_ParallelOpt.qmd
           - file: workflows/Stimulation_with_Bayesian_Inference.qmd
+          - file: workflows/Delay_Speed_Synchronization.qmd
       - text: "Network Dynamics"
         menu:
           - file: network_dynamics/network_dynamics.qmd
@@ -180,6 +181,8 @@ quartodoc:
         - SigmoidalJansenRit
         - DelayedSigmoidalJansenRit
         - SubspaceCoupling
+        - KuramotoCoupling
+        - DelayedKuramotoCoupling
 
     - subtitle: Graphs
       desc: Connectivity and topology
@@ -188,6 +191,7 @@ quartodoc:
         - AbstractGraph
         - DenseGraph
         - DenseDelayGraph
+        - DenseLengthGraph
         - SparseGraph
         - SparseDelayGraph
 
@@ -208,6 +212,8 @@ quartodoc:
         - DiffraxSolver
         - Euler
         - Heun
+        - RungeKutta4
+        - BoundedSolver
     - title: Prepare
       desc: The unified interface for preparing experiments and networks for simulation
       contents:

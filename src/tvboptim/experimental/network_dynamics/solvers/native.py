@@ -41,15 +41,25 @@ class NativeSolver(AbstractSolver):
                 Network+NativeSolver path reads this; bare dynamics has no
                 coupling and single-stage Euler is unaffected.
 
-                For delayed coupling the two settings are bit-exact: the
-                history buffer is a step-level carry that does not depend
-                on the stage state, so the default just avoids redundant
-                gathers. They differ only for instantaneous
-                (state-dependent) coupling, where freezing replaces
-                ``c(t)`` by the constant ``c(t_n)`` and pins the coupling
-                component of the solution to first order regardless of the
-                base method's order. Set True to recover full method order
-                when the coupling varies fast relative to ``dt``.
+                For a delayed coupling that reads *only* the history
+                (``DelayedLinearCoupling``), the two settings are bit-exact:
+                the history buffer is a step-level carry and ``compute()``
+                ignores the stage time, so the default just avoids redundant
+                gathers. Freezing such a coupling is not free of error, but
+                the error is a delay bias that ``precompute()`` removes
+                analytically via the stage-time shift (see
+                ``stage_time_centroid`` on AbstractSolver), not something
+                per-stage evaluation would fix.
+
+                They differ for any coupling whose value depends on the
+                *stage state*: instantaneous couplings, and delayed couplings
+                that also read a local state
+                (``DelayedDifferenceCoupling``, ``DelayedKuramotoCoupling``).
+                There freezing replaces ``c(t)`` by the constant ``c(t_n)``
+                and pins the coupling component of the solution to first
+                order regardless of the base method's order. Set True to
+                recover full method order when the coupling varies fast
+                relative to ``dt``.
 
                 External inputs are always evaluated per stage regardless
                 of this flag.
@@ -164,6 +174,8 @@ class Euler(NativeSolver):
     For SDEs: Euler-Maruyama when noise_sample provided
     """
 
+    stage_time_centroid = 0.0
+
     def step(
         self,
         dynamics_fn: Callable,
@@ -215,6 +227,9 @@ class Heun(NativeSolver):
     ``recompute_coupling_per_stage`` flag (see ``NativeSolver``); the
     ``dynamics_fn`` passed here already encodes that choice via closure.
     """
+
+    # b = (1/2, 1/2), c = (0, 1)  ->  sum b_i c_i = 1/2
+    stage_time_centroid = 0.5
 
     def step(
         self,
@@ -280,6 +295,9 @@ class RungeKutta4(NativeSolver):
     ``recompute_coupling_per_stage`` flag (see ``NativeSolver``); the
     ``dynamics_fn`` passed here already encodes that choice via closure.
     """
+
+    # b = (1/6, 1/3, 1/3, 1/6), c = (0, 1/2, 1/2, 1)  ->  sum b_i c_i = 1/2
+    stage_time_centroid = 0.5
 
     def step(
         self,
@@ -391,6 +409,10 @@ class BoundedSolver(NativeSolver):
     @property
     def grad_horizon(self):
         return self.base_solver.grad_horizon
+
+    @property
+    def stage_time_centroid(self):
+        return self.base_solver.stage_time_centroid
 
     def step(
         self,

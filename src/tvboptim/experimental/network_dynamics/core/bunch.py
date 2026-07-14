@@ -46,8 +46,18 @@ class Bunch(dict):
         return f"{self.__class__.__name__}({items})"
 
     def copy(self) -> "Bunch":
-        """Create a shallow copy of the Bunch."""
-        return Bunch(super().copy())
+        """Structurally copy this Bunch and any nested PyTree containers.
+
+        Rebuilds every container (nested Bunch, graph object, ...) so
+        mutating the copy -- including plain attribute assignment like
+        `cfg.graph.delays = x` -- does not leak back into the original.
+        Leaves (arrays, scalars, PRNG keys) are immutable in JAX, so
+        sharing them is safe and avoids duplicating large arrays (graph
+        weights, history buffers, pre-sampled noise tensors). Same
+        operation as solve.py's `_snapshot`, exposed here as `.copy()` so
+        it works for ad-hoc config mutation outside prepare().
+        """
+        return jax.tree.map(lambda x: x, self)
 
 
 # Register Bunch as a JAX PyTree with named keys so that

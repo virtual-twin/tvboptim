@@ -5,6 +5,8 @@ from typing import Callable, Optional
 import jax.numpy as jnp
 from jax import vmap
 
+from ..graph.base import delay_steps_bound
+
 
 def interpolate_history(
     old_ts: jnp.ndarray, old_ys: jnp.ndarray, n_steps: int
@@ -61,7 +63,7 @@ def extract_history_window(
             Applied BEFORE interpolation to maintain accuracy.
 
     Returns:
-        History buffer [n_steps, ...] where n_steps = ceil(max_delay / dt) + 1
+        History buffer [n_steps, ...] where n_steps = delay_steps_bound(max_delay, dt) + 1
         If transform_fn provided, trailing dimensions may differ from input.
 
     Example:
@@ -76,8 +78,9 @@ def extract_history_window(
                                        transform_fn=aggregate)
         # Returns [21, n_states, n_regions]
     """
-    # Calculate required number of steps
-    n_steps_needed = int(jnp.rint(max_delay / dt)) + 1
+    # Calculate required number of steps. Rounds up: rint would leave the
+    # longest delay unrepresentable whenever its fractional step part is <= 0.5.
+    n_steps_needed = delay_steps_bound(max_delay, dt) + 1
 
     # Calculate history dt (assume uniform spacing)
     hist_dt = hist_ts[1] - hist_ts[0] if len(hist_ts) > 1 else dt

@@ -6,6 +6,7 @@ from .base import (
     DelayedCoupling,
     InstantaneousCoupling,
 )
+from .kuramoto import DelayedKuramotoCoupling, KuramotoCoupling
 from .linear import (
     DelayedDifferenceCoupling,
     DelayedLinearCoupling,
@@ -29,4 +30,6 @@ __all__ = [
     "DelayedDifferenceCoupling",
     "FastLinearCoupling",
     "SubspaceCoupling",
+    "KuramotoCoupling",
+    "DelayedKuramotoCoupling",
 ]

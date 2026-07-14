@@ -11,7 +11,7 @@ import jax.numpy as jnp
 
 from ..coupling.base import AbstractCoupling
 from ..dynamics.base import AbstractDynamics
-from ..graph.base import AbstractGraph
+from ..graph.base import AbstractGraph, delay_steps_bound, effective_max_delay
 from ..noise.base import AbstractNoise
 from ..result import NativeSolution
 from .bunch import Bunch
@@ -100,8 +100,12 @@ class Network:
 
         self.externals = self._normalize_external_inputs(external_input or {}, dynamics)
 
-        # Extract max_delay from graph (0.0 for non-DelayGraph)
-        self.max_delay = getattr(graph, "max_delay", 0.0)
+        # Extract max_delay from graph (0.0 for non-DelayGraph). Prefers a
+        # declared max_delay_bound over the actual max(delays), matching the
+        # coupling's own buffer sizing (coupling/base.py prepare()), so
+        # history is padded to the same length delays may be raised to
+        # within the bound during a sweep.
+        self.max_delay = effective_max_delay(graph)
 
         # Resolve noise state indices if noise provided
         if self.noise is not None:
@@ -318,7 +322,15 @@ class Network:
             variable_names=state_names,
         )
 
-    def prepare(self, dt: float, t0: float, t1: float) -> tuple[Bunch, Bunch]:
+    def prepare(
+        self,
+        dt: float,
+        t0: float,
+        t1: float,
+        *,
+        stage_time_centroid: float = 0.0,
+        recompute_coupling_per_stage: bool = False,
+    ) -> tuple[Bunch, Bunch]:
         """Prepare all couplings for simulation.
 
         Calls prepare() on each coupling to get coupling_data and coupling_state.
@@ -327,6 +339,20 @@ class Network:
             dt: Integration timestep
             t0: Simulation start time
             t1: Simulation end time
+            stage_time_centroid: The solver's ``sum_i b_i * c_i`` (see
+                AbstractSolver). DelayedCoupling.precompute() reads it to undo
+                the delay bias introduced by freezing the coupling across
+                solver stages. The default 0.0 means "step-start evaluation",
+                i.e. no shift.
+            recompute_coupling_per_stage: The solver's flag of the same name.
+                DelayedCoupling.precompute() needs it to decide whether the
+                stage-time shift is safe to apply (it is not, on its own, for a
+                coupling that also reads a frozen local state).
+
+        Both are written into every coupling_data *after* coupling.prepare()
+        returns, rather than passed down into it, so that couplings overriding
+        prepare() with the historical (network, dt, t0, t1) signature keep
+        working unchanged.
 
         Returns:
             coupling_data_dict: Bunch {name: coupling_data_bunch}
@@ -339,6 +365,8 @@ class Network:
 
         for name, coupling in self.coupling.items():
             data, state = coupling.prepare(self, dt, t0, t1)
+            data.stage_time_centroid = stage_time_centroid
+            data.recompute_coupling_per_stage = recompute_coupling_per_stage
             coupling_data_dict[name] = data
             coupling_state_dict[name] = state
 
@@ -380,13 +408,18 @@ class Network:
         Args:
             t: Current time
             state: Current network state [n_states, n_nodes]
-            coupling_data_dict: Precomputed coupling data from prepare()
+            coupling_data_dict: Coupling data from prepare()
             coupling_state_dict: Current coupling internal states
 
         Returns:
             coupling_inputs: Bunch {name: array[n_dims, n_nodes]}
                 Named coupling inputs ready for dynamics.dynamics()
                 Missing couplings automatically filled with zeros
+
+        Note:
+            Runs precompute() per call, as solve.py does once per forward pass.
+            compute() must never see raw prepare() output: DelayedCoupling only
+            resolves its delay read indices in precompute().
         """
         coupling_inputs = Bunch()
 
@@ -397,7 +430,9 @@ class Network:
             else:
                 # Compute coupling
                 coupling = self.coupling[name]
-                data = coupling_data_dict[name]
+                data = coupling.precompute(
+                    coupling_data_dict[name], coupling.params, self.graph
+                )
                 state_data = coupling_state_dict[name]
                 coupling_inputs[name] = coupling.compute(
                     t, state, data, state_data, coupling.params, self.graph
@@ -552,11 +587,12 @@ class Network:
         Returns:
             None if no delays (max_delay == 0.0)
             Otherwise history buffer [n_steps, n_states, n_nodes]
-                where n_steps = ceil(max_delay / dt)
+                where n_steps = delay_steps_bound(max_delay, dt) + 1
         """
-        n_steps = max(
-            1, int(jnp.ceil(self.max_delay / dt))
-        )  # at least 1 step (case: speed = inf)
+        # Covering [t0 - max_delay, t0] takes one row per step plus the t0
+        # endpoint. Must match extract_history_window() and the read indices
+        # DelayedCoupling.prepare() derives from the same bound.
+        n_steps = delay_steps_bound(self.max_delay, dt) + 1
         return jnp.broadcast_to(
             self.initial_state[None, :, :],
             (n_steps, self.initial_state.shape[0], self.initial_state.shape[1]),

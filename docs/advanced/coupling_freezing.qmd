@@ -52,9 +52,13 @@ integrators, and getting per-stage coupling would mean rewriting `scheme`.
 
 There is a fairness point that also explains *why* TVB never needed to surface
 the choice: its long-range coupling is always a delayed gather over the history
-buffer, evaluated on the integer-step grid. As the next sections show, in that
-delayed regime freezing is exact, so the assumption never costs TVB anything and
-there was nothing to expose.
+buffer, evaluated on the integer-step grid. In that delayed regime, as the next
+sections show, per-stage evaluation reads the *same* buffer entry the frozen
+one does, so the flag has nothing to change and there was nothing to expose.
+That is a statement about the flag, not a clean bill of health for the
+accuracy: both variants evaluate the delayed coupling at the step-start time,
+which costs an order. The delayed sections below separate those two claims
+carefully, because it is easy to read the first as implying the second.
 
 `tvboptim` keeps the same default but makes it a visible knob, and supports
 instantaneous (non-delayed) coupling too, which is the case where the assumption
@@ -70,16 +74,21 @@ explicit, so you can tell when it is free, when it costs you, and which side of
 the flag your model wants:
 
 - For delayed coupling, the regime brain-network simulations actually run in
-  (usually with noise), the assumption holds **exactly**: freezing is
-  bit-identical to per-stage. Pure speedup at zero accuracy cost.
+  (usually with noise), freezing is **free**: for a coupling that reads only the
+  history, it is bit-identical to per-stage, so the flag buys nothing and costs
+  the extra gathers. It is free because per-stage does not move the delayed
+  read, not because the read is accurate. Both variants evaluate the delayed
+  term at the step-start time, which drops the solve to first order, and no
+  setting of this flag recovers it.
 - For fast, state-dependent *instantaneous* coupling it is a genuine
   approximation: freezing drops the coupling term to first order. Often still
   benign, because a region averages many inputs, but in strongly synchronized or
   hub-dominated regimes it is worth paying for per-stage.
 
 The sections below quantify each claim in turn: first the cost that motivates
-freezing, then the delayed regime where it is exact, and finally the
-instantaneous regime where the flag earns its keep.
+freezing, then the delayed regime where the flag is inert (and what that does
+and does not say about accuracy), and finally the instantaneous regime where the
+flag earns its keep.
 
 ```{python}
 #| echo: false
@@ -283,22 +292,24 @@ Per-stage breaks that collapse: it re-pays the gather on every stage, so the cos
 scales with the stage count (the printed factors above) instead of staying flat.
 This is not special to delays. Instantaneous dense coupling shows the same
 pattern, because a dense matrix product is just as much the bottleneck as a
-history gather. What *is* special about the delayed case is not a bigger speedup
-but that the speedup is **free**, which is the next section.
+history gather. What *is* special about the delayed case is that per-stage buys
+nothing at all there, so its extra gathers are pure waste, which is the next
+section.
 
-## The regime you actually run is exact
+## For delayed coupling the flag changes nothing
 
-For delayed coupling, freezing is not an approximation: it is bit-identical to
+For delayed coupling with `DelayedLinearCoupling`, freezing is bit-identical to
 per-stage. The delay history is a buffer sampled on the step grid and refreshed
-once per step; the delayed read indexes it by precomputed offsets and does not
-depend on the stage state, so both Heun stages read the same buffer entry. Noise
-does not change this either, because the noise increment is applied in the solver
-step, separately from the coupling. Overlaid, the frozen and per-stage
-trajectories coincide exactly, with and without noise:
+once per step; the delayed read indexes it by offsets computed from `delays / dt`
+and does not depend on the stage's time or state, so both Heun stages read the
+same buffer entry. `DelayedCoupling.compute()` discards its `t` argument
+entirely. Noise does not change this either, because the noise increment is
+applied in the solver step, separately from the coupling. Overlaid, the frozen
+and per-stage trajectories coincide exactly, with and without noise:
 
 ```{python}
-#| label: fig-delay-exact
-#| fig-cap: "Mean V across regions for delayed coupling, frozen (solid) vs per-stage (dashed), without and with noise. The dashed per-stage curve sits exactly on top of the frozen one; the legend reports the largest absolute difference over the whole trajectory, which is zero in both panels."
+#| label: fig-delay-flag-inert
+#| fig-cap: "Mean V across regions for `DelayedLinearCoupling`, frozen (solid) vs per-stage (dashed), without and with noise. The dashed per-stage curve sits exactly on top of the frozen one; the legend reports the largest absolute difference over the whole trajectory, which is zero in both panels. This holds because the coupling term reads only the history buffer; the two sections below show that it does not extend to delayed couplings that also read the local state, and that neither variant is second order."
 #| echo: true
 #| code-fold: true
 #| code-summary: "Plotting code"
@@ -323,34 +334,194 @@ axes[0].set_ylabel("mean V")
 fig.tight_layout()
 ```
 
-So in the dominant regime of delays, with or without noise, freezing costs
-**zero** accuracy and still saves the redundant per-stage coupling evaluations
-timed above. The exactness is a consequence of one design choice: the history
-buffer is piecewise-constant over a step, so every stage reads the same stored
-sample and there is nothing for per-stage recomputation to refine.
+So for delayed coupling, with or without noise, the flag is pure cost: per-stage
+re-pays the gather and returns the identical numbers. Keep it off.
 
-::: {.callout-note title="Future work: continuous-history delays"}
-That design choice is not the only option. A higher-order route stores a
-*continuous* interpolant of the history (for example cubic Hermite through the
-saved samples) and evaluates it at each stage's own delayed time
-`t_stage - τ`, instead of indexing a fixed buffer entry. The delayed argument
-then moves with the stage, exactly as the local term does, so per-stage
-recomputation would recover the full method order for the delayed term too. This
-is what continuous DDE solvers such as Julia's
-[`DelayDiffEq.jl`](https://github.com/SciML/DelayDiffEq.jl) do.
+That is a claim about the *flag*, and it is tempting to read it as a claim about
+*accuracy*. It is not, and the rest of this section separates the two.
 
-We do not implement this yet. It trades the cheap, exact buffer read for an
-interpolant evaluation and a larger stored history, and in the noisy,
-delay-dominated regime brain networks usually run in, the stochastic order cap
-(below) tends to swallow the gain. If you have a smooth, low-noise,
-accuracy-critical delayed model where it would pay off, it is a natural
-extension to the solver: please open an issue so we can prioritize it.
+### The identity does not hold for every delayed coupling
+
+The bit-identity above needs the coupling term to read nothing but the history.
+`DelayedLinearCoupling` qualifies. `DelayedDifferenceCoupling` and
+`DelayedKuramotoCoupling` do not: their `pre()` subtracts the *local* state,
+`delayed_states - local_states[:, :, None]`, and the local state is different in
+each solver stage. For those, frozen and per-stage genuinely disagree.
+
+```{python}
+#| echo: true
+#| code-fold: true
+#| code-summary: "Frozen vs per-stage across the delayed coupling family"
+from tvboptim.experimental.network_dynamics.coupling import (
+    DelayedDifferenceCoupling, DelayedKuramotoCoupling,
+)
+from tvboptim.experimental.network_dynamics.dynamics.tvb import Kuramoto
+
+g8 = DenseDelayGraph.random(8, max_delay=20.0, key=jax.random.key(0))
+family = [
+    ("DelayedLinearCoupling (history only)",
+     lambda: Network(oscillator(), {"delayed": DelayedLinearCoupling(incoming_states="V", G=0.05)}, g8)),
+    ("DelayedDifferenceCoupling (reads local)",
+     lambda: Network(oscillator(), {"delayed": DelayedDifferenceCoupling(incoming_states="V", local_states="V", G=0.05)}, g8)),
+    ("DelayedKuramotoCoupling (reads local)",
+     lambda: Network(Kuramoto(omega=1.0), {"delayed": DelayedKuramotoCoupling(incoming_states="theta", local_states="theta", G=0.3)}, g8)),
+]
+print(f"{'coupling':<42} {'max |frozen - per-stage|'}")
+for name, make in family:
+    yf = solve(make(), Heun(recompute_coupling_per_stage=False), t1=60.0, dt=0.5).ys
+    yp = solve(make(), Heun(recompute_coupling_per_stage=True), t1=60.0, dt=0.5).ys
+    diff = float(jnp.max(jnp.abs(yf - yp)))
+    print(f"{name:<42} {diff:.3e}   {'identical' if diff == 0.0 else 'differs'}")
+```
+
+Only the history-only coupling is exempt. The delayed *gather* never moves
+between stages, but anything the coupling computes from the current state does.
+
+### Freezing is free, but the delayed read is still first order
+
+Here is the part the bit-identity hides. Heun's corrector ought to evaluate the
+coupling at `t_{n+1}`. It evaluates it at `t_n`, because the read indices are
+built from `delays / dt` and know nothing about stage time. That is the
+rectangle rule where the trapezoid was intended: the delayed coupling term is
+treated to zeroth order across the step, and the solve drops to **first order**.
+Per-stage does not fix it, because per-stage reads the same entry.
+
+We measure the order without a reference solution, from successive step
+halvings: if the global error scales as `dt^p`, then `|y(dt) - y(dt/2)|` scales
+as `dt^p` too, and the slope on a log-log plot is `p`.
+
+```{python}
+#| label: fig-delay-order
+#| fig-cap: "Convergence of Heun, measured by successive step halving on a deterministic network. Instantaneous coupling behaves as the flag advertises: frozen is first order, per-stage recovers Heun's second order. The two delayed curves lie on top of each other on the first-order line: the flag does not move them, because the delayed term is read at the step-start time either way. The delayed runs use linear `history_interpolation`, so no delay-rounding error is present and the gap to the instantaneous per-stage line is purely the stage-time question. Dotted lines are reference slopes 1 and 2."
+#| echo: true
+#| code-fold: true
+#| code-summary: "Convergence-order study"
+T_ORDER = 20.0
+dts_ord = np.array([0.2, 0.1, 0.05, 0.025, 0.0125])
+gd6 = DenseDelayGraph.random(6, max_delay=4.0, key=jax.random.key(0))
+gi6 = DenseGraph.random(6, key=jax.random.key(0))
+
+
+def self_diffs(make_net, per_stage):
+    ys = [
+        np.asarray(solve(make_net(), Heun(recompute_coupling_per_stage=per_stage),
+                         t1=T_ORDER, dt=float(dt)).ys[-1])
+        for dt in dts_ord
+    ]
+    return np.array([np.max(np.abs(ys[i] - ys[i + 1])) for i in range(len(dts_ord) - 1)])
+
+
+def delayed_net(interp):
+    return lambda: Network(oscillator(), {"delayed": DelayedLinearCoupling(
+        incoming_states="V", G=0.05, buffer_strategy="circular",
+        history_interpolation="linear" if interp else None)}, gd6)
+
+
+def instant_net():
+    return Network(oscillator(), {"instant": LinearCoupling(incoming_states="V", G=0.05)}, gi6)
+
+
+# The delayed runs use history_interpolation="linear" so that rounding tau to
+# the nearest whole step contributes no error of its own, and what is left on
+# the plot is purely the stage-time question.
+series = [
+    ("instantaneous, frozen", instant_net, False, C_FROZEN, "o-"),
+    ("instantaneous, per-stage", instant_net, True, C_PERSTAGE, "s-"),
+    ("delayed, frozen", delayed_net(True), False, C_EULER, "o--"),
+    ("delayed, per-stage", delayed_net(True), True, C_RK4, "s--"),
+]
+
+h = dts_ord[:-1]
+fig, ax = plt.subplots(figsize=(7, 4.5))
+print(f"{'configuration':<36} {'observed order'}")
+for name, make, ps, color, style in series:
+    D = self_diffs(make, ps)
+    p = np.polyfit(np.log(h), np.log(D), 1)[0]
+    print(f"{name:<36} {p:.2f}")
+    ax.loglog(h, D, style, color=color, label=f"{name} (p = {p:.2f})")
+for p, lab in [(1, "order 1"), (2, "order 2")]:
+    guide = 3e-4 * (h / h[0]) ** p
+    ax.loglog(h, guide, "k:", lw=0.8)
+    ax.text(h[0], guide[0], lab, fontsize=8, va="bottom", ha="right")
+ax.set_xlabel("dt")
+ax.set_ylabel("|y(dt) - y(dt/2)|")
+ax.legend(fontsize=8)
+fig.tight_layout()
+```
+
+Instantaneous coupling does exactly what this page promises: frozen is first
+order, per-stage buys back Heun's second. Delayed coupling stays on the
+first-order line under both settings. The delayed term never sees stage time, so
+there is nothing for per-stage recomputation to refine, which is the same
+sentence that explains the bit-identity, read for its cost rather than its
+benefit.
+
+The delayed curves above enable `history_interpolation` deliberately. Without it
+the read also rounds each `τ` to the nearest whole step, adding a second,
+unrelated first-order error whose size jumps around as `dt` crosses the rounding
+boundaries. That error is worth removing (it is what `history_interpolation` is
+for) but it would only obscure the point here,
+which is that even a delay read exactly at `τ` is read at the wrong *time*.
+
+::: {.callout-note title="Future work: stage-aware delayed reads"}
+`history_interpolation="linear"` already
+makes the history read continuous *in the delay*: it blends the two buffer
+samples bracketing `τ` rather than rounding to the nearest. It does not make the
+read continuous *in time*, which is what the corrector stage needs.
+
+There is a sharper way to say what freezing costs. Heun's coupling contribution
+over a step should be `h/2·(c(t_n) + c(t_{n+1}))`, which equals `h·c(t_n + h/2)`
+to third order. Freezing uses `h·c(t_n)` instead. Since `c(t) = G·W·g(y(t − τ))`,
+evaluating the coupling half a step early is indistinguishable from lengthening
+every delay by `h/2`:
+
+> Freezing the delayed coupling silently adds `dt/2` to every delay.
+
+That is checkable, and it checks out: a frozen run at delay `τ` matches a
+stage-aware run at delay `τ + dt/2` to `O(h²)`, while it differs from a
+stage-aware run at the same `τ` at `O(h)`.
+
+It also hands us the cheap fix. Subtract `dt/2` from the delays before the
+(interpolated) read and the frozen coupling becomes second-order accurate, at one
+coupling evaluation per step and no per-stage plumbing at all. Measured order
+2.00 under Heun. This is not a Heun accident: `Σ bᵢcᵢ = 1/2` is the order-2
+condition of any Runge-Kutta method, so the leading error cancels generally. It
+stops at second order, because cancelling the next term would need
+`Σ bᵢcᵢ² = 1/4`, and RK4 has `1/3`.
+
+One catch, and it is the same local-state distinction as above: for a coupling
+whose `pre()` reads the current state, freezing also freezes *that*, and no delay
+shift repairs it. Those couplings additionally need per-stage evaluation of the
+cheap local arithmetic, which touches no history.
+
+Going beyond second order needs a genuinely stage-aware read (`τ/dt - c` steps
+back for a stage at `t_n + c·dt`) *and* a history interpolant accurate enough not
+to cap it: the global order is `min(p, q)` for a method of order `p` and a history
+interpolant of accuracy order `q`, and linear interpolation has `q = 2`. Cubic
+Hermite has `q = 4` and needs no extra `f` evaluations, because `k1` is already
+the exact derivative at every grid point and only has to be stored. The awkward
+part is plumbing: `compute()` cannot recover `c` from its `t` argument, since
+Heun's corrector time `t + dt` is numerically the next step's start time. Both
+variants require `τ ≥ c·dt` per edge; a shorter delay needs a value from inside
+the step being taken, the overlapping-delay case that continuous DDE solvers such
+as Julia's [`DelayDiffEq.jl`](https://github.com/SciML/DelayDiffEq.jl) resolve by
+iterating.
+
+**Does noise excuse it?** Not this one. The stochastic term caps the *strong,
+pathwise* order at ≤ 1 (next section), which is why a higher-order drift scheme
+does not improve pathwise accuracy. But the frozen-coupling error is not pathwise
+noise. It is a deterministic bias of `+dt/2` on every delay, identical in every
+realization, and averaging no more removes it than averaging removes Euler's
+amplitude inflation. On the Desikan-Killiany connectome with Kuramoto
+oscillators, the order parameter shifts by up to 2.8% at `dt = 1 ms`, halving to
+0.6% at `dt = 0.5 ms` (first order in `dt`, as predicted), and the shift is
+largest at the slow conduction speeds where the network is most delay-sensitive.
 :::
 
 Noise reinforces the default from the other direction: it also caps the
-convergence order (shown in *Noise caps the order* below), so where freezing
-would lower the drift order at all, the noise has already capped the total and
-the per-stage cost buys nothing.
+convergence order (shown in *Noise caps the order* below), so where a coupling
+treatment would lower the drift order at all, the noise has already capped the
+total and the per-stage cost buys nothing.
 
 # Solver order in practice
 
@@ -742,11 +913,21 @@ did there. That is precisely when to pay for `recompute_coupling_per_stage=True`
 
 ## Practical takeaways
 
-- Keep the default `recompute_coupling_per_stage=False`. For delayed coupling it
-  is exact, bit-identical to per-stage; for instantaneous coupling it is usually
-  accurate too, because a region averages many desynchronized inputs. Either way
-  it evaluates the coupling once per step instead of once per stage, so it is
-  faster by roughly the solver's stage count.
+- Keep the default `recompute_coupling_per_stage=False`. For instantaneous
+  coupling it is usually accurate, because a region averages many desynchronized
+  inputs. For delayed coupling the flag cannot help: the delayed read ignores
+  stage time, so per-stage returns the same numbers (identically so, when the
+  coupling reads only the history) at the cost of an extra gather per stage.
+  Either way the default evaluates the coupling once per step instead of once
+  per stage, so it is faster by roughly the solver's stage count.
+- Do not read "the flag changes nothing for delayed coupling" as "delayed
+  coupling is accurate". Both settings evaluate the delayed term at the
+  step-start time, which is equivalent to lengthening every delay by `dt/2` and
+  pins a delayed network to first order under Heun and RK4 alike. That is a
+  deterministic bias, not a fluctuation, so noise does not average it away.
+  Recovering the order needs either the half-step delay shift or a stage-aware
+  history read; see the callout above. Today the only lever is a smaller `dt`,
+  which shrinks the bias linearly, and this flag is not it.
 - Noise reinforces the default, and almost every real model has it. Independent
   per-node noise keeps the sources desynchronized (so the averaging holds) and
   caps the strong order at ≤ 1 (so the method order per-stage would recover sits

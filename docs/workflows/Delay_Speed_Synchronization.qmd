@@ -1,0 +1,544 @@
+---
+title: "Delays Shape Synchronization"
+subtitle: "Sweeping and fitting transmission delays with coupled phase oscillators"
+format:
+    html:
+        code-fold: false
+        toc: true
+        echo: true
+        embed-resources: true
+        fig-width: 8
+        out-width: "100%"
+jupyter: python3
+execute:
+    cache: true
+---
+
+Try this notebook interactively:
+
+[Download .ipynb](https://github.com/virtual-twin/tvboptim/blob/main/docs/workflows/Delay_Speed_Synchronization.ipynb){.btn .btn-primary download="Delay_Speed_Synchronization.ipynb"}
+[Download .qmd](Delay_Speed_Synchronization.qmd){.btn .btn-secondary download="Delay_Speed_Synchronization.qmd"}
+[Open in Colab](https://colab.research.google.com/github/virtual-twin/tvboptim/blob/main/docs/workflows/Delay_Speed_Synchronization.ipynb){.btn .btn-warning target="_blank"}
+
+## Introduction
+
+Transmission delays used to be frozen into integer gather indices at `prepare()` time: mutating the delay leaf on an already-prepared config had no effect, so sweeping or fitting delays meant re-`prepare()`-ing (and recompiling) for every value. That has changed: delay read indices are now recomputed from the *live* `config.graph.delays` once per forward pass, inside the compiled `solve_fn`. This notebook validates that end-to-end, using coupled phase oscillators, a system where delays are textbook-known to reshape synchronization, so a wrong sweep produces a visibly wrong answer rather than a subtly wrong one.
+
+Three demonstrations:
+
+1. **Two delay-coupled oscillators** (Yeung & Strogatz, 1999): the locked frequency has a closed-form self-consistency equation. We sweep the delay across one compiled buffer and check the simulated result against the analytical curve directly. This is a correctness check on the delay sweep, not just a demo.
+2. **A real brain network** (Desikan-Killiany connectome): using `DenseLengthGraph`, which owns `lengths` and `speed` and derives `delays = lengths / speed`, we sweep conduction speed and watch the Kuramoto order parameter respond non-monotonically, the phenomenon studied in Petkoski & Jirsa (2019).
+3. **Fitting instead of sweeping**: with `history_interpolation="linear"` the delay leaf carries a gradient, so both of the above become inverse problems. We check `jax.grad` against a closed-form derivative on the two-oscillator model, then gradient-descend on the `speed` leaf to match a target synchronization level.
+
+Parts 1 and 2 exercise sweep-accessible delays; Part 3 exercises gradient-accessible ones.
+
+## Setup
+
+```{python}
+#| output: false
+#| echo: false
+# Install dependencies if running in Google Colab
+try:
+    import google.colab
+    print("Running in Google Colab - installing dependencies...")
+    !pip install -q tvboptim
+    print("✓ Dependencies installed!")
+except ImportError:
+    pass  # Not in Colab, assume dependencies are available
+```
+
+```{python}
+#| output: false
+#| code-fold: true
+#| code-summary: "Imports and JAX configuration"
+import jax
+jax.config.update("jax_enable_x64", True)
+
+import jax.numpy as jnp
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import brentq
+
+from tvboptim.experimental.network_dynamics import Network, prepare
+from tvboptim.experimental.network_dynamics.coupling import DelayedKuramotoCoupling
+from tvboptim.experimental.network_dynamics.dynamics.tvb import Kuramoto
+from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph, DenseLengthGraph
+from tvboptim.experimental.network_dynamics.solvers import Heun
+from tvboptim.types.spaces import Space, DataAxis
+from tvboptim.execution import ParallelExecution
+from tvboptim.data import load_structural_connectivity
+```
+
+All three parts use `DelayedKuramotoCoupling`, added alongside this notebook. `dynamics.tvb.Kuramoto` deliberately does not build the $\sin(\theta_j - \theta_i)$ interaction itself. Following this codebase's TVB-style split, the dynamics only adds whatever the coupling hands it, and the coupling supplies the phase-difference sine via `pre()`/`post()`:
+
+```{python}
+#| eval: false
+class DelayedKuramotoCoupling(DelayedCoupling):
+    def pre(self, delayed_states, local_states, params):
+        return jnp.sin(delayed_states - local_states[:, :, None])
+
+    def post(self, summed_inputs, local_states, params):
+        return params.G * summed_inputs
+```
+
+## Part 1: Two Delay-Coupled Oscillators
+
+Two identical Kuramoto oscillators with symmetric mutual delay $\tau$:
+
+$$\dot\theta_i = \omega + G \sin\big(\theta_j(t-\tau) - \theta_i(t)\big), \qquad j \ne i$$
+
+For the in-phase locked solution $\theta_1(t) = \theta_2(t) = \Omega t$, substituting into the equation above gives a self-consistency condition for the locked frequency (Yeung & Strogatz, 1999):
+
+$$\Omega = \omega - G \sin(\Omega \tau)$$
+
+This is a closed-form prediction independent of our simulator, an ideal target to validate the delay-sweep machinery against.
+
+```{python}
+omega = 1.0
+G = 0.3
+tau_max = 8.0
+n_tau = 40
+taus = jnp.linspace(0.01, tau_max, n_tau)
+
+weights = jnp.array([[0.0, 1.0], [1.0, 0.0]])
+delays0 = jnp.array([[0.0, taus[0]], [taus[0], 0.0]])
+
+# max_delay_bound declares headroom for the whole sweep up front, so every
+# tau in the sweep reuses the same compiled buffer -- no re-prepare().
+graph = DenseDelayGraph(weights=weights, delays=delays0, max_delay_bound=tau_max * 1.05)
+coupling = DelayedKuramotoCoupling(incoming_states="theta", local_states="theta", G=G)
+network = Network(
+    dynamics=Kuramoto(omega=omega),
+    coupling={"delayed": coupling},
+    graph=graph,
+    noise=None,
+)
+
+t0, t1, dt = 0.0, 150.0, 0.01
+solve_fn, base_cfg = prepare(network, Heun(), t0=t0, t1=t1, dt=dt)
+print(f"Prepared once: {int((t1 - t0) / dt)} steps, buffer sized for tau up to {tau_max}.")
+```
+
+`prepare()` runs exactly once. Every $\tau$ below reuses the same `solve_fn` and the same history buffer:
+
+```{python}
+def locked_frequency(cfg):
+    theta = solve_fn(cfg).ys[:, 0, :]  # [n_steps, n_nodes]
+    ts = jnp.arange(t0, t1, dt)
+    window = int(0.8 * theta.shape[0])  # discard the transient
+    dtheta = jnp.diff(theta[window:, 0]) / jnp.diff(ts[window:])
+    return {"Omega_sim": jnp.mean(dtheta)}
+
+# One (2, 2) delay matrix per tau -- swept as a DataAxis over the graph.delays leaf.
+# .copy() rebuilds cfg's containers (including the graph object) structurally,
+# so mutating sweep_cfg below never leaks back into base_cfg.
+delay_stack = jnp.stack([jnp.array([[0.0, tau], [tau, 0.0]]) for tau in taus])
+sweep_cfg = base_cfg.copy()
+sweep_cfg.graph.delays = DataAxis(delay_stack)
+
+space = Space(sweep_cfg, mode="zip")  # a single axis: walk its samples directly
+results = ParallelExecution(locked_frequency, space, n_vmap=n_tau, n_pmap=1).run()
+df = results.to_dataframe()
+Omega_sim = np.asarray(df["Omega_sim"])
+```
+
+```{python}
+#| code-fold: true
+#| code-summary: "Plot: locked frequency, simulation vs. closed form"
+Omega_theory = np.array([
+    brentq(lambda Om: Om - (omega - G * np.sin(Om * tau)), omega - G, omega + G)
+    for tau in np.asarray(taus)
+])
+
+fig, ax = plt.subplots(figsize=(7, 4.5))
+ax.plot(taus, Omega_sim, "o", label="simulated (delay sweep)", alpha=0.7)
+ax.plot(taus, Omega_theory, "-", label=r"theory: $\Omega = \omega - G\sin(\Omega\tau)$", color="k")
+ax.set_xlabel(r"Delay $\tau$")
+ax.set_ylabel(r"Locked frequency $\Omega$")
+ax.set_title("Delay-induced frequency shift: simulation vs. closed form")
+ax.legend()
+plt.tight_layout()
+plt.show()
+
+print(f"Mean |sim - theory|: {np.mean(np.abs(Omega_sim - Omega_theory)):.4f}")
+print(f"Max  |sim - theory|: {np.max(np.abs(Omega_sim - Omega_theory)):.4f}")
+```
+
+The simulated and analytical curves overlap closely across the whole $\tau$ range, all from one compiled `solve_fn`. That is the point made concrete: `config.graph.delays` is a live input to the simulation, not a constant baked in at `prepare()` time.
+
+## Part 2: Conduction Speed and Brain Network Synchronization
+
+The two-oscillator case isolates the mechanism; real brain networks add heterogeneous delays from tract length and a shared conduction speed, $\text{delays} = \text{lengths} / \text{speed}$. `DenseLengthGraph` captures exactly this: it owns `lengths` (a matrix) and `speed` (a scalar), exposes `delays` as the computed property `lengths / speed`, and leaves the coupling seeing only delays. Because `speed` is a differentiable pytree leaf, it is the delay-domain twin of the coupling gain $G$: sweepable via `cfg.graph.speed` and reachable by `jax.grad`, with no extra machinery.
+
+Petkoski & Jirsa (2019) and related work show that synchronization is *not* monotonic in conduction speed: because the relevant quantity is how delays compare to the oscillators' period, there are speed windows where the network locks more or less strongly, rather than a simple "faster speed, better sync" relationship.
+
+```{python}
+weights, lengths, region_labels = load_structural_connectivity(name="dk_average")
+weights = jnp.asarray(weights)
+lengths = jnp.asarray(lengths)
+n_nodes = weights.shape[0]
+
+# Raw fiber-count-like weights aren't O(1); normalize so G is easy to reason about.
+weights = weights / jnp.mean(weights[weights > 0])
+print(f"{n_nodes} regions, delays will range over lengths in [{float(lengths[lengths>0].min()):.1f}, {float(lengths.max()):.1f}] mm")
+```
+
+```{python}
+speeds = jnp.linspace(0.5, 6.0, 50)  # mm/ms, i.e. m/s
+max_delay_bound = float(jnp.max(lengths) / speeds.min()) * 1.05
+
+# Swept delays force the worst-case buffer length across the whole batch
+# regardless of strategy (ParallelExecution vmaps one compiled shape); "circular"
+# avoids paying that inflated length every forward step the way "roll" would.
+coupling = DelayedKuramotoCoupling(
+    incoming_states="theta", local_states="theta", G=0.1 / n_nodes,
+    buffer_strategy="circular",
+)
+# DenseLengthGraph carries lengths + speed; delays = lengths / speed is a
+# computed property, so speed is a first-class leaf we can sweep directly.
+graph = DenseLengthGraph(
+    weights=weights, lengths=lengths, speed=speeds[0], max_delay_bound=max_delay_bound,
+)
+omega = 2 * jnp.pi * 0.01  # ~10 Hz alpha rhythm, dt/delays in ms
+network = Network(
+    dynamics=Kuramoto(omega=omega),
+    coupling={"delayed": coupling},
+    graph=graph,
+    noise=None,
+)
+
+t0, t1, dt = 0.0, 800.0, 0.5
+solve_fn, base_cfg = prepare(network, Heun(), t0=t0, t1=t1, dt=dt)
+print(f"Prepared once: {int((t1 - t0) / dt)} steps, {n_nodes} nodes, buffer sized for speed >= {speeds.min():.1f} m/s.")
+```
+
+```{python}
+def order_parameter(cfg):
+    theta = solve_fn(cfg).ys[:, 0, :]  # [n_steps, n_nodes]
+    window = theta[-int(0.2 * theta.shape[0]):]
+    z = jnp.mean(jnp.exp(1j * window), axis=1)
+    return {"R": jnp.mean(jnp.abs(z))}
+
+# Sweep the scalar speed leaf directly -- lengths stays fixed on the graph and
+# delays = lengths / speed is recomputed per sample. No hand-rolled delay stack.
+sweep_cfg = base_cfg.copy()
+sweep_cfg.graph.speed = DataAxis(speeds)
+
+space = Space(sweep_cfg, mode="zip")
+results = ParallelExecution(order_parameter, space, n_vmap=len(speeds), n_pmap=1).run()
+df_speed = results.to_dataframe()
+```
+
+```{python}
+#| code-fold: true
+#| code-summary: "Plot: order parameter vs. conduction speed"
+fig, ax = plt.subplots(figsize=(7, 4.5))
+ax.plot(speeds, df_speed["R"], "o-")
+ax.set_xlabel("Conduction speed (m/s)")
+ax.set_ylabel("Kuramoto order parameter $R$")
+ax.set_title("Synchronization vs. conduction speed (DK connectome, one compiled buffer)")
+ax.set_ylim(0, 1)
+plt.tight_layout()
+plt.show()
+```
+
+$R$ does not increase monotonically with speed: shorter delays do not simply mean "more synchronized." The exact shape depends on $G$, $\omega$, and the speed range explored here, so retune them if you like. The whole curve above came from a single `prepare()` call regardless of how many speed values you add to the sweep.
+
+To see what a low vs. high $R$ actually looks like, compare the phase timeseries directly at the speeds with the lowest and highest order parameter, using the same `solve_fn`, just two more delay values, and the same steady-state window used to compute $R$ above.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Compute and plot: steady-state phases at low- vs. high-R speed"
+idx_min = int(np.argmin(df_speed["R"]))
+idx_max = int(np.argmax(df_speed["R"]))
+speed_min, speed_max = float(speeds[idx_min]), float(speeds[idx_max])
+R_min, R_max = float(df_speed["R"][idx_min]), float(df_speed["R"][idx_max])
+
+cfg_min = base_cfg.copy()
+cfg_min.graph.speed = speed_min
+cfg_max = base_cfg.copy()
+cfg_max.graph.speed = speed_max
+
+theta_min = np.asarray(solve_fn(cfg_min).ys[:, 0, :])  # [n_steps, n_nodes]
+theta_max = np.asarray(solve_fn(cfg_max).ys[:, 0, :])
+
+ts = np.arange(t0, t1, dt)
+tail = slice(-int(0.2 * theta_min.shape[0]), None)  # same window as order_parameter()
+
+fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), sharey=True, sharex=True)
+for ax, theta, speed, R in [
+    (axes[0], theta_min, speed_min, R_min),
+    (axes[1], theta_max, speed_max, R_max),
+]:
+    ax.plot(ts[tail], np.sin(theta[tail]), color="tab:blue", alpha=0.15, linewidth=0.8)
+    ax.set_xlabel("Time (ms)")
+    ax.set_title(f"speed = {speed:.2f} m/s, R = {R:.2f}")
+axes[0].set_ylabel(r"$\sin(\theta_i)$, one line per region")
+fig.suptitle("Steady-state phases at the lowest- vs. highest-R speed")
+plt.tight_layout()
+plt.show()
+```
+
+Left panel: the 84 regional traces stay spread across the full $[-1, 1]$ range at every timepoint. The network is oscillating, but incoherently. Right panel: the traces collapse onto a shared waveform; the same regions, the same coupling, only conduction speed (hence delays) changed.
+
+## Part 3: From Sweeping to Fitting
+
+Both sweeps above are read-only. They move delay values through `rint` on the way to a gather index, so `config.graph.delays` is *sweep*-accessible but not *gradient*-accessible: rounding to the nearest history sample is piecewise constant, and its derivative is zero almost everywhere.
+
+Setting `history_interpolation="linear"` on the coupling replaces that integer gather with a linear blend of the two history samples bracketing the requested delay. With $d = \tau/\Delta t$ split into a whole part $k$ and a fraction $f$, the read becomes $(1-f)\,\theta[k] + f\,\theta[k+1]$, and $f$ carries a gradient back to $\tau$. Nothing else changes: same `solve_fn`, same buffer, same sweep machinery. (The default, `history_interpolation=None`, keeps the nearest-integer read, so static and no-delay workflows pay nothing.)
+
+```{python}
+#| output: false
+import optax
+```
+
+### Part 3a: Checking the gradient against a closed form
+
+Part 1 validated the *sweep* against $\Omega = \omega - G\sin(\Omega\tau)$. That same equation validates the *gradient*, for free. Differentiating it implicitly with respect to $\tau$ and solving for $d\Omega/d\tau$:
+
+$$\frac{d\Omega}{d\tau} = \frac{-G\,\Omega\cos(\Omega\tau)}{1 + G\,\tau\cos(\Omega\tau)}$$
+
+So there is an exact target for `jax.grad` to hit, derived independently of the simulator. We rebuild the two-oscillator model with interpolation enabled, on a tighter $\tau$ range: reverse-mode differentiation retains the history buffer for every scan step, so the backward pass costs roughly `n_steps * buffer_length`, and a tighter `max_delay_bound` keeps that tape small.
+
+```{python}
+omega_a, G_a = 1.0, 0.3
+tau_bound_a = 3.15
+t0_a, t1_a, dt_a = 0.0, 80.0, 0.01
+mask = jnp.array([[0.0, 1.0], [1.0, 0.0]])
+
+def build_two_oscillator(history_interpolation):
+    graph = DenseDelayGraph(
+        weights=mask, delays=mask * 1.0, max_delay_bound=tau_bound_a,
+    )
+    coupling = DelayedKuramotoCoupling(
+        incoming_states="theta", local_states="theta", G=G_a,
+        history_interpolation=history_interpolation,
+        warn_on_delay_clamp=True,  # a tau past the bound would be silently clamped
+    )
+    network = Network(
+        dynamics=Kuramoto(omega=omega_a), coupling={"delayed": coupling},
+        graph=graph, noise=None,
+    )
+    solve_fn_a, cfg_a = prepare(network, Heun(), t0=t0_a, t1=t1_a, dt=dt_a)
+
+    def locked_frequency_of_tau(tau):
+        # cfg.copy() is structural, so assigning the traced tau into the copy's
+        # delay leaf never touches cfg_a. No re-prepare() inside the gradient.
+        cfg = cfg_a.copy()
+        cfg.graph.delays = mask * tau
+        theta = solve_fn_a(cfg).ys[:, 0, 0]
+        tail = int(0.8 * theta.shape[0])  # discard the transient
+        return jnp.mean(jnp.diff(theta[tail:]) / dt_a)
+
+    return jax.jit(jax.value_and_grad(locked_frequency_of_tau))
+
+grad_interp = build_two_oscillator(history_interpolation="linear")
+grad_nearest = build_two_oscillator(history_interpolation=None)
+```
+
+```{python}
+#| code-fold: true
+#| code-summary: "Compute gradients and tabulate against the closed form"
+def dOmega_dtau_theory(tau):
+    Om = brentq(lambda O: O - (omega_a - G_a * np.sin(O * tau)),
+                omega_a - G_a, omega_a + G_a)
+    return -G_a * Om * np.cos(Om * tau) / (1 + G_a * tau * np.cos(Om * tau))
+
+taus_a = jnp.array([0.5, 1.0, 1.5, 2.0, 2.5, 3.0])
+rows = []
+for tau in taus_a:
+    _, g_interp = grad_interp(tau)
+    _, g_nearest = grad_nearest(tau)
+    rows.append((float(tau), float(g_interp), dOmega_dtau_theory(float(tau)), float(g_nearest)))
+
+print(f"{'tau':>5} {'autodiff':>13} {'closed form':>13} {'abs err':>10} {'nearest grad':>14}")
+for tau, ad, exact, p1 in rows:
+    print(f"{tau:>5.2f} {ad:>13.9f} {exact:>13.9f} {abs(ad - exact):>10.2e} {p1:>14.1e}")
+```
+
+Autodiff reproduces the closed form to near machine precision, including the sign change near $\tau \approx 2.4$ where the delay stops slowing the oscillators and starts speeding them up. The last column is the same gradient with `history_interpolation=None`: exactly zero, everywhere. That is the whole case for the interpolating read in one table.
+
+The error grows at the largest $\tau$, and that is the formula's doing rather than the simulator's: the denominator $1 + G\tau\cos(\Omega\tau)$ approaches zero there, which is exactly where the in-phase locked branch loses stability.
+
+```{python}
+#| code-fold: true
+#| code-summary: "Plot: gradient of locked frequency vs. delay"
+taus_dense = np.linspace(0.05, 3.0, 200)
+fig, ax = plt.subplots(figsize=(7, 4.5))
+ax.plot(taus_dense, [dOmega_dtau_theory(t) for t in taus_dense], "-", color="k",
+        label=r"theory: implicit differentiation")
+ax.plot([r[0] for r in rows], [r[1] for r in rows], "o", ms=8, alpha=0.8,
+        label=r"$\partial\Omega/\partial\tau$ via `jax.grad`")
+ax.plot([r[0] for r in rows], [r[3] for r in rows], "x", ms=8, color="tab:red",
+        label="same, `history_interpolation=None`")
+ax.axhline(0.0, color="gray", lw=0.6)
+ax.set_xlabel(r"Delay $\tau$")
+ax.set_ylabel(r"$d\Omega/d\tau$")
+ax.set_title("Gradient of the locked frequency w.r.t. delay")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
+### Part 3b: Fitting conduction speed
+
+Now the inverse of Part 2. Given a target synchronization level $R^\*$, descend on conduction speed to match it, with `jax.grad` flowing through `solve_fn` into the graph's `speed` leaf.
+
+No core code knows that `speed` exists. The chain rule supplies $\partial\text{loss}/\partial\text{speed}$ from $\partial\text{loss}/\partial\text{delays}$ and $\partial\text{delays}/\partial\text{speed} = -\text{lengths}/\text{speed}^2$, which autodiff reads off `DenseLengthGraph`'s `delays = lengths / speed` property. This is the "brain-specific lowering" from Part 2, now differentiated.
+
+We use a coarser `dt` than Part 2. The backward pass retains the history buffer per step, and the buffer here is sized for the slowest speed in the range.
+
+```{python}
+speed_min, speed_max = 0.5, 6.0
+bound_b = float(lengths.max() / speed_min) * 1.05
+t0_b, t1_b, dt_b = 0.0, 800.0, 1.0
+TAIL = 0.3  # fraction of the run used as the steady-state window
+
+coupling_b = DelayedKuramotoCoupling(
+    incoming_states="theta", local_states="theta", G=0.1 / n_nodes,
+    buffer_strategy="circular", history_interpolation="linear", warn_on_delay_clamp=True,
+)
+graph_b = DenseLengthGraph(
+    weights=weights, lengths=lengths, speed=3.0, max_delay_bound=bound_b,
+)
+network_b = Network(
+    dynamics=Kuramoto(omega=omega), coupling={"delayed": coupling_b},
+    graph=graph_b, noise=None,
+)
+solve_fn_b, base_cfg_b = prepare(network_b, Heun(), t0=t0_b, t1=t1_b, dt=dt_b)
+
+def R_of_speed(speed):
+    cfg = base_cfg_b.copy()
+    cfg.graph.speed = speed  # delays = lengths / speed, computed by the graph
+    theta = solve_fn_b(cfg).ys[:, 0, :]
+    window = theta[-int(TAIL * theta.shape[0]):]
+    return jnp.mean(jnp.abs(jnp.mean(jnp.exp(1j * window), axis=1)))
+
+R_jit = jax.jit(R_of_speed)
+dR_dspeed = jax.jit(jax.value_and_grad(R_of_speed))
+```
+
+Before optimizing, check the gradient. Central finite differences are the reference, but the step size matters here in a way it did not in Part 3a:
+
+```{python}
+#| code-fold: true
+#| code-summary: "Gradient check: autodiff vs. finite differences"
+print(f"{'speed':>6} {'autodiff':>11} {'FD (h=0.005)':>14} {'FD (h=0.05)':>13}")
+for s in [2.0, 2.2, 2.5, 3.0]:
+    _, g = dR_dspeed(jnp.float64(s))
+    fd_tight = (float(R_jit(s + 0.005)) - float(R_jit(s - 0.005))) / 0.01
+    fd_coarse = (float(R_jit(s + 0.05)) - float(R_jit(s - 0.05))) / 0.10
+    print(f"{s:>6.2f} {float(g):>11.4f} {fd_tight:>14.4f} {fd_coarse:>13.4f}")
+```
+
+Autodiff agrees with the tight finite difference and disagrees with the coarse one. That is not an autodiff error: it says $R(\text{speed})$ has real structure on scales below $0.05$ m/s. A coarse finite difference smooths over that structure; `jax.grad` reports the true local slope of the objective it was handed.
+
+That distinction decides how the fit behaves. We take a ground-truth speed, read $R^\*$ off it, and descend from several starting guesses.
+
+The fit itself uses `OptaxOptimizer`. Speed becomes a `SigmoidBoundedParameter` bounded by the same speed range the history buffer was sized for, which is not a cosmetic choice: `max_delay_bound` fixes a static buffer length, so an optimizer that walks below `speed_min` would ask for delays the buffer cannot represent. A `BoundedParameter` would hard-clip and pin the gradient to zero at the boundary; the sigmoid transform keeps the parameter inside the bound smoothly, with a live gradient everywhere. `warn_on_delay_clamp=True` on the coupling is the backstop if a bound is ever mismatched.
+
+`OptaxOptimizer` partitions the state into what is optimized and what is static, so `speed` is the only free leaf while `lengths` rides along untouched.
+
+```{python}
+from tvboptim.experimental.network_dynamics import Bunch
+from tvboptim.optim import (
+    MultiCallback,
+    OptaxOptimizer,
+    SavingLossCallback,
+    SavingParametersCallback,
+)
+from tvboptim.types import SigmoidBoundedParameter
+
+speed_true = 4.0
+R_target = float(R_jit(speed_true))
+
+def loss(state):
+    # state.speed is a Parameter fed to cfg.graph.speed; the graph's
+    # delays = lengths / speed property differentiates straight through to it.
+    # Nothing here knows about delays.
+    return (R_of_speed(state.speed) - R_target) ** 2
+
+def fit(speed_init, max_steps=120, lr=0.1):
+    state = Bunch(
+        speed=SigmoidBoundedParameter(speed_init, low=speed_min, high=speed_max)
+    )
+    callbacks = MultiCallback([SavingLossCallback(), SavingParametersCallback()])
+    optimizer = OptaxOptimizer(loss, optax.adam(lr), callback=callbacks)
+    final_state, fitting_data = optimizer.run(state, max_steps=max_steps)
+
+    # .constrained_value reads the speed back in m/s (.value lives in logit space)
+    seen = [float(s.speed.constrained_value) for s in fitting_data["parameters"]["save"]]
+    return np.array([speed_init] + seen), fitting_data
+
+starts = [1.0, 2.0, 3.0, 5.5]
+fits = {s0: fit(s0) for s0 in starts}
+
+print(f"target: speed = {speed_true} m/s, R* = {R_target:.4f}\n")
+for s0, (traj, fitting_data) in fits.items():
+    s_final = traj[-1]
+    final_loss = float(fitting_data["loss"]["save"].iloc[-1])
+    print(f"start {s0:>4.1f} -> {s_final:5.3f} m/s   "
+          f"R = {float(R_jit(s_final)):.4f}   loss = {final_loss:.1e}")
+```
+
+```{python}
+#| code-fold: true
+#| code-summary: "Plot: descent paths on the R(speed) curve and loss"
+grid = np.linspace(speed_min, speed_max, 23)
+R_grid = np.array([float(R_jit(s)) for s in grid])
+colors = plt.cm.viridis(np.linspace(0.1, 0.85, len(starts)))
+
+fig, (ax, ax_loss) = plt.subplots(1, 2, figsize=(11.5, 4.6))
+
+ax.plot(grid, R_grid, "-", color="k", lw=1.2, label="$R(\\mathrm{speed})$ (Part 2 sweep)")
+ax.axhline(R_target, color="gray", ls="--", lw=0.9, label=f"target $R^*$ = {R_target:.3f}")
+ax.axvline(speed_true, color="gray", ls=":", lw=0.9)
+
+for (s0, (traj, fitting_data)), color in zip(fits.items(), colors):
+    R_traj = [float(R_jit(s)) for s in traj]
+    ax.plot(traj, R_traj, ".-", ms=3, lw=0.9, color=color, alpha=0.9, label=f"start {s0} m/s")
+    ax.plot(traj[0], R_traj[0], "o", color=color, ms=7)
+    ax.plot(traj[-1], R_traj[-1], "*", color=color, ms=14)
+    ax_loss.semilogy(fitting_data["loss"]["step"], fitting_data["loss"]["save"],
+                     color=color, lw=1.2, label=f"start {s0} m/s")
+
+ax.set_xlabel("Conduction speed (m/s)")
+ax.set_ylabel("Kuramoto order parameter $R$")
+ax.set_title("Descent path (circles: start, stars: end)")
+ax.legend(fontsize=8)
+
+ax_loss.set_xlabel("Optimizer step")
+ax_loss.set_ylabel(r"$(R - R^*)^2$")
+ax_loss.set_title("Loss, via SavingLossCallback")
+ax_loss.legend(fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
+Two of the four starts recover the ground-truth conduction speed to three decimal places, driving the loss down by orders of magnitude. Neither was told anything about delays: the gradient reached `speed` through `lengths / speed`, through the delay leaf, and through the interpolated history read, entirely by the chain rule.
+
+The other two stall, for different reasons, and both are properties of the landscape rather than of the gradient:
+
+- The run from 5.5 m/s sits in the high-speed plateau, where $R$ barely responds to speed. A small gradient means small steps, and it never leaves.
+- The run from 1.0 m/s never escapes the slow-speed basin, where delays comparable to the oscillation period hold the network near its least synchronized state. The gradient points the right way, but the barrier between the basins is real.
+
+Neither is a defect in the gradient. The gradients are exact, as Part 3a established against a closed form. $R(\text{speed})$ is simply multimodal at the coarse scale and, as the finite-difference table showed, rugged at the fine scale, so a local method lands where it starts. The parametrization matters as well: descending in the sigmoid's unconstrained coordinate rescales the step size and carries the run from 2.0 m/s through fine-scale ripples that stall a naive descent taken directly in speed with the same optimizer and learning rate.
+
+This is the argument for keeping both tools. Use the sweep this notebook opened with, and `ParallelExecution`, to find the basin; use gradients to descend inside it. Smoothing the objective, by averaging $R$ over a longer window or several initial conditions, or by fitting a richer observable than a single scalar such as functional connectivity, widens the basins that gradients can then exploit.
+
+## Summary
+
+Delays are no longer frozen at `prepare()` time. `config.graph.delays` is a live input to the compiled `solve_fn`: mutate it and the next forward pass sees the change, with no re-`prepare()` and no recompile. That makes delays both **sweepable** (a `GridAxis` / `ParallelExecution` walk over one compiled buffer, Parts 1 and 2) and **differentiable** (`jax.grad`, once `history_interpolation="linear"` is set on the coupling, Part 3).
+
+There are two ways to drive them, depending on where your delays come from:
+
+- **Raw delays**: set `config.graph.delays` on a `DenseDelayGraph` directly.
+- **Tract lengths and conduction speed**: use `DenseLengthGraph`, which stores `lengths` and `speed` and exposes `delays = lengths / speed`; then sweep or fit the scalar `speed` leaf, as in Parts 2 and 3b.
+
+To apply this to your own model, swap in your connectome and dynamics. The delayed coupling only ever sees delays, so nothing downstream needs to know whether they came from a length/speed model, a sweep value, or a gradient step.
+
+## References
+
+Yeung, M. K. S., & Strogatz, S. H. (1999). Time delay in the Kuramoto model of coupled oscillators. *Physical Review Letters*, 82(3), 648.
+
+Petkoski, S., & Jirsa, V. K. (2019). Transmission time delays organize the brain network synchronization. *Philosophical Transactions of the Royal Society A*, 377(2153), 20180132.
