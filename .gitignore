@@ -75,3 +75,10 @@ src/tvboptim/claude/skills
 
 # Stray cache dir from running doc notebooks outside their own directory
 /cache/
+
+# Local development scratch: plans, benchmarks, exploration. Never shipped.
+# Anything not ready to commit lives here; promote by moving out onto a branch.
+dev/
+
+# Benchmark / experiment output written to the repo root. Machine-generated.
+/results/
