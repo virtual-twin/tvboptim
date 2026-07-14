@@ -44,12 +44,13 @@ uv.lock
 /examples
 
 # Quarto documentation
-docs/_site/                    
-docs/.quarto/                  
-.quarto/                       
-docs/_freeze/                  
-docs/.jupyter_cache/           
-docs/**/.jupyter_cache/        
+docs/_site/
+docs/.quarto/
+.quarto/
+# docs/_freeze/ is committed: it holds the frozen notebook outputs CI renders from
+# (execute: freeze in docs/_quarto.yml). See docs/BUILDING.md.
+docs/.jupyter_cache/
+docs/**/.jupyter_cache/
 docs/reference/*.qmd
 docs/legacy
 docs/_styles-quartodoc.css

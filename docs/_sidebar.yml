@@ -87,5 +87,11 @@ website:
     - contents:
       - reference/tvbo.prepare.qmd
       section: Prepare
+    - contents:
+      - reference/lyapunov.qmd
+      - reference/lyapunov_spectrum.qmd
+      - reference/adiabatic_scan.qmd
+      - reference/AdiabaticScanResult.qmd
+      section: Analysis
     id: reference
   - id: dummy-sidebar

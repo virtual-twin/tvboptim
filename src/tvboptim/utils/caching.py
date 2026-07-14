@@ -1,6 +1,9 @@
 # config and helpers for manually caching long computations to make the rendering of .qmds/.ipynbs faster
+import hashlib
+import inspect
 import os
 import shutil
+import warnings
 from datetime import datetime
 
 import dill as pickle
@@ -8,6 +11,47 @@ import dill as pickle
 cache_root = os.path.join(os.path.abspath(""), "cache")
 cache_path = None
 caching = True
+
+# Marker for the stamped cache wrapper. Pickles without it are treated as legacy
+# (unstamped) payloads and loaded as-is for backward compatibility.
+_CACHE_FORMAT = 1
+
+
+def _cache_meta(func):
+    """Environment/source stamp used to detect stale caches across library upgrades."""
+    meta = {"format": _CACHE_FORMAT}
+    try:
+        import jax
+
+        meta["jax"] = jax.__version__
+    except Exception:
+        meta["jax"] = None
+    try:
+        from tvboptim import __version__ as tvbo_version
+
+        meta["tvboptim"] = tvbo_version
+    except Exception:
+        meta["tvboptim"] = None
+    try:
+        meta["src_hash"] = hashlib.sha256(inspect.getsource(func).encode()).hexdigest()
+    except (OSError, TypeError):
+        meta["src_hash"] = None
+    return meta
+
+
+def _stale_reason(stored, current):
+    """Return a human-readable reason if the stored stamp is incompatible, else None.
+
+    Only compares keys where the stored value is known (not None), so caches written
+    by an older version of this util (or in an environment where a version could not
+    be determined) are not needlessly invalidated.
+    """
+    for key in ("jax", "tvboptim", "src_hash"):
+        old = stored.get(key)
+        new = current.get(key)
+        if old is not None and new is not None and old != new:
+            return f"{key} changed ({old} -> {new})"
+    return None
 
 
 def set_cache_path(experiment=""):
@@ -40,9 +84,16 @@ def clear_experiment_cache():
 
 def cache(fname="", redo=False):
     """
-    Caching decorator - use with care!
+    Caching decorator - a local authoring convenience, use with care!
 
-    Brings variable in global scope and assigns it either a cached version or the result of decorated function.
+    On the first call the decorated function runs and its return value is pickled to
+    `{fname}.pkl` under `cache_path`; later calls load the pickle instead of recomputing.
+
+    The cache is meant to speed up local iteration, not to be a durable artifact: the
+    pickles store live JAX/equinox objects and can go stale across library upgrades. To
+    stay robust the loader recomputes (instead of crashing) whenever the pickle fails to
+    load or its environment stamp (jax/tvboptim version, function source) no longer
+    matches. For committed docs, prefer Quarto's freeze over relying on these pickles.
 
     * `fname`: name of the file where the computation is stored under `cache_path`
     * `redo`: if True, the computation is run even if the file already exists
@@ -57,25 +108,51 @@ def cache(fname="", redo=False):
                 )
             cache_file = os.path.join(cache_path, f"{fname}.pkl")
 
-            if not redo and os.path.exists(cache_file):
-                print(
-                    f"Loading {fname} from cache, last modified {datetime.fromtimestamp(os.path.getmtime(cache_file))}"
-                )
-                with open(cache_file, "rb") as f:
-                    # exec(f"global {variable}\n{variable} = pickle.load(f)")
-                    comp = pickle.load(f)
-            else:
+            def compute_and_store():
                 print(f"Running computations for {fname}")
-                comp = func(*args, **kwargs)
+                result = func(*args, **kwargs)
                 if caching:
-                    if not os.path.exists(cache_path):
-                        os.makedirs(cache_path)
+                    os.makedirs(cache_path, exist_ok=True)
                     with open(cache_file, "wb") as f:
                         # Use protocol 4 for Python 3.4+ compatibility
                         # Avoid HIGHEST_PROTOCOL which changes between versions
-                        pickle.dump(comp, f, protocol=4)
-                # exec(f"global {fname}\n{fname} = comp")
-            return comp
+                        pickle.dump(
+                            {"meta": _cache_meta(func), "payload": result},
+                            f,
+                            protocol=4,
+                        )
+                return result
+
+            if redo or not os.path.exists(cache_file):
+                return compute_and_store()
+
+            print(
+                f"Loading {fname} from cache, last modified {datetime.fromtimestamp(os.path.getmtime(cache_file))}"
+            )
+            try:
+                with open(cache_file, "rb") as f:
+                    stored = pickle.load(f)
+            except Exception as exc:
+                # e.g. ModuleNotFoundError when a pickled library type moved between
+                # versions. Recompute instead of failing the whole render.
+                warnings.warn(
+                    f"Cache '{fname}' could not be loaded ({exc!r}); recomputing.",
+                    stacklevel=2,
+                )
+                return compute_and_store()
+
+            if isinstance(stored, dict) and "meta" in stored and "payload" in stored:
+                reason = _stale_reason(stored["meta"], _cache_meta(func))
+                if reason is not None:
+                    warnings.warn(
+                        f"Cache '{fname}' is stale ({reason}); recomputing.",
+                        stacklevel=2,
+                    )
+                    return compute_and_store()
+                return stored["payload"]
+
+            # Legacy unstamped pickle that loaded successfully: use as-is.
+            return stored
 
         return wrapper
 

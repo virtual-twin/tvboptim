@@ -21,6 +21,8 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Operating System :: OS Independent",
 ]
 requires-python = ">=3.11"
@@ -30,11 +32,11 @@ dependencies = [
     "matplotlib",
     "numpy",
     "pandas",
-    "jax<0.10",  # numpyro<=0.20.1 imports jax.extend.core.primitives.xla_pmap_p, removed in jax 0.10. Drop cap once numpyro releases a fix.
+    "jax",
     "equinox",
     "dill",
     "tqdm",
-    "numpyro>=0.20.1",
+    "numpyro>=0.21.0",
     "diffrax",
     "plum-dispatch",
 ]

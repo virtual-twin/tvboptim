@@ -141,6 +141,14 @@ class TestParameter(unittest.TestCase):
         expected = jnp.array([2, 4, 6])
         np_testing.assert_array_equal(result, expected)
 
+    def test_arithmetic_with_jax_tracer(self):
+        """Parameter arithmetic accepts traced JAX array operands."""
+        parameter = Parameter(2.0)
+
+        result = jax.jit(lambda value: parameter * value)(jnp.array([1.0, 2.0]))
+
+        np_testing.assert_array_equal(result, jnp.array([2.0, 4.0]))
+
     def test_unary_operations(self):
         """Test unary operations."""
         p = Parameter(jnp.array([-1, 2, -3]))
