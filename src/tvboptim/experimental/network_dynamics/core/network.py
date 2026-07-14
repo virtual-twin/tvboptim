@@ -4,6 +4,7 @@ This module implements a single Network class that handles all equation types
 (ODE/DDE/SDE/SDDE) through composition rather than inheritance.
 """
 
+import copy
 import warnings
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
@@ -317,6 +318,25 @@ class Network:
             dt=getattr(solution, "dt", None),
             variable_names=state_names,
         )
+
+    def with_graph(self, graph: AbstractGraph) -> "Network":
+        """Return a shallow copy of this network with ``graph`` replaced.
+
+        Unlike constructing a new ``Network(...)``, this does NOT re-run ``__init__``
+        (which normalizes couplings/externals and resolves the noise state indices via
+        an in-place mutation of the noise object). It copies the already-resolved
+        instance and swaps only ``graph`` and the derived ``max_delay``. That makes it
+        safe to call inside a jax transform (``vmap``/``grad``) — e.g. sweeping the delay
+        graph per exploration cell, ``net.with_graph(base_graph.with_delays(lengths / v))``
+        — where re-running ``__init__`` would leak a tracer through the noise mutation.
+
+        The noise (and its resolved ``_state_indices``), dynamics, couplings, externals
+        and history are shared with the original; only the connectivity graph changes.
+        """
+        new = copy.copy(self)
+        new.graph = graph
+        new.max_delay = getattr(graph, "max_delay", 0.0)
+        return new
 
     def prepare(self, dt: float, t0: float, t1: float) -> tuple[Bunch, Bunch]:
         """Prepare all couplings for simulation.
