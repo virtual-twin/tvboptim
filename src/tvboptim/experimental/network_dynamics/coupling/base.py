@@ -752,13 +752,19 @@ class DelayedCoupling(PrePostCoupling):
     Parameters
     ----------
     buffer_strategy : {"roll", "circular", "preallocated"}, default "roll"
-        Strategy for history buffer management:
-        - "roll": Uses jnp.roll to shift buffer each step. Best gradient performance
-          for large networks. Memory: O(T) where T = max_delay_steps + 1.
-        - "circular": Pointer-based circular buffer with modulo indexing. Best for
-          optimization with small dt / large history. Memory: O(T).
-        - "preallocated": Pre-allocates full simulation buffer. Best forward-pass
-          performance but gradients degrade. Memory: O(T + simulation_steps).
+        Strategy for history buffer management. ``T = max_delay_steps + 1`` is
+        the buffer length; sweeping or fitting delays sizes it for the declared
+        ``max_delay_bound`` headroom (see the delay graph), which is where these
+        strategies pull apart.
+        - "roll": ``jnp.roll`` shifts the whole buffer each step, so its
+          per-step cost scales with ``T``. Fine for fixed delays at minimal
+          headroom; it pays for every extra buffer row a bound adds. Memory: O(T).
+        - "circular": Pointer-based circular buffer with modulo indexing. Only
+          the write pointer moves, so per-step cost is independent of ``T``.
+          Preferred for swept or differentiable delays, where the buffer carries
+          headroom. Memory: O(T).
+        - "preallocated": Pre-allocates the full trajectory. Best forward-pass
+          performance but a larger gradient tape. Memory: O(T + simulation_steps).
     warn_on_delay_clamp : bool, default False
         Read indices are recomputed from ``graph.delays`` on every forward pass
         (in ``precompute()``) and clamped into the history buffer sized at

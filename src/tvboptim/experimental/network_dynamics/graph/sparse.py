@@ -539,9 +539,7 @@ class SparseDelayGraph(SparseGraph):
             self._max_delay = (
                 jnp.max(self._delays.data) if self._delays.nse > 0 else jnp.array(0.0)
             )
-            if max_delay_bound is not None and max_delay_bound < float(
-                self._max_delay
-            ):
+            if max_delay_bound is not None and max_delay_bound < float(self._max_delay):
                 raise ValueError(
                     f"max_delay_bound={max_delay_bound} is smaller than the "
                     f"largest delay in the network ({float(self._max_delay)}); the "
