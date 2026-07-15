@@ -1,11 +1,50 @@
 """Abstract base class for network topology representations."""
 
+import math
 from abc import ABC, abstractmethod
 from typing import Optional, Sequence
 
 import jax
 import jax.numpy as jnp
 from jax.tree_util import register_pytree_node_class
+
+
+def effective_max_delay(graph) -> float:
+    """Delay value that governs buffer/history sizing for ``graph``.
+
+    Prefers a declared ``max_delay_bound`` (headroom for sweeps/grad) over the
+    actual ``max(delays)``, so every static-size computation derived from "how
+    long a delay must the buffer represent" agrees. Falls back to 0.0 for
+    graphs without delays.
+
+    Always concrete: SparseDelayGraph keeps ``max_delay`` as a 0-d array, so
+    coerce here rather than leaking an array into the ``int()`` / ``== 0.0``
+    call sites that size static buffers. Graphs whose delays are tracers
+    cannot be constructed without a bound, so this never sees a tracer.
+    """
+    bound = getattr(graph, "max_delay_bound", None)
+    if bound is None:
+        bound = getattr(graph, "max_delay", 0.0)
+    return float(bound)
+
+
+def delay_steps_bound(max_delay: float, dt: float) -> int:
+    """Number of ``dt`` steps needed to *represent* a delay of ``max_delay``.
+
+    Rounds up, not to nearest: a buffer sized with ``rint`` cannot represent a
+    delay whose fractional step part is <= 0.5, so the longest delay silently
+    truncates (and, under ``history_interpolation="linear"``, loses its
+    gradient entirely).
+
+    The ``- 1e-9`` absorbs float division error, so ratios that are integral in
+    exact arithmetic (``1.0 / 0.1 == 10.000000000000002``) do not inflate the
+    buffer by a spurious step.
+
+    A history buffer covering ``[t0 - max_delay, t0]`` needs
+    ``delay_steps_bound(max_delay, dt) + 1`` rows: one per step, plus the
+    endpoint at ``t0``.
+    """
+    return max(0, int(math.ceil(float(max_delay) / dt - 1e-9)))
 
 
 class AbstractGraph(ABC):
@@ -159,6 +198,23 @@ class DenseGraph(AbstractGraph):
     def weights(self) -> jnp.ndarray:
         """Weight matrix [n_nodes, n_nodes]."""
         return self._weights
+
+    @weights.setter
+    def weights(self, value: jnp.ndarray) -> None:
+        """Replace the weight matrix in place, no validation or recompute.
+
+        symmetric/sparsity are cached at construction and used only for
+        introspection (repr, verify, plotting); simulation always reads
+        graph.weights live and never re-reads those cached fields. Left
+        unvalidated on purpose: axis-sweep placeholders (e.g. DataAxis) get
+        assigned here before Space resolves them into concrete per-sample
+        arrays, so an eager shape/type check would break that path.
+
+        Mutates this object only. Bunch.copy() rebuilds nested graph
+        objects structurally, so copy the containing config before
+        mutating if the original must stay untouched.
+        """
+        self._weights = value
 
     @property
     def n_nodes(self) -> int:
@@ -402,6 +458,12 @@ class DenseDelayGraph(DenseGraph):
         delays: Delay matrix [n_nodes, n_nodes] in same units as integration time
         region_labels: Optional sequence of region labels (list, tuple, or array). If None, defaults to ['Region_0', 'Region_1', ...]
         symmetric: Whether to treat as symmetric (None = auto-detect)
+        max_delay_bound: Optional static bound on the largest representable delay,
+            used to size the history buffer instead of ``max(delays)``. Distinct
+            from the ``max_delay`` property (which always reports the largest
+            *actual* delay): set this to declare headroom so delays can be raised
+            within a sweep, or a `jax.grad` step, without re-`prepare()`-ing, or to
+            let ``delays`` be a JAX tracer while the buffer shape stays static.
     """
 
     def __init__(
@@ -410,6 +472,7 @@ class DenseDelayGraph(DenseGraph):
         delays: jnp.ndarray,
         region_labels: Optional[Sequence[str]] = None,
         symmetric: Optional[bool] = None,
+        max_delay_bound: Optional[float] = None,
     ):
         # Process delays first (needed for verify method)
         self._delays = jnp.asarray(delays)
@@ -421,8 +484,33 @@ class DenseDelayGraph(DenseGraph):
                 f"Delay matrix shape {self._delays.shape} must match weight matrix shape {weights_array.shape}"
             )
 
-        # Compute and store max_delay to avoid accessing delays during pytree transformations
-        self._max_delay = float(jnp.max(self._delays))
+        delays_are_concrete = not isinstance(self._delays, jax.core.Tracer)
+
+        if max_delay_bound is not None:
+            max_delay_bound = float(max_delay_bound)
+            if delays_are_concrete:
+                actual_max = float(jnp.max(self._delays))
+                if max_delay_bound < actual_max:
+                    raise ValueError(
+                        f"max_delay_bound={max_delay_bound} is smaller than the "
+                        f"largest delay in the network ({actual_max}); the history "
+                        f"buffer would be too short to represent it."
+                    )
+        self._max_delay_bound = max_delay_bound
+
+        # Compute and store max_delay (largest actual delay) to avoid accessing
+        # delays during pytree transformations. Only computable when delays are
+        # concrete; if delays are a tracer, max_delay_bound must be supplied since
+        # nothing else can size the (static) history buffer.
+        if delays_are_concrete:
+            self._max_delay = float(jnp.max(self._delays))
+        elif max_delay_bound is not None:
+            self._max_delay = max_delay_bound
+        else:
+            raise ValueError(
+                "delays is a JAX tracer (not a concrete array); max_delay_bound "
+                "must be supplied so the history buffer has a static size."
+            )
 
         # Initialize parent Graph (pass region_labels)
         super().__init__(weights, region_labels=region_labels, symmetric=symmetric)
@@ -435,6 +523,31 @@ class DenseDelayGraph(DenseGraph):
     def delays(self) -> jnp.ndarray:
         """Delay matrix [n_nodes, n_nodes]."""
         return self._delays
+
+    @delays.setter
+    def delays(self, value: jnp.ndarray) -> None:
+        """Replace the delay matrix in place, no validation or recompute.
+
+        max_delay/max_delay_bound are cached at construction and size the
+        coupling's history buffer once, at prepare() time; simulation always
+        reads graph.delays live via precompute() and never re-reads those
+        cached fields afterward, so leaving them stale here is safe for the
+        intended use (mutating an already-prepared config to sweep delays).
+        Left unvalidated for the same reason as DenseGraph.weights: axis-sweep
+        placeholders (e.g. DataAxis) get assigned here before Space resolves
+        them into concrete per-sample arrays.
+
+        Mutating .delays before prepare() (rather than after) is the one
+        case where staleness bites: prepare() sizes the buffer from
+        max_delay/max_delay_bound, so construct a fresh DenseDelayGraph via
+        __init__ instead if you need that to reflect a changed delays array.
+        """
+        self._delays = value
+
+    @property
+    def max_delay_bound(self) -> Optional[float]:
+        """Declared static bound on delays, or None if sized from max(delays)."""
+        return self._max_delay_bound
 
     @property
     def max_delay(self) -> float:
@@ -482,12 +595,17 @@ class DenseDelayGraph(DenseGraph):
 
     def __repr__(self) -> str:
         """String representation of the delay graph."""
+        bound_str = (
+            f", max_delay_bound={self._max_delay_bound:.3f}"
+            if self._max_delay_bound is not None
+            else ""
+        )
         return (
             f"{self.__class__.__name__}("
             f"n_nodes={self.n_nodes}, "
             f"sparsity={self.sparsity:.3f}, "
             f"symmetric={self.symmetric}, "
-            f"max_delay={self.max_delay:.3f})"
+            f"max_delay={self.max_delay:.3f}{bound_str})"
         )
 
     @classmethod
@@ -684,6 +802,7 @@ class DenseDelayGraph(DenseGraph):
             self._sparsity,
             self._max_delay,
             self._region_labels,
+            self._max_delay_bound,
         )  # Static metadata
         return children, aux_data
 
@@ -698,6 +817,239 @@ class DenseDelayGraph(DenseGraph):
         obj._sparsity = aux_data[2]
         obj._max_delay = aux_data[3]
         obj._region_labels = aux_data[4]
+        obj._max_delay_bound = aux_data[5]
+        return obj
+
+
+@register_pytree_node_class
+class DenseLengthGraph(DenseDelayGraph):
+    """Dense delay graph whose delays are derived from tract lengths and speed.
+
+    A brain-specific lowering onto the delay representation: it owns ``lengths``
+    (a matrix) and ``speed`` (a scalar) and computes ``delays = lengths / speed``
+    as a read-only property. The core (``DelayedCoupling``, the solver) still
+    only ever sees delays; this type just produces them from the two quantities
+    a structural connectome actually measures.
+
+    Because ``speed`` is a differentiable pytree leaf, it is directly sweepable
+    and differentiable -- the delay-domain twin of the coupling gain ``G``:
+    ``cfg.graph.speed = x`` sweeps it, and ``jax.grad`` reaches it through
+    ``delays = lengths / speed`` by the chain rule, with no core code naming
+    speed.
+
+    Args:
+        weights: Weight matrix [n_nodes, n_nodes]
+        lengths: Tract-length matrix [n_nodes, n_nodes], same sparsity pattern
+            as ``weights``; non-negative.
+        speed: Conduction speed, a positive scalar. ``delays = lengths / speed``.
+        region_labels: Optional sequence of region labels. If None, defaults to
+            ['Region_0', 'Region_1', ...]
+        symmetric: Whether to treat as symmetric (None = auto-detect)
+        max_delay_bound: Static bound on the largest representable delay, used to
+            size the history buffer. **Required** here: ``speed`` (or ``lengths``)
+            may be a JAX tracer, so ``delays`` is a tracer and the buffer length
+            cannot be read off ``max(delays)``. Also gives headroom so ``speed``
+            can be lowered (raising delays) within a sweep or gradient step
+            without re-``prepare()``-ing.
+    """
+
+    def __init__(
+        self,
+        weights: jnp.ndarray,
+        lengths: jnp.ndarray,
+        speed,
+        region_labels: Optional[Sequence[str]] = None,
+        symmetric: Optional[bool] = None,
+        max_delay_bound: Optional[float] = None,
+    ):
+        self._lengths = jnp.asarray(lengths)
+        self._speed = jnp.asarray(speed)
+
+        weights_array = jnp.asarray(weights)
+        if self._lengths.shape != weights_array.shape:
+            raise ValueError(
+                f"Length matrix shape {self._lengths.shape} must match weight "
+                f"matrix shape {weights_array.shape}"
+            )
+
+        lengths_concrete = not isinstance(self._lengths, jax.core.Tracer)
+        speed_concrete = not isinstance(self._speed, jax.core.Tracer)
+        delays_are_concrete = lengths_concrete and speed_concrete
+
+        if max_delay_bound is not None:
+            max_delay_bound = float(max_delay_bound)
+            if delays_are_concrete:
+                actual_max = float(jnp.max(self._lengths) / self._speed)
+                if max_delay_bound < actual_max:
+                    raise ValueError(
+                        f"max_delay_bound={max_delay_bound} is smaller than the "
+                        f"largest delay in the network ({actual_max}); the history "
+                        f"buffer would be too short to represent it."
+                    )
+        self._max_delay_bound = max_delay_bound
+
+        # Same rationale as DenseDelayGraph: _max_delay must be a static float so
+        # it can size the (static) history buffer. When speed/lengths is a tracer
+        # nothing can read it off the delay array, so max_delay_bound is required.
+        if delays_are_concrete:
+            self._max_delay = float(jnp.max(self._lengths) / self._speed)
+        elif max_delay_bound is not None:
+            self._max_delay = max_delay_bound
+        else:
+            raise ValueError(
+                "speed or lengths is a JAX tracer (not a concrete array); "
+                "max_delay_bound must be supplied so the history buffer has a "
+                "static size."
+            )
+
+        # DenseGraph plumbing (weights, n_nodes, labels, symmetric, sparsity).
+        # Skips DenseDelayGraph.__init__, which would store a _delays leaf; here
+        # delays is a computed property over the lengths/speed leaves instead.
+        DenseGraph.__init__(
+            self, weights, region_labels=region_labels, symmetric=symmetric
+        )
+
+        if not self.verify(verbose=False):
+            raise ValueError("LengthGraph verification failed")
+
+    @property
+    def lengths(self) -> jnp.ndarray:
+        """Tract-length matrix [n_nodes, n_nodes]."""
+        return self._lengths
+
+    @lengths.setter
+    def lengths(self, value: jnp.ndarray) -> None:
+        """Replace the length matrix in place (plain setter, no recompute).
+
+        Same contract as DenseGraph.weights / DenseDelayGraph.delays: unvalidated
+        and does not refresh the cached max_delay/sizing fields, which are
+        introspection-only once prepare() has sized the buffer.
+        """
+        self._lengths = value
+
+    @property
+    def speed(self):
+        """Conduction speed (scalar). ``delays = lengths / speed``."""
+        return self._speed
+
+    @speed.setter
+    def speed(self, value) -> None:
+        """Replace the conduction speed in place (plain setter, no recompute).
+
+        This is the primary sweep/fit knob: ``cfg.graph.speed = x`` flows
+        through ``delays = lengths / speed`` to the simulation on the next
+        forward pass, the delay-domain analogue of ``cfg.coupling[name].G = x``.
+        Unvalidated and does not refresh max_delay, for the same reason as the
+        delays setter: the buffer was already sized from max_delay_bound, and an
+        eager check would misfire on a DataAxis sweep placeholder.
+        """
+        self._speed = value
+
+    @property
+    def delays(self) -> jnp.ndarray:
+        """Delay matrix [n_nodes, n_nodes], computed as ``lengths / speed``.
+
+        Read-only: mutate ``speed`` (or ``lengths``) instead. Recomputed live
+        each access, so it tracks the current leaves through a sweep or grad.
+        """
+        return self._lengths / self._speed
+
+    @property
+    def max_delay(self) -> float:
+        """Largest actual delay, ``max(lengths) / speed``.
+
+        Computed live when both leaves are concrete; falls back to the declared
+        bound when ``speed``/``lengths`` is a tracer (buffer sizing reads the
+        bound anyway, via effective_max_delay()).
+        """
+        if isinstance(self._lengths, jax.core.Tracer) or isinstance(
+            self._speed, jax.core.Tracer
+        ):
+            return float(self._max_delay_bound)
+        return float(jnp.max(self._lengths) / self._speed)
+
+    def verify(self, verbose: bool = True) -> bool:
+        """Verify length-graph structure.
+
+        Checks weights (via DenseGraph.verify), non-negative finite lengths, and
+        positive speed. Content checks are guarded behind concreteness so
+        verify() stays trace-safe when speed/lengths is a tracer.
+        """
+        if not DenseGraph.verify(self, verbose):
+            return False
+
+        try:
+            if not isinstance(self._lengths, jax.core.Tracer):
+                if jnp.any(self._lengths < 0):
+                    if verbose:
+                        print("  L ERROR: Length matrix contains negative values")
+                    return False
+                if not jnp.all(jnp.isfinite(self._lengths)):
+                    if verbose:
+                        print("  L ERROR: Length matrix contains non-finite values")
+                    return False
+
+            if not isinstance(self._speed, jax.core.Tracer):
+                if not float(self._speed) > 0:
+                    if verbose:
+                        print("  L ERROR: Conduction speed must be positive")
+                    return False
+
+            if verbose:
+                print("   LengthGraph verification passed!")
+            return True
+
+        except Exception as e:
+            if verbose:
+                print(f"  L ERROR: {e}")
+            return False
+
+    def __repr__(self) -> str:
+        """String representation of the length graph."""
+        bound_str = (
+            f", max_delay_bound={self._max_delay_bound:.3f}"
+            if self._max_delay_bound is not None
+            else ""
+        )
+        return (
+            f"{self.__class__.__name__}("
+            f"n_nodes={self.n_nodes}, "
+            f"sparsity={self.sparsity:.3f}, "
+            f"symmetric={self.symmetric}, "
+            f"max_delay={self.max_delay:.3f}{bound_str})"
+        )
+
+    def tree_flatten(self):
+        """Flatten DenseLengthGraph for JAX PyTree.
+
+        weights, lengths and speed are all children (differentiable leaves), so
+        jax.grad reaches config.graph.speed. delays is not a leaf; it is
+        recomputed from lengths/speed each forward pass.
+        """
+        children = (self._weights, self._lengths, self._speed)
+        aux_data = (
+            self._n_nodes,
+            self._symmetric,
+            self._sparsity,
+            self._max_delay,
+            self._region_labels,
+            self._max_delay_bound,
+        )
+        return children, aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        """Reconstruct DenseLengthGraph from PyTree data."""
+        obj = object.__new__(cls)
+        obj._weights = children[0]
+        obj._lengths = children[1]
+        obj._speed = children[2]
+        obj._n_nodes = aux_data[0]
+        obj._symmetric = aux_data[1]
+        obj._sparsity = aux_data[2]
+        obj._max_delay = aux_data[3]
+        obj._region_labels = aux_data[4]
+        obj._max_delay_bound = aux_data[5]
         return obj
 
 

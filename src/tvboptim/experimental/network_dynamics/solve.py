@@ -754,8 +754,16 @@ def prepare(
     for bare dynamics) and Diffrax limitations (no delays, no auxiliaries,
     no VOI filtering).
     """
-    # Prepare all couplings (creates history buffers, computes indices, etc.)
-    coupling_data_dict, coupling_state_dict_init = network.prepare(dt, t0, t1)
+    # Prepare all couplings (creates history buffers, computes indices, etc.).
+    # The solver's stage-time centroid rides along so delayed couplings can
+    # undo the delay bias that freezing the coupling across stages introduces.
+    coupling_data_dict, coupling_state_dict_init = network.prepare(
+        dt,
+        t0,
+        t1,
+        stage_time_centroid=solver.stage_time_centroid,
+        recompute_coupling_per_stage=solver.recompute_coupling_per_stage,
+    )
 
     # Prepare all external inputs
     external_data_dict, external_state_dict_init = network.prepare_external(dt)

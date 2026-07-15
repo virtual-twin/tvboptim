@@ -53,7 +53,7 @@ except ImportError:
 The notebook proceeds in four steps:
 
 1. Generate a noisy observation from a known ground truth.
-2. Scan the MSE landscape and show that many parameter pairs explain the data.
+2. Scan the mean squared error (MSE) landscape and show that many parameter pairs explain the data.
 3. Sample three posteriors with different priors on the same observation.
 4. Compare those posteriors against multi-start gradient descent on the same priors.
 

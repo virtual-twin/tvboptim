@@ -1,6 +1,7 @@
 """Test basic network creation and simulation across model/coupling/noise combinations."""
 
 import unittest
+import warnings
 from itertools import product
 
 import jax
@@ -12,18 +13,45 @@ from jax.test_util import check_grads
 jax.config.update("jax_enable_x64", True)
 
 from tvboptim.experimental.network_dynamics import Network, solve
+from tvboptim.experimental.network_dynamics.core.bunch import Bunch
 from tvboptim.experimental.network_dynamics.coupling import (
+    DelayedKuramotoCoupling,
     DelayedLinearCoupling,
     LinearCoupling,
+    SubspaceCoupling,
 )
 from tvboptim.experimental.network_dynamics.dynamics.tvb import (
     JansenRit,
+    Kuramoto,
     ReducedWongWang,
 )
-from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph, DenseGraph
+from tvboptim.experimental.network_dynamics.graph import (
+    DenseDelayGraph,
+    DenseGraph,
+    DenseLengthGraph,
+    SparseDelayGraph,
+    delay_steps_bound,
+    effective_max_delay,
+)
 from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
 from tvboptim.experimental.network_dynamics.solve import prepare
-from tvboptim.experimental.network_dynamics.solvers import BoundedSolver, Heun
+from tvboptim.experimental.network_dynamics.solvers import (
+    BoundedSolver,
+    Euler,
+    Heun,
+    RungeKutta4,
+)
+
+
+class _NoShiftHeun(Heun):
+    """Heun with the stage-time shift disabled (``stage_time_centroid = 0``).
+
+    Lets a test isolate the interpolating read from the shift that
+    DelayedCoupling.precompute() otherwise applies. Also stands in for the
+    pre-shift behaviour when checking that the shift is what changed.
+    """
+
+    stage_time_centroid = 0.0
 
 
 class TestBasicNetworks(unittest.TestCase):
@@ -1193,6 +1221,912 @@ class TestStreamingNoise(unittest.TestCase):
         sample = jnp.concatenate([gen(i, 64) for i in range(60)], axis=0)
         self.assertLess(abs(float(jnp.mean(sample))), 0.02)
         self.assertLess(abs(float(jnp.var(sample)) - 1.0), 0.05)
+
+
+class TestDelaySweepAccessibility(unittest.TestCase):
+    """Delay sweep accessibility: delays must be mutable on an
+    already-`prepare()`d config, with no re-`prepare()`, so a `GridAxis` /
+    `ParallelExecution` sweep (or a caller-side `delays = x * delays`) can
+    vary them against one compiled buffer."""
+
+    BUFFER_STRATEGIES = ("roll", "circular", "preallocated")
+
+    def _build(self, max_delay_bound=None, buffer_strategy="roll"):
+        key = jax.random.PRNGKey(3)
+        weights_key, delay_key = jax.random.split(key)
+        n_nodes = 4
+        weights = jax.random.uniform(weights_key, (n_nodes, n_nodes)) * 0.5
+        delays = jax.random.uniform(delay_key, (n_nodes, n_nodes)) * 5.0
+        graph = DenseDelayGraph(
+            weights=weights, delays=delays, max_delay_bound=max_delay_bound
+        )
+        coupling = DelayedLinearCoupling(
+            incoming_states="S", G=0.2, buffer_strategy=buffer_strategy
+        )
+        network = Network(
+            dynamics=ReducedWongWang(),
+            coupling={"delayed": coupling},
+            graph=graph,
+            noise=None,
+        )
+        solve_fn, cfg = prepare(network, Heun(), t0=0.0, t1=10.0, dt=0.1)
+        return solve_fn, cfg, delays
+
+    def test_mutating_delay_leaf_changes_output_without_reprepare(self):
+        """Replacing config.graph.delays (same compiled solve_fn, no
+        re-prepare) must change the trajectory -- this is the core Phase 1
+        deliverable: delays read from precompute(), not frozen at prepare().
+        Checked for every buffer strategy: all three route delay_steps
+        through precompute() now, not just the default ("roll")."""
+        import equinox as eqx
+
+        for strategy in self.BUFFER_STRATEGIES:
+            with self.subTest(buffer_strategy=strategy):
+                solve_fn, cfg, original_delays = self._build(
+                    max_delay_bound=10.0, buffer_strategy=strategy
+                )
+                baseline = solve_fn(cfg).ys
+
+                new_delays = original_delays * 0.1  # much shorter, same bound
+                cfg2 = eqx.tree_at(lambda c: c.graph.delays, cfg, new_delays)
+                mutated = solve_fn(cfg2).ys
+
+                self.assertFalse(jnp.array_equal(baseline, mutated))
+
+    def test_mutating_delay_leaf_back_to_original_reproduces_baseline(self):
+        """Round-tripping the leaf (mutate away, then back) must reproduce the
+        original output exactly -- precompute() is a pure function of the
+        live graph, not order-dependent on prior calls."""
+        import equinox as eqx
+
+        solve_fn, cfg, original_delays = self._build(max_delay_bound=10.0)
+        baseline = solve_fn(cfg).ys
+
+        cfg2 = eqx.tree_at(lambda c: c.graph.delays, cfg, original_delays * 0.1)
+        solve_fn(cfg2)  # exercise the mutated path first
+        cfg3 = eqx.tree_at(lambda c: c.graph.delays, cfg2, original_delays)
+        roundtrip = solve_fn(cfg3).ys
+
+        self.assertTrue(jnp.array_equal(baseline, roundtrip))
+
+    def test_grid_axis_sweep_over_delay_scale(self):
+        """The documented sweep pattern: a scalar closing over the delay leaf
+        (`delays = x * delays`), vmapped via jax.vmap as a stand-in for
+        GridAxis/ParallelExecution, produces distinct trajectories per delay
+        scale with a single compiled solve_fn."""
+        import equinox as eqx
+
+        solve_fn, cfg, original_delays = self._build(max_delay_bound=15.0)
+
+        def run_at_scale(scale):
+            scaled_cfg = eqx.tree_at(
+                lambda c: c.graph.delays, cfg, scale * original_delays
+            )
+            return solve_fn(scaled_cfg).ys
+
+        scales = jnp.array([0.5, 1.0, 2.0])
+        results = jax.vmap(run_at_scale)(scales)
+
+        self.assertFalse(jnp.array_equal(results[0], results[1]))
+        self.assertFalse(jnp.array_equal(results[1], results[2]))
+
+    def test_delay_beyond_bound_clamps_instead_of_erroring(self):
+        """A delay pushed past max_delay_bound must clamp into the buffer
+        (degraded but defined output) rather than gather out of range, for
+        every buffer strategy."""
+        import equinox as eqx
+
+        for strategy in self.BUFFER_STRATEGIES:
+            with self.subTest(buffer_strategy=strategy):
+                solve_fn, cfg, original_delays = self._build(
+                    max_delay_bound=6.0, buffer_strategy=strategy
+                )
+                oversized_delays = original_delays + 20.0  # exceeds the bound
+                cfg2 = eqx.tree_at(lambda c: c.graph.delays, cfg, oversized_delays)
+
+                result = solve_fn(cfg2)
+                self.assertTrue(bool(jnp.all(jnp.isfinite(result.ys))))
+
+    def test_warn_on_delay_clamp_emits_warning(self):
+        """warn_on_delay_clamp=True surfaces the silent-clamp case above as a
+        UserWarning instead of a plausible-but-wrong trajectory."""
+        import equinox as eqx
+
+        key = jax.random.PRNGKey(3)
+        weights_key, delay_key = jax.random.split(key)
+        n_nodes = 4
+        weights = jax.random.uniform(weights_key, (n_nodes, n_nodes)) * 0.5
+        delays = jax.random.uniform(delay_key, (n_nodes, n_nodes)) * 5.0
+        graph = DenseDelayGraph(weights=weights, delays=delays, max_delay_bound=6.0)
+        coupling = DelayedLinearCoupling(
+            incoming_states="S", G=0.2, warn_on_delay_clamp=True
+        )
+        network = Network(
+            dynamics=ReducedWongWang(),
+            coupling={"delayed": coupling},
+            graph=graph,
+            noise=None,
+        )
+        solve_fn, cfg = prepare(network, Heun(), t0=0.0, t1=10.0, dt=0.1)
+        cfg2 = eqx.tree_at(lambda c: c.graph.delays, cfg, delays + 20.0)
+
+        with self.assertWarns(UserWarning):
+            result = solve_fn(cfg2)
+            jax.block_until_ready(result.ys)
+
+
+class TestDelayInterpolation(unittest.TestCase):
+    """Interpolating history read makes d/d(delays) informative instead of
+    zero-almost-everywhere, and
+    must agree with the nearest-integer read at frac=0 and across
+    all three buffer strategies. A wrong idx_hi direction would not crash,
+    just quietly bias the blend."""
+
+    BUFFER_STRATEGIES = ("roll", "circular", "preallocated")
+
+    def _build(
+        self,
+        delays,
+        max_delay_bound=8.0,
+        buffer_strategy="roll",
+        interpolate=True,
+        warn_on_delay_clamp=False,
+        dt=0.1,
+        solver=None,
+    ):
+        key = jax.random.PRNGKey(7)
+        n_nodes = delays.shape[0]
+        weights = jax.random.uniform(key, (n_nodes, n_nodes)) * 0.4
+        graph = DenseDelayGraph(
+            weights=weights, delays=delays, max_delay_bound=max_delay_bound
+        )
+        coupling = DelayedLinearCoupling(
+            incoming_states="S",
+            G=0.2,
+            buffer_strategy=buffer_strategy,
+            history_interpolation="linear" if interpolate else None,
+            warn_on_delay_clamp=warn_on_delay_clamp,
+        )
+        network = Network(
+            dynamics=ReducedWongWang(),
+            coupling={"delayed": coupling},
+            graph=graph,
+            noise=None,
+        )
+        solve_fn, cfg = prepare(network, solver or Heun(), t0=0.0, t1=3.0, dt=dt)
+        return solve_fn, cfg
+
+    def test_interpolation_matches_nearest_read_at_zero_fraction(self):
+        """When delays land exactly on integer step boundaries (frac=0
+        everywhere), the interpolated read must exactly reproduce the plain
+        nearest-integer read, for every buffer strategy.
+
+        Both sides use a shift-free solver: under Heun's stage-time shift the
+        interpolating read deliberately lands half a step off the integer grid
+        (frac = 0.5), so the reduction only holds at stage_time_centroid = 0.
+        """
+        key = jax.random.PRNGKey(11)
+        dt = 0.1
+        delays = jnp.round(jax.random.uniform(key, (4, 4)) * 30) * dt
+
+        for strategy in self.BUFFER_STRATEGIES:
+            with self.subTest(buffer_strategy=strategy):
+                solve_fn_i, cfg_i = self._build(
+                    delays,
+                    buffer_strategy=strategy,
+                    interpolate=True,
+                    dt=dt,
+                    solver=_NoShiftHeun(),
+                )
+                solve_fn_p, cfg_p = self._build(
+                    delays,
+                    buffer_strategy=strategy,
+                    interpolate=False,
+                    dt=dt,
+                    solver=_NoShiftHeun(),
+                )
+                out_i = solve_fn_i(cfg_i).ys
+                out_p = solve_fn_p(cfg_p).ys
+                np.testing.assert_allclose(out_i, out_p, atol=1e-10)
+
+    def test_strategies_agree_under_interpolation(self):
+        """roll, circular, and preallocated must produce the same trajectory
+        for the same (non-integer-step) delays: they are different buffer
+        implementations of the same read. Disagreement would indicate one of
+        them has the idx_hi direction backwards."""
+        key = jax.random.PRNGKey(13)
+        delays = jax.random.uniform(key, (4, 4)) * 3.0  # non-integer-step
+
+        results = {}
+        for strategy in self.BUFFER_STRATEGIES:
+            solve_fn, cfg = self._build(delays, buffer_strategy=strategy)
+            results[strategy] = solve_fn(cfg).ys
+
+        # Exact equality, not a tolerance: the three strategies gather the same
+        # rows in the same order, so they agree bit-for-bit. This once used
+        # atol=1e-6, blamed on rounding order -- the residual was really a
+        # one-step buffer offset (see TestDelayBufferSizing), and a tolerance
+        # that hides that would also hide a backwards idx_hi.
+        for strategy in self.BUFFER_STRATEGIES[1:]:
+            np.testing.assert_array_equal(results["roll"], results[strategy])
+
+    def test_gradient_matches_finite_differences(self):
+        """jax.grad through the interpolated read must be nonzero and match
+        central finite differences -- the actual Phase 2 deliverable
+        (Phase 1's integer gather has zero gradient almost everywhere)."""
+        import equinox as eqx
+
+        key = jax.random.PRNGKey(17)
+        delays = jax.random.uniform(key, (3, 3)) * 2.0
+
+        for strategy in self.BUFFER_STRATEGIES:
+            with self.subTest(buffer_strategy=strategy):
+                solve_fn, cfg = self._build(delays, buffer_strategy=strategy)
+
+                def loss(d, solve_fn=solve_fn, cfg=cfg):
+                    cfg2 = eqx.tree_at(lambda c: c.graph.delays, cfg, d)
+                    return jnp.sum(solve_fn(cfg2).ys ** 2)
+
+                grad = jax.grad(loss)(delays)
+                self.assertTrue(bool(jnp.all(jnp.isfinite(grad))))
+                self.assertTrue(bool(jnp.any(jnp.abs(grad) > 0)))
+
+                check_grads(
+                    loss, (delays,), order=1, modes=["rev"], atol=1e-2, rtol=1e-2
+                )
+
+    def test_buffer_grows_for_interpolation_without_out_of_range_read(self):
+        """A delay pinned exactly at max_delay_bound (k = max_delay_steps,
+        frac = 0) must not read past the buffer prepare() sized -- exactly
+        the boundary case the one-slot buffer growth exists for."""
+        for strategy in self.BUFFER_STRATEGIES:
+            with self.subTest(buffer_strategy=strategy):
+                n_nodes = 3
+                delays = jnp.full((n_nodes, n_nodes), 6.0)  # == max_delay_bound
+                solve_fn, cfg = self._build(
+                    delays, max_delay_bound=6.0, buffer_strategy=strategy
+                )
+                result = solve_fn(cfg)
+                self.assertTrue(bool(jnp.all(jnp.isfinite(result.ys))))
+
+    def test_warn_on_delay_clamp_emits_warning_under_interpolation(self):
+        """warn_on_delay_clamp must still fire when history_interpolation="linear"
+        and a delay walks past max_delay_bound: precompute() reuses the same
+        flag for both read modes rather than adding a second one."""
+        import equinox as eqx
+
+        key = jax.random.PRNGKey(19)
+        delays = jax.random.uniform(key, (3, 3)) * 2.0
+        solve_fn, cfg = self._build(
+            delays, max_delay_bound=6.0, warn_on_delay_clamp=True
+        )
+        cfg2 = eqx.tree_at(lambda c: c.graph.delays, cfg, delays + 20.0)
+
+        with self.assertWarns(UserWarning):
+            result = solve_fn(cfg2)
+            jax.block_until_ready(result.ys)
+
+
+class TestDenseLengthGraph(unittest.TestCase):
+    """DenseLengthGraph owns lengths + speed and derives delays = lengths / speed.
+
+    speed is a differentiable pytree leaf (the delay-domain twin of coupling G),
+    so it is directly sweepable via cfg.graph.speed and reachable by jax.grad
+    through the computed delays -- with the core still only ever seeing delays.
+    """
+
+    WEIGHTS = jnp.array([[0.0, 1.0], [1.0, 0.0]])
+    LENGTHS = jnp.array([[0.0, 10.0], [10.0, 0.0]])
+
+    def _network(self, graph, strategy="circular"):
+        coupling = DelayedLinearCoupling(
+            incoming_states="S",
+            G=0.2,
+            buffer_strategy=strategy,
+            history_interpolation="linear",
+        )
+        return Network(
+            dynamics=ReducedWongWang(),
+            coupling={"delayed": coupling},
+            graph=graph,
+            noise=None,
+        )
+
+    def test_delays_property_is_lengths_over_speed(self):
+        g = DenseLengthGraph(self.WEIGHTS, self.LENGTHS, 5.0, max_delay_bound=4.0)
+        np.testing.assert_allclose(np.asarray(g.delays), np.asarray(self.LENGTHS) / 5.0)
+        self.assertAlmostEqual(g.max_delay, 2.0)
+        # delays is read-only: mutate speed (or lengths) instead
+        with self.assertRaises(AttributeError):
+            g.delays = self.LENGTHS
+
+    def test_max_delay_bound_required_when_speed_is_a_tracer(self):
+        """speed may be a tracer, so delays is a tracer and the static buffer
+        length cannot be read off max(delays): the bound must be supplied."""
+        with self.assertRaises(ValueError):
+            jax.grad(
+                lambda s: DenseLengthGraph(self.WEIGHTS, self.LENGTHS, s).delays.sum()
+            )(3.0)
+        # With the bound, construction under trace succeeds.
+        jax.grad(
+            lambda s: DenseLengthGraph(
+                self.WEIGHTS, self.LENGTHS, s, max_delay_bound=4.0
+            ).delays.sum()
+        )(3.0)
+
+    def test_undersized_bound_and_bad_inputs_raise(self):
+        with self.assertRaises(ValueError):  # bound < max(delays)
+            DenseLengthGraph(self.WEIGHTS, self.LENGTHS, 5.0, max_delay_bound=1.0)
+        with self.assertRaises(ValueError):  # negative length
+            DenseLengthGraph(
+                self.WEIGHTS, self.LENGTHS.at[0, 1].set(-1.0), 5.0, max_delay_bound=4.0
+            )
+        with self.assertRaises(ValueError):  # non-positive speed
+            DenseLengthGraph(self.WEIGHTS, self.LENGTHS, 0.0, max_delay_bound=4.0)
+
+    def test_sweep_matches_equivalent_delay_graph(self):
+        """A speed sweep must reproduce the trajectories of an explicit delay
+        graph at the delays that speed induces, for every buffer strategy."""
+        for strategy in ("roll", "circular", "preallocated"):
+            for speed in (4.0, 5.0, 8.0):
+                with self.subTest(buffer_strategy=strategy, speed=speed):
+                    lg = DenseLengthGraph(
+                        self.WEIGHTS, self.LENGTHS, speed, max_delay_bound=4.0
+                    )
+                    dg = DenseDelayGraph(
+                        self.WEIGHTS, self.LENGTHS / speed, max_delay_bound=4.0
+                    )
+                    sf_l, cfg_l = prepare(
+                        self._network(lg, strategy), Heun(), t0=0.0, t1=3.0, dt=0.1
+                    )
+                    sf_d, cfg_d = prepare(
+                        self._network(dg, strategy), Heun(), t0=0.0, t1=3.0, dt=0.1
+                    )
+                    np.testing.assert_array_equal(
+                        np.asarray(sf_l(cfg_l).ys), np.asarray(sf_d(cfg_d).ys)
+                    )
+
+    def test_speed_setter_is_isolated_by_copy(self):
+        """cfg.copy(); cfg2.graph.speed = x must not mutate the original."""
+        g = DenseLengthGraph(self.WEIGHTS, self.LENGTHS, 5.0, max_delay_bound=4.0)
+        _, cfg = prepare(self._network(g), Heun(), t0=0.0, t1=1.0, dt=0.1)
+        cfg2 = cfg.copy()
+        cfg2.graph.speed = 2.0
+        self.assertEqual(float(cfg.graph.delays[0, 1]), 2.0)  # 10 / 5
+        self.assertEqual(float(cfg2.graph.delays[0, 1]), 5.0)  # 10 / 2
+
+    def test_gradient_wrt_speed_is_nonzero_and_finite(self):
+        import equinox as eqx
+
+        g = DenseLengthGraph(self.WEIGHTS, self.LENGTHS, 5.0, max_delay_bound=4.0)
+        solve_fn, cfg = prepare(self._network(g), Heun(), t0=0.0, t1=3.0, dt=0.1)
+
+        def loss(speed):
+            cfg2 = eqx.tree_at(lambda c: c.graph.speed, cfg, speed)
+            return jnp.sum(solve_fn(cfg2).ys ** 2)
+
+        grad = jax.grad(loss)(5.0)
+        self.assertTrue(bool(jnp.isfinite(grad)))
+        self.assertNotEqual(float(grad), 0.0)
+        check_grads(loss, (5.0,), order=1, modes=["rev"], atol=1e-3, rtol=1e-3)
+
+
+class TestDelayBufferSizing(unittest.TestCase):
+    """The history buffer must be able to *represent* the delays it is sized for.
+
+    Buffer length and delay read indices are derived independently -- the rows
+    come from get_history(), the indices from max_delay_steps -- so a
+    disagreement between them does not raise. It silently shifts every delayed
+    read in time, which perturbs a smooth trajectory only slightly and slips
+    past a loose-tolerance comparison. These tests pin the two together against
+    ground truth instead: the delay a read *realizes* must equal the delay that
+    was asked for.
+
+    Everything is parametrized over the fractional part of max_delay / dt,
+    because that fraction is what decides whether a rounding bug is visible at
+    all. The natural values a user picks (a round max_delay_bound, a round dt)
+    land on frac = 0, which is exactly where rounding-to-nearest breaks.
+    """
+
+    BUFFER_STRATEGIES = ("roll", "circular", "preallocated")
+    DT = 0.1
+    # max delays chosen so that (max_delay / dt) % 1 sweeps the whole range:
+    # 0.0 exactly, below 0.5, exactly 0.5, and above 0.5.
+    MAX_DELAYS = (1.0, 1.02, 1.05, 1.06)
+
+    def _build(self, delay, strategy, interpolate, max_delay_bound=None, G=1.0):
+        weights = jnp.array([[0.0, 1.0], [1.0, 0.0]])
+        delays = jnp.array([[0.0, delay], [delay, 0.0]])
+        graph = DenseDelayGraph(
+            weights=weights, delays=delays, max_delay_bound=max_delay_bound
+        )
+        coupling = DelayedLinearCoupling(
+            incoming_states="S",
+            G=G,
+            buffer_strategy=strategy,
+            history_interpolation="linear" if interpolate else None,
+        )
+        network = Network(
+            dynamics=ReducedWongWang(),
+            coupling={"delayed": coupling},
+            graph=graph,
+            noise=None,
+        )
+        return network, coupling, graph
+
+    def _realized_delay_steps(self, delay, strategy, interpolate):
+        """Delay (in dt steps) that the coupling's history read actually lands on.
+
+        Fills the history buffer so that each row holds its own physical index,
+        then reads through the real compute() with G=1 and a one-edge weight
+        matrix, so node 0's coupling input *is* the row (or interpolated blend
+        of rows) that was read. The distance from the newest row back to that
+        value is the realized delay -- an exact identity for the linear blend
+        too, since idx_hi = idx_lo - 1 makes the blend (idx_lo - frac).
+
+        Includes JAX's out-of-bounds index clamping, which is what makes an
+        over-long read index silently wrong rather than an error.
+        """
+        network, coupling, graph = self._build(delay, strategy, interpolate)
+        coupling_data, coupling_state = network.prepare(self.DT, 0.0, 5.0)
+        data, state = coupling_data["delayed"], coupling_state["delayed"]
+
+        n_rows = state.history.shape[0]
+        tagged = jnp.broadcast_to(
+            jnp.arange(n_rows, dtype=state.history.dtype)[:, None, None],
+            state.history.shape,
+        )
+        state = Bunch({**state, "history": tagged})
+
+        enriched = coupling.precompute(data, coupling.params, graph)
+        read = coupling.compute(
+            0.0, jnp.zeros((1, 2)), enriched, state, coupling.params, graph
+        )
+        # node 0 receives only the delayed state of node 1 (weights[0, 1] == 1)
+        row_read = float(np.asarray(read).ravel()[0])
+
+        if strategy == "preallocated":
+            newest_row = int(state.write_idx) - 1
+        else:
+            newest_row = n_rows - 1
+        return newest_row - row_read
+
+    def test_realized_delay_matches_requested_delay(self):
+        """The read must land exactly on the delay it was asked for.
+
+        Under interpolation that is the continuous delay/dt; without it, the
+        nearest whole step. A buffer one row short instead realizes delay - 1
+        step, which no existing assertion catches.
+        """
+        for max_delay in self.MAX_DELAYS:
+            for strategy in self.BUFFER_STRATEGIES:
+                for interpolate in (False, True):
+                    with self.subTest(
+                        max_delay=max_delay,
+                        buffer_strategy=strategy,
+                        interpolate=interpolate,
+                    ):
+                        exact = max_delay / self.DT
+                        expected = exact if interpolate else float(jnp.rint(exact))
+                        realized = self._realized_delay_steps(
+                            max_delay, strategy, interpolate
+                        )
+                        self.assertAlmostEqual(realized, expected, places=6)
+
+    def test_longest_delay_keeps_its_gradient_without_a_declared_bound(self):
+        """Every edge, including the longest, must carry a nonzero gradient.
+
+        The longest delay sets the buffer bound when no max_delay_bound is
+        declared. Rounding that bound to nearest leaves the longest delay
+        outside the buffer, so precompute() clamps it: frac pins to 0, and its
+        gradient is exactly zero while every other edge still looks healthy.
+        """
+        import equinox as eqx
+
+        # (max delay / dt) % 1 == 0.4: rounding to nearest would round *down*
+        delays = jnp.array([[0.31, 1.04], [0.77, 0.52]])
+
+        for strategy in self.BUFFER_STRATEGIES:
+            with self.subTest(buffer_strategy=strategy):
+                network, _, _ = self._build(1.04, strategy, interpolate=True, G=0.2)
+                solve_fn, cfg = prepare(network, Heun(), t0=0.0, t1=3.0, dt=self.DT)
+
+                def loss(d, solve_fn=solve_fn, cfg=cfg):
+                    cfg2 = eqx.tree_at(lambda c: c.graph.delays, cfg, d)
+                    return jnp.sum(solve_fn(cfg2).ys ** 2)
+
+                grad = jax.grad(loss)(delays)
+                argmax = jnp.unravel_index(jnp.argmax(delays), delays.shape)
+                self.assertTrue(bool(jnp.all(jnp.isfinite(grad))))
+                self.assertNotEqual(float(grad[argmax]), 0.0)
+
+    def test_strategies_agree_exactly(self):
+        """The three strategies are buffer implementations of one read, so they
+        must agree bit-for-bit, not merely closely. A one-step buffer offset
+        hides inside a 1e-6 tolerance on a smooth trajectory."""
+        for max_delay in self.MAX_DELAYS:
+            for interpolate in (False, True):
+                with self.subTest(max_delay=max_delay, interpolate=interpolate):
+                    results = {}
+                    for strategy in self.BUFFER_STRATEGIES:
+                        network, _, _ = self._build(
+                            max_delay, strategy, interpolate, G=0.2
+                        )
+                        solve_fn, cfg = prepare(
+                            network, Heun(), t0=0.0, t1=3.0, dt=self.DT
+                        )
+                        results[strategy] = np.asarray(solve_fn(cfg).ys)
+                    for strategy in self.BUFFER_STRATEGIES[1:]:
+                        np.testing.assert_array_equal(
+                            results["roll"], results[strategy]
+                        )
+
+    def test_no_clamp_warning_for_delays_within_the_bound(self):
+        """warn_on_delay_clamp signals that a delay left the declared buffer. A
+        delay that never exceeds the bound must not trip it -- least of all the
+        network's own longest delay when no bound was declared at all."""
+        for max_delay in self.MAX_DELAYS:
+            for interpolate in (False, True):
+                with self.subTest(max_delay=max_delay, interpolate=interpolate):
+                    weights = jnp.array([[0.0, 1.0], [1.0, 0.0]])
+                    delays = jnp.array([[0.0, max_delay], [max_delay, 0.0]])
+                    graph = DenseDelayGraph(weights=weights, delays=delays)
+                    coupling = DelayedLinearCoupling(
+                        incoming_states="S",
+                        G=0.2,
+                        history_interpolation="linear" if interpolate else None,
+                        warn_on_delay_clamp=True,
+                    )
+                    network = Network(
+                        dynamics=ReducedWongWang(),
+                        coupling={"delayed": coupling},
+                        graph=graph,
+                        noise=None,
+                    )
+                    solve_fn, cfg = prepare(network, Heun(), t0=0.0, t1=1.0, dt=self.DT)
+                    with warnings.catch_warnings(record=True) as caught:
+                        warnings.simplefilter("always")
+                        jax.block_until_ready(solve_fn(cfg).ys)
+                    clamp_warnings = [w for w in caught if "clamped" in str(w.message)]
+                    self.assertEqual(clamp_warnings, [])
+
+    def test_history_rows_match_the_read_indices(self):
+        """prepare() derives read indices from max_delay_steps but takes its rows
+        from get_history(). Pin the two together, since a mismatch is the shared
+        root cause of every failure above."""
+        for max_delay in self.MAX_DELAYS:
+            for interpolate in (False, True):
+                with self.subTest(max_delay=max_delay, interpolate=interpolate):
+                    network, _, _ = self._build(max_delay, "roll", interpolate)
+                    coupling_data, coupling_state = network.prepare(self.DT, 0.0, 5.0)
+                    data = coupling_data["delayed"]
+                    n_rows = coupling_state["delayed"].history.shape[0]
+                    expected = data.max_delay_steps + 1 + (1 if interpolate else 0)
+                    self.assertEqual(n_rows, expected)
+
+    def test_delay_steps_bound_rounds_up_but_tolerates_float_error(self):
+        """The bound must cover the delay (round up), yet not add a spurious step
+        for ratios that are integral in exact arithmetic: 1.0 / 0.1 evaluates to
+        10.000000000000002 in binary floating point."""
+        cases = [
+            ((1.0, 0.1), 10),  # exact in decimal, not in binary
+            ((1.02, 0.1), 11),  # rounds up rather than to nearest
+            ((1.05, 0.1), 11),  # exactly halfway
+            ((1.06, 0.1), 11),
+            ((0.0, 0.1), 0),  # no delays
+            ((3.0, 0.5), 6),
+        ]
+        for (max_delay, dt), expected in cases:
+            with self.subTest(max_delay=max_delay, dt=dt):
+                self.assertEqual(delay_steps_bound(max_delay, dt), expected)
+
+    def test_effective_max_delay_is_concrete_float(self):
+        """Callers use the result to size static buffers (int()) and to test for
+        'no delays' (== 0.0). SparseDelayGraph stores max_delay as a 0-d array,
+        so the helper must coerce rather than leak one through."""
+        weights = jnp.array([[0.0, 1.0], [1.0, 0.0]])
+        delays = jnp.array([[0.0, 1.5], [1.5, 0.0]])
+        graphs = [
+            DenseGraph(weights),
+            DenseDelayGraph(weights, delays),
+            DenseDelayGraph(weights, delays, max_delay_bound=3.0),
+            SparseDelayGraph(weights, delays),
+            SparseDelayGraph(weights, delays, max_delay_bound=3.0),
+        ]
+        for graph in graphs:
+            with self.subTest(graph=type(graph).__name__):
+                self.assertIsInstance(effective_max_delay(graph), float)
+
+
+class TestPrecomputeReachesEveryComputePath(unittest.TestCase):
+    """DelayedCoupling resolves its delay read indices in precompute(), not
+    prepare(), so compute() must never be handed raw prepare() output. solve.py
+    honours that, but it is not the only caller: any path that reaches compute()
+    on its own has to run precompute() first."""
+
+    def _delayed_network(self):
+        weights = jnp.array([[0.0, 1.0], [1.0, 0.0]])
+        delays = jnp.array([[0.0, 1.0], [1.0, 0.0]])
+        return Network(
+            dynamics=ReducedWongWang(),
+            coupling={"delayed": DelayedLinearCoupling(incoming_states="S", G=0.5)},
+            graph=DenseDelayGraph(weights=weights, delays=delays),
+            noise=None,
+        )
+
+    def test_network_compute_coupling_inputs(self):
+        """Network.compute_coupling_inputs() is public and calls compute() directly."""
+        network = self._delayed_network()
+        coupling_data, coupling_state = network.prepare(0.1, 0.0, 5.0)
+        inputs = network.compute_coupling_inputs(
+            0.0, jnp.zeros((1, 2)), coupling_data, coupling_state
+        )
+        self.assertEqual(inputs["delayed"].shape, (1, 2))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(inputs["delayed"]))))
+
+    def test_subspace_coupling_with_delayed_inner_coupling(self):
+        """SubspaceCoupling.compute() forwards to inner_coupling.compute() with
+        coupling_data.inner_data, which only precompute() can finish building."""
+        n_nodes = 4
+        node_graph = DenseGraph(jnp.zeros((n_nodes, n_nodes)))
+        regional_graph = DenseDelayGraph(
+            weights=jnp.array([[0.0, 1.0], [1.0, 0.0]]),
+            delays=jnp.array([[0.0, 1.0], [1.0, 0.0]]),
+        )
+        coupling = SubspaceCoupling(
+            inner_coupling=DelayedLinearCoupling(incoming_states="S", G=0.5),
+            region_mapping=jnp.array([0, 0, 1, 1]),
+            regional_graph=regional_graph,
+        )
+        network = Network(
+            dynamics=ReducedWongWang(),
+            coupling={"delayed": coupling},
+            graph=node_graph,
+            noise=None,
+        )
+        solve_fn, cfg = prepare(network, Heun(), t0=0.0, t1=1.0, dt=0.1)
+        result = solve_fn(cfg)
+        self.assertEqual(result.ys.shape[-1], n_nodes)
+        self.assertTrue(bool(jnp.all(jnp.isfinite(result.ys))))
+
+
+class TestStageTimeShift(unittest.TestCase):
+    """The stage-time shift: freezing the coupling across
+    solver stages is identical to lengthening every delay by
+    ``stage_time_centroid * dt``. precompute() subtracts that back, which
+    restores second-order accuracy in the delayed term at no extra gather.
+
+    The bias is deterministic, so unlike a pathwise interpolation error it
+    survives averaging over noise realizations -- which is why it is worth
+    removing even though the solvers are only strong order 1 under noise.
+    """
+
+    BUFFER_STRATEGIES = ("roll", "circular", "preallocated")
+
+    @classmethod
+    def setUpClass(cls):
+        # Distinguishing global order 1 from 2 needs more headroom than
+        # float32 leaves between the discretization error and rounding noise.
+        cls._x64 = jax.config.jax_enable_x64
+        jax.config.update("jax_enable_x64", True)
+
+    @classmethod
+    def tearDownClass(cls):
+        jax.config.update("jax_enable_x64", cls._x64)
+
+    def _network(self, delays, dt, interpolate=True, warn=False, G=0.3):
+        weights = jnp.array([[0.0, 1.0], [1.0, 0.0]])
+        graph = DenseDelayGraph(
+            weights=weights, delays=jnp.asarray(delays), max_delay_bound=8.0
+        )
+        coupling = DelayedLinearCoupling(
+            incoming_states="S",
+            G=G,
+            buffer_strategy="roll",
+            history_interpolation="linear" if interpolate else None,
+            warn_on_delay_clamp=warn,
+        )
+        return Network(
+            dynamics=ReducedWongWang(),
+            coupling={"delayed": coupling},
+            graph=graph,
+            noise=None,
+        )
+
+    def _final_state(self, delays, dt, solver, interpolate=True, t1=20.0):
+        network = self._network(delays, dt, interpolate=interpolate)
+        solve_fn, cfg = prepare(network, solver, t0=0.0, t1=t1, dt=dt)
+        return np.asarray(jax.jit(solve_fn)(cfg).ys)[-1]
+
+    def test_solver_stage_time_centroids(self):
+        """sum_i b_i * c_i: 0 for a step-start method, 1/2 for order >= 2.
+
+        BoundedSolver must forward it, or wrapping a solver would silently
+        disable the shift.
+        """
+        cases = [
+            (Euler(), 0.0),
+            (Heun(), 0.5),
+            (RungeKutta4(), 0.5),
+            (BoundedSolver(Euler(), low=0.0, high=1.0), 0.0),
+            (BoundedSolver(Heun(), low=0.0, high=1.0), 0.5),
+            (BoundedSolver(RungeKutta4(), low=0.0, high=1.0), 0.5),
+        ]
+        for solver, expected in cases:
+            with self.subTest(solver=type(solver).__name__, expected=expected):
+                self.assertEqual(solver.stage_time_centroid, expected)
+
+    def test_shift_recovers_second_order_in_the_delayed_term(self):
+        """Frozen delayed coupling is first order; shifted is second order.
+
+        Reference is the shifted scheme at a much finer dt, so it is the
+        *convergence rate* being measured, not agreement with either variant.
+        """
+        delays = [[0.0, 4.0], [4.0, 0.0]]
+        dts = [0.2, 0.1, 0.05]
+        ref = self._final_state(delays, 0.05 / 64, Heun())
+
+        errs = {}
+        for label, solver in (("frozen", _NoShiftHeun()), ("shifted", Heun())):
+            errs[label] = [
+                np.max(np.abs(self._final_state(delays, dt, solver) - ref))
+                for dt in dts
+            ]
+
+        for label, expected in (("frozen", 1.0), ("shifted", 2.0)):
+            orders = [
+                np.log2(errs[label][i - 1] / errs[label][i]) for i in range(1, len(dts))
+            ]
+            for dt, order in zip(dts[1:], orders):
+                with self.subTest(read=label, dt=dt):
+                    self.assertAlmostEqual(order, expected, delta=0.15)
+
+        # The shift is not a wash: at the finest dt it must be far more
+        # accurate, not merely differently rounded.
+        self.assertLess(errs["shifted"][-1] * 100, errs["frozen"][-1])
+
+    def test_shift_is_a_noop_without_interpolation(self):
+        """The nearest-integer read is a piecewise-constant interpolant (q = 1),
+        which caps the global order at 1 whatever the solver does, so there is
+        no order for the shift to recover. Applying it there would only jitter
+        the read between whole steps, so precompute() does not."""
+        delays = [[0.0, 4.0], [4.0, 0.0]]
+        for dt in (0.2, 0.1):
+            with self.subTest(dt=dt):
+                shifted = self._final_state(delays, dt, Heun(), interpolate=False)
+                frozen = self._final_state(
+                    delays, dt, _NoShiftHeun(), interpolate=False
+                )
+                np.testing.assert_array_equal(shifted, frozen)
+
+    def test_read_lands_on_the_shifted_delay(self):
+        """The realized read must be exactly ``delays/dt - centroid`` steps back.
+
+        Tags every buffer row with its own index and reads through the real
+        compute(), so this measures the delay a read *realizes* rather than
+        comparing two implementations that could be wrong together. Covers all
+        three buffer strategies, since each resolves the read index differently.
+        """
+        dt = 0.1
+        delay = 1.03
+        for strategy in self.BUFFER_STRATEGIES:
+            for centroid in (0.0, 0.5):
+                with self.subTest(buffer_strategy=strategy, centroid=centroid):
+                    network = self._network([[0.0, delay], [delay, 0.0]], dt)
+                    coupling = network.coupling["delayed"]
+                    coupling.buffer_strategy = strategy
+                    data, state = network.prepare(
+                        dt, 0.0, 5.0, stage_time_centroid=centroid
+                    )
+                    data, state = data["delayed"], state["delayed"]
+
+                    n_rows = state.history.shape[0]
+                    tagged = jnp.broadcast_to(
+                        jnp.arange(n_rows, dtype=state.history.dtype)[:, None, None],
+                        state.history.shape,
+                    )
+                    state = Bunch({**state, "history": tagged})
+
+                    enriched = coupling.precompute(data, coupling.params, network.graph)
+                    read = coupling.compute(
+                        0.0,
+                        jnp.zeros((1, 2)),
+                        enriched,
+                        state,
+                        coupling.params,
+                        network.graph,
+                    )
+                    row_read = float(np.asarray(read).ravel()[0]) / 0.3  # undo G
+                    newest = (
+                        int(state.write_idx) - 1
+                        if strategy == "preallocated"
+                        else n_rows - 1
+                    )
+                    self.assertAlmostEqual(
+                        newest - row_read, delay / dt - centroid, places=4
+                    )
+
+    def _kuramoto_final(self, dt, solver_cls, per_stage, tau=2.0, t1=20.0):
+        """A delayed coupling that also reads the *local* state."""
+        graph = DenseDelayGraph(
+            weights=jnp.array([[0.0, 1.0], [1.0, 0.0]]),
+            delays=jnp.array([[0.0, tau], [tau, 0.0]]),
+            max_delay_bound=4.0,
+        )
+        coupling = DelayedKuramotoCoupling(
+            incoming_states="theta",
+            local_states="theta",
+            G=0.5,
+            buffer_strategy="roll",
+            history_interpolation="linear",
+        )
+        network = Network(
+            dynamics=Kuramoto(omega=1.0),
+            coupling={"delayed": coupling},
+            graph=graph,
+            noise=None,
+        )
+        solver = solver_cls(recompute_coupling_per_stage=per_stage)
+        solve_fn, cfg = prepare(network, solver, t0=0.0, t1=t1, dt=dt)
+        return np.asarray(jax.jit(solve_fn)(cfg).ys)[-1]
+
+    def test_local_state_coupling_is_not_shifted_while_frozen(self):
+        """Freezing a coupling that reads a local state commits two first-order
+        errors: the delay bias, and the frozen local state. The shift removes
+        only the first. Correcting one while the other stands is measurably
+        *worse* (the two partially cancel), so precompute() withholds the shift
+        until the solver also evaluates the local state per stage."""
+        out = self._kuramoto_final(0.1, Heun, per_stage=False)
+        unshifted = self._kuramoto_final(0.1, _NoShiftHeun, per_stage=False)
+        np.testing.assert_array_equal(out, unshifted)
+
+    def test_local_state_coupling_reaches_second_order_with_per_stage(self):
+        """Frozen (shifted) gather + per-stage local evaluation is order 2;
+        per-stage alone, without the shift, is not."""
+        dts = [0.2, 0.1, 0.05]
+        ref = self._kuramoto_final(0.05 / 64, Heun, per_stage=True)
+
+        for solver_cls, expected in ((_NoShiftHeun, 1.0), (Heun, 2.0)):
+            errs = [
+                np.max(np.abs(self._kuramoto_final(dt, solver_cls, True) - ref))
+                for dt in dts
+            ]
+            orders = [np.log2(errs[i - 1] / errs[i]) for i in range(1, len(dts))]
+            for dt, order in zip(dts[1:], orders):
+                with self.subTest(solver=solver_cls.__name__, dt=dt):
+                    self.assertAlmostEqual(order, expected, delta=0.15)
+
+    def test_clamp_warning_ignores_zero_weight_edges(self):
+        """Every connectome has a zero diagonal in ``delays``. After the shift
+        those entries go negative and clamp, but they carry no weight, so they
+        are not a mis-simulation and must not trip the warning -- otherwise
+        warn_on_delay_clamp fires on every run and stops meaning anything.
+
+        An edge that *does* carry weight and sits below ``centroid * dt`` must
+        still warn: it silently keeps the first-order bias the shift removes.
+        """
+        dt = 0.5  # centroid * dt = 0.25
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            network = self._network([[0.0, 4.0], [4.0, 0.0]], dt, warn=True)
+            solve_fn, cfg = prepare(network, Heun(), t0=0.0, t1=2.0, dt=dt)
+            jax.block_until_ready(solve_fn(cfg))
+        self.assertEqual(
+            [w for w in caught if "clamped" in str(w.message)],
+            [],
+            "zero-weight diagonal must not trip the clamp warning",
+        )
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            network = self._network([[0.0, 4.0], [0.1, 0.0]], dt, warn=True)
+            solve_fn, cfg = prepare(network, Heun(), t0=0.0, t1=2.0, dt=dt)
+            jax.block_until_ready(solve_fn(cfg))
+        self.assertTrue(
+            any("clamped" in str(w.message) for w in caught),
+            "a weighted edge shorter than centroid * dt must warn",
+        )
 
 
 if __name__ == "__main__":

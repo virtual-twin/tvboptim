@@ -547,9 +547,28 @@ for s in strategy_list:
     print(f"  {s:<15}: {gradient_wins[s]:>3} ({pct:.1f}%)")
 ```
 
+## Swept and differentiable delays: prefer circular
+
+The sweep above varies network size and `dt`, the two axes that set the buffer length for a *fixed* set of delays. Making delays themselves a swept or differentiable quantity adds a third axis this benchmark does not cover, and it is the one where the strategies separate most cleanly: **buffer headroom**.
+
+When you sweep or fit delays (see [Delays Shape Synchronization](../workflows/Delay_Speed_Synchronization.qmd)), you declare a `max_delay_bound` on the graph so that a single compiled buffer covers the whole delay range at once:
+
+```python
+graph = DenseDelayGraph(weights, delays, max_delay_bound=bound)
+```
+
+The buffer is then sized for the *largest* delay in the range rather than the current one, and every sample in a `ParallelExecution` batch shares that one length. This is exactly where `roll` and `circular` pull apart:
+
+- `roll` shifts the entire buffer every step, so its per-step cost grows with the declared headroom. Doubling the bound to scan longer delays roughly doubles the shift it pays on every step, whether or not the current sample uses that headroom.
+- `circular` only advances a write pointer. Its per-step cost is independent of the buffer length, so headroom is free.
+
+So for swept or differentiable delays, reach for `circular`. It is the strategy the delay-fitting workflows use, and the recommendation is sharper here than the "test your configuration" guidance below because the extra buffer rows headroom adds are pure overhead for `roll` and invisible to `circular`.
+
+**Gradients.** Reverse-mode autodiff keeps the history buffer to replay the backward pass, but only the buffer itself, not a copy per step: it contributes `O(buffer * n_nodes)` to the tape, not `O(n_steps * buffer * n_nodes)`. `circular` keeps that contribution minimal because it never grows the buffer past the declared bound, which is why it stays the lean choice for the backward pass as well as the forward one. `preallocated` instead stores the whole trajectory, so its tape grows with the simulation length.
+
 ## Key Findings
 
-1. **No universal winner**: The best strategy depends on network size, time step, and whether gradients are needed.
+1. **No universal winner**: For fixed delays, the best strategy depends on network size, time step, and whether gradients are needed.
 
 2. **Forward vs Gradient trade-offs**: Strategies that perform well for forward simulation may not be optimal for gradient computation due to different memory access patterns in reverse-mode autodiff.
 
@@ -559,5 +578,6 @@ for s in strategy_list:
 
 5. **Practical guidance**:
    - For **forward-only** simulation: circular or preallocated often win
-   - For **gradient-based optimization**: test your specific configuration, as the optimal choice varies
+   - For **gradient-based optimization** on fixed delays: test your specific configuration, as the optimal choice varies
+   - For **swept or differentiable delays** (a declared `max_delay_bound`): use circular. Its per-step cost does not grow with the buffer headroom, while roll pays for every extra row the bound adds (see the section above).
 

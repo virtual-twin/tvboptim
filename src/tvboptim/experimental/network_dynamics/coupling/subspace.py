@@ -14,7 +14,7 @@ from typing import Callable, Optional, Tuple
 import jax.numpy as jnp
 
 from ..core.bunch import Bunch
-from ..graph.base import AbstractGraph
+from ..graph.base import AbstractGraph, delay_steps_bound, effective_max_delay
 from .base import AbstractCoupling
 
 
@@ -89,12 +89,15 @@ class _RegionalNetworkContext:
             Initial regional history or None if no delays
         """
         # Check if regional graph has delays
-        if not hasattr(self.graph, "max_delay") or self.graph.max_delay == 0.0:
+        regional_max_delay = effective_max_delay(self.graph)
+        if regional_max_delay == 0.0:
             return None
 
         # Regional graph has delays, so we need to create history
         # Even if node network has no delays, we need to initialize regional history
-        n_steps = int(jnp.ceil(self.graph.max_delay / dt))
+        # Same +1 as Network._get_initial_history: one row per step of
+        # [t0 - max_delay, t0], plus the t0 endpoint.
+        n_steps = delay_steps_bound(regional_max_delay, dt) + 1
 
         # Get node-level initial state (not history, just initial state)
         # Aggregate it and broadcast to create regional history
@@ -145,7 +148,7 @@ class _RegionalNetworkContext:
         return extract_history_window(
             hist_ts=self._node_network._history.ts,
             hist_ys=self._node_network._history.ys,
-            max_delay=self.graph.max_delay,
+            max_delay=effective_max_delay(self.graph),
             dt=dt,
             transform_fn=aggregate_to_regional,
         )
@@ -327,6 +330,39 @@ class SubspaceCoupling(AbstractCoupling):
         )
 
         return coupling_data, coupling_state
+
+    def precompute(
+        self,
+        coupling_data: Bunch,
+        params: Bunch,
+        graph: AbstractGraph,
+    ) -> Bunch:
+        """Forward precompute() to the inner coupling on the regional graph.
+
+        compute() hands ``coupling_data.inner_data`` straight to
+        ``inner_coupling.compute()``, so it must be the *enriched* data the
+        inner coupling's own precompute() produces, not the raw prepare()
+        output. A DelayedCoupling inner coupling resolves its delay read
+        indices there, against ``self.regional_graph`` rather than the node
+        graph passed in here.
+
+        The solver's stage-time fields are written into the *outer*
+        coupling_data by Network.prepare(), which never sees inner_data (it
+        comes from a nested prepare() call on the regional network). Forward
+        them so the inner coupling's delayed read gets the same stage-time
+        shift the node-level couplings get.
+        """
+        coupling_data = coupling_data.copy()
+        inner_data = coupling_data.inner_data.copy()
+        for field in ("stage_time_centroid", "recompute_coupling_per_stage"):
+            if field in coupling_data:
+                inner_data[field] = coupling_data[field]
+        coupling_data.inner_data = self.inner_coupling.precompute(
+            inner_data,
+            self.inner_coupling.params,
+            self.regional_graph,
+        )
+        return coupling_data
 
     def _create_regional_context(self, node_network, region_one_hot_normalized):
         """Create minimal network-like context for inner coupling preparation.

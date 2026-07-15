@@ -63,11 +63,14 @@ website:
         - reference/SigmoidalJansenRit.qmd
         - reference/DelayedSigmoidalJansenRit.qmd
         - reference/SubspaceCoupling.qmd
+        - reference/KuramotoCoupling.qmd
+        - reference/DelayedKuramotoCoupling.qmd
         section: Coupling
       - contents:
         - reference/AbstractGraph.qmd
         - reference/DenseGraph.qmd
         - reference/DenseDelayGraph.qmd
+        - reference/DenseLengthGraph.qmd
         - reference/SparseGraph.qmd
         - reference/SparseDelayGraph.qmd
         section: Graphs
@@ -82,6 +85,8 @@ website:
         - reference/DiffraxSolver.qmd
         - reference/Euler.qmd
         - reference/Heun.qmd
+        - reference/RungeKutta4.qmd
+        - reference/BoundedSolver.qmd
         section: Solvers
       section: Network Dynamics (Experimental)
     - contents:

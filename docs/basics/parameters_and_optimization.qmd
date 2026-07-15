@@ -46,7 +46,7 @@ from tvboptim.types import collect_parameters
 collect_parameters(p) # collect all arrays from the Parameters in a PyTree
 ```
 
-### Two views: `.value` and `.constrained_value`
+### Two views: .value and .constrained_value
 
 Every parameter has two distinct views, and mixing them up is a common source of confusion:
 

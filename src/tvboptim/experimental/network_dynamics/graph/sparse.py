@@ -146,6 +146,17 @@ class SparseGraph(AbstractGraph):
         """Sparse weight matrix in BCOO format."""
         return self._weights
 
+    @weights.setter
+    def weights(self, value: BCOO) -> None:
+        """Replace the weight matrix in place, no validation or recompute.
+
+        See DenseGraph.weights.setter for the rationale: cached derived
+        fields are introspection-only after prepare(), and the setter is
+        deliberately unvalidated so axis-sweep placeholders (e.g. DataAxis)
+        can be assigned here before Space resolves them.
+        """
+        self._weights = value
+
     @property
     def nnz(self) -> int:
         """Number of non-zero elements in weight matrix."""
@@ -456,6 +467,10 @@ class SparseDelayGraph(SparseGraph):
         delays: Sparse delays (BCOO) or dense array (same pattern as weights)
         region_labels: Optional sequence of region labels (list, tuple, or array). If None, defaults to ['Region_0', 'Region_1', ...]
         threshold: Sparsity threshold for weights
+        max_delay_bound: Optional static bound on the largest representable delay,
+            used to size the history buffer instead of ``max(delays)``. Distinct
+            from the ``max_delay`` property (which always reports the largest
+            *actual* delay). See ``DenseDelayGraph`` for the full rationale.
 
     Example:
         >>> # From dense
@@ -475,6 +490,7 @@ class SparseDelayGraph(SparseGraph):
         delays: Union[BCOO, jnp.ndarray],
         region_labels: Optional[Sequence[str]] = None,
         threshold: float = 0.0,
+        max_delay_bound: Optional[float] = None,
     ):
         """Initialize sparse delay graph."""
         # Initialize weights via parent
@@ -510,10 +526,34 @@ class SparseDelayGraph(SparseGraph):
                 f"This may indicate an issue."
             )
 
-        # Compute max delay from sparse data (keep as array for JAX tracing)
-        self._max_delay = (
-            jnp.max(self._delays.data) if self._delays.nse > 0 else jnp.array(0.0)
-        )
+        delays_are_concrete = not isinstance(self._delays.data, jax.core.Tracer)
+
+        if max_delay_bound is not None:
+            max_delay_bound = float(max_delay_bound)
+
+        # Compute max delay from sparse data (keep as array for JAX tracing).
+        # Only computable when delays are concrete; if delays is a tracer,
+        # max_delay_bound must be supplied since nothing else can size the
+        # (static) history buffer. Mirrors DenseDelayGraph.__init__.
+        if delays_are_concrete:
+            self._max_delay = (
+                jnp.max(self._delays.data) if self._delays.nse > 0 else jnp.array(0.0)
+            )
+            if max_delay_bound is not None and max_delay_bound < float(self._max_delay):
+                raise ValueError(
+                    f"max_delay_bound={max_delay_bound} is smaller than the "
+                    f"largest delay in the network ({float(self._max_delay)}); the "
+                    f"history buffer would be too short to represent it."
+                )
+        elif max_delay_bound is not None:
+            self._max_delay = jnp.array(max_delay_bound)
+        else:
+            raise ValueError(
+                "delays is a JAX tracer (not a concrete array); max_delay_bound "
+                "must be supplied so the history buffer has a static size."
+            )
+
+        self._max_delay_bound = max_delay_bound
 
     @classmethod
     def from_dense(cls, graph: "AbstractGraph", threshold: float = 1e-10):
@@ -550,10 +590,26 @@ class SparseDelayGraph(SparseGraph):
         """Sparse delay matrix in BCOO format (same pattern as weights)."""
         return self._delays
 
+    @delays.setter
+    def delays(self, value: BCOO) -> None:
+        """Replace the delay matrix in place, no validation or recompute.
+
+        See DenseDelayGraph.delays.setter for the rationale. Mutate a config
+        that has already been prepare()'d (buffer already sized); construct a
+        fresh SparseDelayGraph via __init__ instead if you need max_delay /
+        max_delay_bound to reflect a changed delays array before prepare().
+        """
+        self._delays = value
+
     @property
     def max_delay(self) -> float:
         """Maximum delay across all connections."""
         return self._max_delay
+
+    @property
+    def max_delay_bound(self) -> Optional[float]:
+        """Declared static bound on delays, or None if sized from max(delays)."""
+        return self._max_delay_bound
 
     def verify(self, verbose: bool = True) -> bool:
         """Verify graph structure and delays.
@@ -860,7 +916,12 @@ class SparseDelayGraph(SparseGraph):
     def tree_flatten(self):
         """Flatten for JAX PyTree."""
         children = (self._weights, self._delays)
-        aux_data = (self._n_nodes, self._region_labels, self._max_delay)
+        aux_data = (
+            self._n_nodes,
+            self._region_labels,
+            self._max_delay,
+            self._max_delay_bound,
+        )
         return children, aux_data
 
     @classmethod
@@ -872,6 +933,7 @@ class SparseDelayGraph(SparseGraph):
         obj._n_nodes = aux_data[0]
         obj._region_labels = aux_data[1]
         obj._max_delay = aux_data[2]
+        obj._max_delay_bound = aux_data[3]
         return obj
 
     def __repr__(self) -> str:
