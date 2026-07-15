@@ -14,6 +14,32 @@ from jax.tree_util import register_pytree_node_class
 from .base import AbstractGraph
 
 
+def _ensure_at_least_one_sparse_edge(
+    row, col, key, n_nodes, symmetric, allow_self_loops, density
+):
+    """Inject one off-diagonal edge if edge sampling produced a connectionless graph.
+
+    Guards against empty graphs when a positive density rounds to zero edges, or
+    when all sampled edges collapse onto the diagonal at low node count. Runs
+    eagerly (row/col are concrete here). Returns the (row, col) COO indices.
+    """
+    if density <= 0 or n_nodes < 2:
+        return row, col
+    n = len(row)
+    off_diag = int(jnp.sum(row != col)) if n > 0 else 0
+    connected = n > 0 if allow_self_loops else off_diag > 0
+    if connected:
+        return row, col
+    key_i, key_j = jax.random.split(key)
+    i = int(jax.random.randint(key_i, (), 0, n_nodes))
+    j = int(jax.random.randint(key_j, (), 0, n_nodes - 1))
+    if j >= i:  # skip the diagonal so j != i
+        j += 1
+    if symmetric and i > j:  # keep the upper-triangle representative
+        i, j = j, i
+    return jnp.array([i]), jnp.array([j])
+
+
 @register_pytree_node_class
 class SparseGraph(AbstractGraph):
     """Sparse graph representation using JAX BCOO format.
@@ -163,7 +189,7 @@ class SparseGraph(AbstractGraph):
         return self._weights.nse
 
     @property
-    def sparsity(self) -> float:
+    def density(self) -> float:
         """Fraction of non-zero connections (excluding diagonal)."""
         total_possible = self._n_nodes * (self._n_nodes - 1)
         if total_possible == 0:
@@ -218,7 +244,7 @@ class SparseGraph(AbstractGraph):
             return False
 
         if verbose:
-            density_pct = self.sparsity * 100
+            density_pct = self.density * 100
             print("SparseGraph verification passed:")
             print(f"  Nodes: {self._n_nodes}")
             print(f"  Non-zeros: {self.nnz}")
@@ -231,7 +257,7 @@ class SparseGraph(AbstractGraph):
     def random(
         cls,
         n_nodes: int,
-        sparsity: float = 0.7,
+        density: float = 1.0,
         symmetric: bool = True,
         weight_dist: str = "lognormal",
         allow_self_loops: bool = False,
@@ -241,7 +267,7 @@ class SparseGraph(AbstractGraph):
 
         Args:
             n_nodes: Number of nodes in the network
-            sparsity: Fraction of connections present (0.7 = 70% dense)
+            density: Fraction of connections present (1.0 = fully connected, 0.3 = 30% dense)
             symmetric: Whether to create undirected (symmetric) connectivity
             weight_dist: Weight distribution ('lognormal', 'uniform', or 'binary')
             allow_self_loops: Whether to allow self-connections (diagonal)
@@ -253,7 +279,7 @@ class SparseGraph(AbstractGraph):
         Example:
             >>> import jax
             >>> key = jax.random.key(42)
-            >>> graph = SparseGraph.random(n_nodes=100, sparsity=0.3, key=key)
+            >>> graph = SparseGraph.random(n_nodes=100, density=0.3, key=key)
         """
         if key is None:
             key = jax.random.key(0)
@@ -268,7 +294,10 @@ class SparseGraph(AbstractGraph):
         if symmetric:
             max_edges = max_edges // 2  # Only upper triangle
 
-        n_edges = int(sparsity * max_edges)
+        n_edges = int(round(density * max_edges))
+        # Guarantee at least one edge when a positive density is requested
+        if density > 0 and max_edges > 0:
+            n_edges = max(1, n_edges)
 
         if symmetric:
             # Sample edges from upper triangle only
@@ -305,6 +334,11 @@ class SparseGraph(AbstractGraph):
                     row = jnp.concatenate([row, extra_row])
                     col = jnp.concatenate([col, extra_col])
 
+            # Guarantee at least one connection at low node count
+            row, col = _ensure_at_least_one_sparse_edge(
+                row, col, key_edges, n_nodes, symmetric, allow_self_loops, density
+            )
+
             # Generate weights for upper triangle edges
             if weight_dist == "lognormal":
                 edge_weights = jax.random.lognormal(key_weights, shape=(len(row),))
@@ -334,6 +368,11 @@ class SparseGraph(AbstractGraph):
                 # Filter and resample diagonal entries
                 valid = row != col
                 row, col = row[valid], col[valid]
+
+            # Guarantee at least one connection at low node count
+            row, col = _ensure_at_least_one_sparse_edge(
+                row, col, key_edges, n_nodes, symmetric, allow_self_loops, density
+            )
 
             # Generate weights
             if weight_dist == "lognormal":
@@ -421,7 +460,7 @@ class SparseGraph(AbstractGraph):
 
         # Main title with graph properties
         fig.suptitle(
-            f"{self.__class__.__name__}: {self.n_nodes} nodes, nnz={self.nnz}, sparsity={self.sparsity:.3f}, symmetric={self.symmetric}",
+            f"{self.__class__.__name__}: {self.n_nodes} nodes, nnz={self.nnz}, density={self.density:.3f}, symmetric={self.symmetric}",
             fontsize=12,
             y=1.02,
         )
@@ -450,7 +489,7 @@ class SparseGraph(AbstractGraph):
             f"SparseGraph("
             f"n_nodes={self._n_nodes}, "
             f"nnz={self.nnz}, "
-            f"sparsity={self.sparsity:.3f}, "
+            f"density={self.density:.3f}, "
             f"symmetric={self.symmetric})"
         )
 
@@ -642,7 +681,7 @@ class SparseDelayGraph(SparseGraph):
             return False
 
         if verbose:
-            density_pct = self.sparsity * 100
+            density_pct = self.density * 100
             print("SparseDelayGraph verification passed:")
             print(f"  Nodes: {self._n_nodes}")
             print(f"  Non-zeros: {self.nnz}")
@@ -656,7 +695,7 @@ class SparseDelayGraph(SparseGraph):
     def random(
         cls,
         n_nodes: int,
-        sparsity: float = 0.7,
+        density: float = 1.0,
         symmetric: bool = True,
         weight_dist: str = "lognormal",
         max_delay: float = 50.0,
@@ -668,7 +707,7 @@ class SparseDelayGraph(SparseGraph):
 
         Args:
             n_nodes: Number of nodes in the network
-            sparsity: Fraction of connections present (0.7 = 70% dense)
+            density: Fraction of connections present (1.0 = fully connected, 0.3 = 30% dense)
             symmetric: Whether to create undirected (symmetric) connectivity
             weight_dist: Weight distribution ('lognormal', 'uniform', or 'binary')
             max_delay: Maximum transmission delay
@@ -682,7 +721,7 @@ class SparseDelayGraph(SparseGraph):
         Example:
             >>> import jax
             >>> key = jax.random.key(42)
-            >>> graph = SparseDelayGraph.random(n_nodes=100, sparsity=0.3, max_delay=20.0, key=key)
+            >>> graph = SparseDelayGraph.random(n_nodes=100, density=0.3, max_delay=20.0, key=key)
         """
         if key is None:
             key = jax.random.key(0)
@@ -697,7 +736,10 @@ class SparseDelayGraph(SparseGraph):
         if symmetric:
             max_edges = max_edges // 2  # Only upper triangle
 
-        n_edges = int(sparsity * max_edges)
+        n_edges = int(round(density * max_edges))
+        # Guarantee at least one edge when a positive density is requested
+        if density > 0 and max_edges > 0:
+            n_edges = max(1, n_edges)
 
         if symmetric:
             # Sample edges from upper triangle only
@@ -733,6 +775,11 @@ class SparseDelayGraph(SparseGraph):
                     extra_row = jnp.clip(extra_row, 0, n_nodes - 1)
                     row = jnp.concatenate([row, extra_row])
                     col = jnp.concatenate([col, extra_col])
+
+            # Guarantee at least one connection at low node count
+            row, col = _ensure_at_least_one_sparse_edge(
+                row, col, key_edges, n_nodes, symmetric, allow_self_loops, density
+            )
 
             # Generate weights for upper triangle edges
             if weight_dist == "lognormal":
@@ -775,6 +822,11 @@ class SparseDelayGraph(SparseGraph):
                 # Filter and resample diagonal entries
                 valid = row != col
                 row, col = row[valid], col[valid]
+
+            # Guarantee at least one connection at low node count
+            row, col = _ensure_at_least_one_sparse_edge(
+                row, col, key_edges, n_nodes, symmetric, allow_self_loops, density
+            )
 
             # Generate weights
             if weight_dist == "lognormal":
@@ -905,7 +957,7 @@ class SparseDelayGraph(SparseGraph):
 
         # Main title with graph properties
         fig.suptitle(
-            f"{self.__class__.__name__}: {self.n_nodes} nodes, nnz={self.nnz}, sparsity={self.sparsity:.3f}, max_delay={self._max_delay:.2f}",
+            f"{self.__class__.__name__}: {self.n_nodes} nodes, nnz={self.nnz}, density={self.density:.3f}, max_delay={self._max_delay:.2f}",
             fontsize=12,
             y=0.995,
         )
@@ -942,6 +994,6 @@ class SparseDelayGraph(SparseGraph):
             f"SparseDelayGraph("
             f"n_nodes={self._n_nodes}, "
             f"nnz={self.nnz}, "
-            f"sparsity={self.sparsity:.3f}, "
+            f"density={self.density:.3f}, "
             f"max_delay={self._max_delay:.3f})"
         )

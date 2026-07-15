@@ -47,13 +47,32 @@ def delay_steps_bound(max_delay: float, dt: float) -> int:
     return max(0, int(math.ceil(float(max_delay) / dt - 1e-9)))
 
 
+def _ensure_at_least_one_edge(mask, key, n_nodes, symmetric):
+    """Force one random off-diagonal edge if the mask ended up empty.
+
+    Guards against empty graphs when a positive density rounds to zero edges
+    at low node count. Runs eagerly (mask is concrete here).
+    """
+    if n_nodes < 2 or bool(jnp.any(mask)):
+        return mask
+    key_i, key_j = jax.random.split(key)
+    i = int(jax.random.randint(key_i, (), 0, n_nodes))
+    j = int(jax.random.randint(key_j, (), 0, n_nodes - 1))
+    if j >= i:  # skip the diagonal so j != i
+        j += 1
+    mask = mask.at[i, j].set(True)
+    if symmetric:
+        mask = mask.at[j, i].set(True)
+    return mask
+
+
 class AbstractGraph(ABC):
     """Abstract base class for network topology representations.
 
     Defines the interface for network topology that can be used with dynamics.
     All graph types (dense, sparse, multilayer, etc.) should inherit from this class.
 
-    Note: Subclasses should store immutable properties (n_nodes, sparsity, symmetric)
+    Note: Subclasses should store immutable properties (n_nodes, density, symmetric)
     as private fields computed during initialization to avoid issues during pytree
     transformations where weights might not be available.
     """
@@ -111,10 +130,10 @@ class AbstractGraph(ABC):
 
     @property
     @abstractmethod
-    def sparsity(self) -> float:
-        """Calculate the sparsity of the graph (fraction of non-zero connections).
+    def density(self) -> float:
+        """Fraction of non-zero connections (excluding diagonal).
 
-        This should return a stored value (_sparsity), not computed from weights.
+        This should return a stored value (_density), not computed from weights.
         """
         pass
 
@@ -123,7 +142,7 @@ class AbstractGraph(ABC):
         return (
             f"{self.__class__.__name__}("
             f"n_nodes={self.n_nodes}, "
-            f"sparsity={self.sparsity:.3f}, "
+            f"density={self.density:.3f}, "
             f"symmetric={self.symmetric})"
         )
 
@@ -180,15 +199,15 @@ class DenseGraph(AbstractGraph):
         else:
             self._symmetric = symmetric
 
-        # Compute and store sparsity
+        # Compute and store density
         if self._n_nodes <= 1:
-            self._sparsity = 0.0
+            self._density = 0.0
         else:
             total_possible = self._n_nodes * (self._n_nodes - 1)  # Exclude diagonal
             non_zero = jnp.count_nonzero(
                 self._weights - jnp.diag(jnp.diag(self._weights))
             )
-            self._sparsity = float(non_zero) / total_possible
+            self._density = float(non_zero) / total_possible
 
         # Run verification
         if not self.verify(verbose=False):
@@ -203,7 +222,7 @@ class DenseGraph(AbstractGraph):
     def weights(self, value: jnp.ndarray) -> None:
         """Replace the weight matrix in place, no validation or recompute.
 
-        symmetric/sparsity are cached at construction and used only for
+        symmetric/density are cached at construction and used only for
         introspection (repr, verify, plotting); simulation always reads
         graph.weights live and never re-reads those cached fields. Left
         unvalidated on purpose: axis-sweep placeholders (e.g. DataAxis) get
@@ -232,9 +251,9 @@ class DenseGraph(AbstractGraph):
         return self._symmetric
 
     @property
-    def sparsity(self) -> float:
-        """Calculate the sparsity of the graph (fraction of non-zero connections)."""
-        return self._sparsity
+    def density(self) -> float:
+        """Fraction of non-zero connections (excluding diagonal)."""
+        return self._density
 
     def verify(self, verbose: bool = True) -> bool:
         """Verify graph structure and properties.
@@ -255,7 +274,7 @@ class DenseGraph(AbstractGraph):
                 print(f"Verifying {self.__class__.__name__}:")
                 print(f"  Shape: {self.weights.shape}")
                 print(f"  Nodes: {self.n_nodes}")
-                print(f"  Sparsity: {self.sparsity:.3f}")
+                print(f"  Density: {self.density:.3f}")
 
             # Check for finite values
             if not jnp.all(jnp.isfinite(self.weights)):
@@ -287,7 +306,7 @@ class DenseGraph(AbstractGraph):
     def random(
         cls,
         n_nodes: int,
-        sparsity: float = 0.7,
+        density: float = 1.0,
         symmetric: bool = True,
         weight_dist: str = "lognormal",
         allow_self_loops: bool = False,
@@ -297,7 +316,7 @@ class DenseGraph(AbstractGraph):
 
         Args:
             n_nodes: Number of nodes in the network
-            sparsity: Fraction of connections present (0.7 = 70% dense)
+            density: Fraction of connections present (1.0 = fully connected, 0.3 = 30% dense)
             symmetric: Whether to create undirected (symmetric) connectivity
             weight_dist: Weight distribution ('lognormal', 'uniform', or 'binary')
             allow_self_loops: Whether to allow self-connections (diagonal)
@@ -309,7 +328,7 @@ class DenseGraph(AbstractGraph):
         Example:
             >>> import jax
             >>> key = jax.random.key(42)
-            >>> graph = DenseGraph.random(n_nodes=10, sparsity=0.5, key=key)
+            >>> graph = DenseGraph.random(n_nodes=10, density=0.5, key=key)
         """
         if key is None:
             key = jax.random.key(0)
@@ -319,7 +338,7 @@ class DenseGraph(AbstractGraph):
 
         # Generate connectivity mask (Erdős-Rényi)
         conn_prob = jax.random.uniform(key_conn, shape=(n_nodes, n_nodes))
-        mask = conn_prob < sparsity
+        mask = conn_prob < density
 
         # Remove self-loops if needed
         if not allow_self_loops:
@@ -330,6 +349,10 @@ class DenseGraph(AbstractGraph):
             # Use upper triangle and mirror
             mask = jnp.triu(mask, k=1)
             mask = mask | mask.T
+
+        # Guarantee at least one edge when a positive density is requested
+        if density > 0:
+            mask = _ensure_at_least_one_edge(mask, key_conn, n_nodes, symmetric)
 
         # Generate weights based on distribution
         if weight_dist == "lognormal":
@@ -360,7 +383,7 @@ class DenseGraph(AbstractGraph):
         aux_data = (
             self._n_nodes,
             self._symmetric,
-            self._sparsity,
+            self._density,
             self._region_labels,
         )  # Static metadata
         return children, aux_data
@@ -372,7 +395,7 @@ class DenseGraph(AbstractGraph):
         obj._weights = children[0]
         obj._n_nodes = aux_data[0]
         obj._symmetric = aux_data[1]
-        obj._sparsity = aux_data[2]
+        obj._density = aux_data[2]
         obj._region_labels = aux_data[3]
         return obj
 
@@ -437,7 +460,7 @@ class DenseGraph(AbstractGraph):
 
         # Main title with graph properties
         fig.suptitle(
-            f"{self.__class__.__name__}: {self.n_nodes} nodes, sparsity={self.sparsity:.3f}, symmetric={self.symmetric}",
+            f"{self.__class__.__name__}: {self.n_nodes} nodes, density={self.density:.3f}, symmetric={self.symmetric}",
             fontsize=12,
             y=1.02,
         )
@@ -603,7 +626,7 @@ class DenseDelayGraph(DenseGraph):
         return (
             f"{self.__class__.__name__}("
             f"n_nodes={self.n_nodes}, "
-            f"sparsity={self.sparsity:.3f}, "
+            f"density={self.density:.3f}, "
             f"symmetric={self.symmetric}, "
             f"max_delay={self.max_delay:.3f}{bound_str})"
         )
@@ -612,7 +635,7 @@ class DenseDelayGraph(DenseGraph):
     def random(
         cls,
         n_nodes: int,
-        sparsity: float = 0.7,
+        density: float = 1.0,
         symmetric: bool = True,
         weight_dist: str = "lognormal",
         max_delay: float = 50.0,
@@ -624,7 +647,7 @@ class DenseDelayGraph(DenseGraph):
 
         Args:
             n_nodes: Number of nodes in the network
-            sparsity: Fraction of connections present (0.7 = 70% dense)
+            density: Fraction of connections present (1.0 = fully connected, 0.3 = 30% dense)
             symmetric: Whether to create undirected (symmetric) connectivity
             weight_dist: Weight distribution ('lognormal', 'uniform', or 'binary')
             max_delay: Maximum transmission delay
@@ -649,7 +672,7 @@ class DenseDelayGraph(DenseGraph):
         # Generate connectivity mask and weights using parent method
         key_conn, key_w = jax.random.split(key_weights)
         conn_prob = jax.random.uniform(key_conn, shape=(n_nodes, n_nodes))
-        mask = conn_prob < sparsity
+        mask = conn_prob < density
 
         # Remove self-loops if needed
         if not allow_self_loops:
@@ -659,6 +682,10 @@ class DenseDelayGraph(DenseGraph):
         if symmetric:
             mask = jnp.triu(mask, k=1)
             mask = mask | mask.T
+
+        # Guarantee at least one edge when a positive density is requested
+        if density > 0:
+            mask = _ensure_at_least_one_edge(mask, key_conn, n_nodes, symmetric)
 
         # Generate weights
         if weight_dist == "lognormal":
@@ -785,7 +812,7 @@ class DenseDelayGraph(DenseGraph):
 
         # Main title with graph properties
         fig.suptitle(
-            f"{self.__class__.__name__}: {self.n_nodes} nodes, sparsity={self.sparsity:.3f}, symmetric={self.symmetric}, max_delay={self.max_delay:.2f}",
+            f"{self.__class__.__name__}: {self.n_nodes} nodes, density={self.density:.3f}, symmetric={self.symmetric}, max_delay={self.max_delay:.2f}",
             fontsize=12,
             y=0.995,
         )
@@ -799,7 +826,7 @@ class DenseDelayGraph(DenseGraph):
         aux_data = (
             self._n_nodes,
             self._symmetric,
-            self._sparsity,
+            self._density,
             self._max_delay,
             self._region_labels,
             self._max_delay_bound,
@@ -814,7 +841,7 @@ class DenseDelayGraph(DenseGraph):
         obj._delays = children[1]
         obj._n_nodes = aux_data[0]
         obj._symmetric = aux_data[1]
-        obj._sparsity = aux_data[2]
+        obj._density = aux_data[2]
         obj._max_delay = aux_data[3]
         obj._region_labels = aux_data[4]
         obj._max_delay_bound = aux_data[5]
@@ -902,7 +929,7 @@ class DenseLengthGraph(DenseDelayGraph):
                 "static size."
             )
 
-        # DenseGraph plumbing (weights, n_nodes, labels, symmetric, sparsity).
+        # DenseGraph plumbing (weights, n_nodes, labels, symmetric, density).
         # Skips DenseDelayGraph.__init__, which would store a _delays leaf; here
         # delays is a computed property over the lengths/speed leaves instead.
         DenseGraph.__init__(
@@ -1014,7 +1041,7 @@ class DenseLengthGraph(DenseDelayGraph):
         return (
             f"{self.__class__.__name__}("
             f"n_nodes={self.n_nodes}, "
-            f"sparsity={self.sparsity:.3f}, "
+            f"density={self.density:.3f}, "
             f"symmetric={self.symmetric}, "
             f"max_delay={self.max_delay:.3f}{bound_str})"
         )
@@ -1030,7 +1057,7 @@ class DenseLengthGraph(DenseDelayGraph):
         aux_data = (
             self._n_nodes,
             self._symmetric,
-            self._sparsity,
+            self._density,
             self._max_delay,
             self._region_labels,
             self._max_delay_bound,
@@ -1046,7 +1073,7 @@ class DenseLengthGraph(DenseDelayGraph):
         obj._speed = children[2]
         obj._n_nodes = aux_data[0]
         obj._symmetric = aux_data[1]
-        obj._sparsity = aux_data[2]
+        obj._density = aux_data[2]
         obj._max_delay = aux_data[3]
         obj._region_labels = aux_data[4]
         obj._max_delay_bound = aux_data[5]
