@@ -108,6 +108,11 @@ class AbstractGraph(ABC):
         pass
 
     @abstractmethod
+    def gather_edges(self, graph_shaped: jnp.ndarray) -> jnp.ndarray:
+        """Gather a graph-shaped value in this graph's public edge order."""
+        pass
+
+    @abstractmethod
     def verify(self, verbose: bool = True) -> bool:
         """Verify graph structure and properties.
 
@@ -234,6 +239,21 @@ class DenseGraph(AbstractGraph):
         mutating if the original must stay untouched.
         """
         self._weights = value
+
+    def gather_edges(self, graph_shaped: jnp.ndarray) -> jnp.ndarray:
+        """Flatten ``[target, source]`` values in target-major edge order.
+
+        Dense graphs define every matrix cell as an edge, so their public edge
+        order is simply row-major flattening: all sources for target 0, then
+        all sources for target 1, and so on.
+        """
+        values = jnp.asarray(graph_shaped)
+        if values.shape != self._weights.shape:
+            raise ValueError(
+                "graph_shaped must match the graph shape "
+                f"{self._weights.shape}, got {values.shape}"
+            )
+        return values.reshape(-1)
 
     @property
     def n_nodes(self) -> int:

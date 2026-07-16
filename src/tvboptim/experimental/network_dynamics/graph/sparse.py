@@ -8,36 +8,187 @@ from typing import Optional, Sequence, Tuple, Union
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax.experimental.sparse import BCOO
 from jax.tree_util import register_pytree_node_class
 
 from .base import AbstractGraph
 
 
-def _ensure_at_least_one_sparse_edge(
-    row, col, key, n_nodes, symmetric, allow_self_loops, density
-):
-    """Inject one off-diagonal edge if edge sampling produced a connectionless graph.
+def _concrete_edge_tuples(matrix: BCOO, name: str) -> list[tuple[int, int]]:
+    """Return concrete COO indices and reject unsupported sparse layouts."""
+    if matrix.indices.ndim != 2 or matrix.indices.shape[1] != 2:
+        raise ValueError(
+            f"{name} must use scalar 2D COO entries, got indices shape "
+            f"{matrix.indices.shape}"
+        )
+    if matrix.data.ndim != 1:
+        raise ValueError(
+            f"{name} must use scalar 2D COO entries, got data shape {matrix.data.shape}"
+        )
 
-    Guards against empty graphs when a positive density rounds to zero edges, or
-    when all sampled edges collapse onto the diagonal at low node count. Runs
-    eagerly (row/col are concrete here). Returns the (row, col) COO indices.
+    try:
+        indices = np.asarray(jax.device_get(matrix.indices))
+    except Exception as exc:
+        raise ValueError(
+            f"{name} topology indices must be concrete when the graph is constructed"
+        ) from exc
+
+    shape = matrix.shape
+    edges = [(int(target), int(source)) for target, source in indices]
+    if any(
+        target < 0 or target >= shape[0] or source < 0 or source >= shape[1]
+        for target, source in edges
+    ):
+        raise ValueError(f"{name} contains an edge index outside shape {shape}")
+    if len(set(edges)) != len(edges):
+        raise ValueError(
+            f"{name} contains duplicate edge indices; graph topology must be unique"
+        )
+    return edges
+
+
+def _align_bcoo_data(
+    matrix: BCOO,
+    expected_edges: list[tuple[int, int]],
+    shared_indices: jnp.ndarray,
+    name: str,
+) -> BCOO:
+    """Reindex BCOO data to ``expected_edges`` without making a dense matrix."""
+    actual_edges = _concrete_edge_tuples(matrix, name)
+    positions = {edge: position for position, edge in enumerate(actual_edges)}
+    expected_set = set(expected_edges)
+    if len(actual_edges) != len(expected_edges) or positions.keys() != expected_set:
+        missing = expected_set - positions.keys()
+        extra = positions.keys() - expected_set
+        raise ValueError(
+            f"{name} sparsity pattern must exactly match weights; "
+            f"missing {len(missing)} edge(s), extra {len(extra)} edge(s)"
+        )
+    order = jnp.asarray(
+        [positions[edge] for edge in expected_edges], dtype=shared_indices.dtype
+    )
+    return BCOO(
+        (matrix.data[order], shared_indices),
+        shape=matrix.shape,
+        unique_indices=True,
+    )
+
+
+def _edge_capacity(n_nodes: int, symmetric: bool, allow_self_loops: bool) -> int:
+    if symmetric:
+        return (
+            n_nodes * (n_nodes + 1) // 2
+            if allow_self_loops
+            else n_nodes * (n_nodes - 1) // 2
+        )
+    return n_nodes * n_nodes if allow_self_loops else n_nodes * (n_nodes - 1)
+
+
+def _sample_unique_ids(key, population: int, sample_size: int) -> np.ndarray:
+    """Sample integer IDs without replacement without allocating ``population``.
+
+    JAX's ``choice(..., replace=False)`` permutes the full population. Sparse
+    graphs instead draw small batches with replacement and retain first-seen
+    unique IDs. Sampling the complement keeps the expected work bounded when
+    density is high.
     """
-    if density <= 0 or n_nodes < 2:
-        return row, col
-    n = len(row)
-    off_diag = int(jnp.sum(row != col)) if n > 0 else 0
-    connected = n > 0 if allow_self_loops else off_diag > 0
-    if connected:
-        return row, col
-    key_i, key_j = jax.random.split(key)
-    i = int(jax.random.randint(key_i, (), 0, n_nodes))
-    j = int(jax.random.randint(key_j, (), 0, n_nodes - 1))
-    if j >= i:  # skip the diagonal so j != i
-        j += 1
-    if symmetric and i > j:  # keep the upper-triangle representative
-        i, j = j, i
-    return jnp.array([i]), jnp.array([j])
+    if sample_size == 0:
+        return np.empty((0,), dtype=np.int64)
+    if sample_size > population // 2:
+        omitted = _sample_unique_ids(key, population, population - sample_size)
+        return np.setdiff1d(
+            np.arange(population, dtype=np.int64), omitted, assume_unique=True
+        )
+
+    selected: list[int] = []
+    seen: set[int] = set()
+    attempt = 0
+    while len(selected) < sample_size:
+        remaining = sample_size - len(selected)
+        draw_count = max(2 * remaining, 8)
+        draw_key = jax.random.fold_in(key, attempt)
+        draws = np.asarray(
+            jax.random.randint(
+                draw_key,
+                (draw_count,),
+                minval=0,
+                maxval=population,
+                dtype=jnp.int64 if jax.config.x64_enabled else jnp.int32,
+            )
+        )
+        for value in draws:
+            edge_id = int(value)
+            if edge_id not in seen:
+                seen.add(edge_id)
+                selected.append(edge_id)
+                if len(selected) == sample_size:
+                    break
+        attempt += 1
+    return np.asarray(selected, dtype=np.int64)
+
+
+def _decode_edge_ids(
+    edge_ids: np.ndarray,
+    n_nodes: int,
+    symmetric: bool,
+    allow_self_loops: bool,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Decode compact candidate IDs into unique target/source pairs."""
+    if edge_ids.size == 0:
+        empty = np.empty((0,), dtype=np.int64)
+        return empty, empty
+    if symmetric and allow_self_loops:
+        source = np.floor((np.sqrt(8.0 * edge_ids + 1.0) - 1.0) / 2.0).astype(np.int64)
+        target = edge_ids - source * (source + 1) // 2
+    elif symmetric:
+        source = np.floor((1.0 + np.sqrt(1.0 + 8.0 * edge_ids)) / 2.0).astype(np.int64)
+        target = edge_ids - source * (source - 1) // 2
+    elif allow_self_loops:
+        target, source = np.divmod(edge_ids, n_nodes)
+    else:
+        target, source = np.divmod(edge_ids, n_nodes - 1)
+        source = source + (source >= target)
+    return target, source
+
+
+def _sample_unique_edge_indices(
+    key,
+    n_nodes: int,
+    density: float,
+    symmetric: bool,
+    allow_self_loops: bool,
+) -> tuple[jnp.ndarray, jnp.ndarray, int]:
+    """Sample one unique topology and return value-sharing indices.
+
+    The returned COO array is in public ``(target, source)`` order.
+    ``value_indices`` maps each directed entry to its sampled representative,
+    so reciprocal entries of a symmetric graph receive identical values.
+    """
+    if n_nodes < 0:
+        raise ValueError(f"n_nodes must be non-negative, got {n_nodes}")
+    if not 0.0 <= density <= 1.0:
+        raise ValueError(f"density must be between 0 and 1, got {density}")
+
+    population = _edge_capacity(n_nodes, symmetric, allow_self_loops)
+    n_representatives = int(round(density * population))
+    if density > 0 and population > 0:
+        n_representatives = max(1, n_representatives)
+
+    edge_ids = _sample_unique_ids(key, population, n_representatives)
+    target, source = _decode_edge_ids(edge_ids, n_nodes, symmetric, allow_self_loops)
+    representatives = np.arange(n_representatives, dtype=np.int64)
+
+    if symmetric:
+        off_diagonal = target != source
+        target = np.concatenate([target, source[off_diagonal]])
+        source = np.concatenate([source, target[:n_representatives][off_diagonal]])
+        representatives = np.concatenate(
+            [representatives, representatives[off_diagonal]]
+        )
+
+    indices = jnp.asarray(np.stack([target, source], axis=1))
+    return indices, jnp.asarray(representatives), n_representatives
 
 
 @register_pytree_node_class
@@ -96,6 +247,8 @@ class SparseGraph(AbstractGraph):
             raise ValueError(
                 f"Weight matrix must be square, got shape {self._weights.shape}"
             )
+
+        _concrete_edge_tuples(self._weights, "weights")
 
         self._n_nodes = self._weights.shape[0]
 
@@ -182,6 +335,26 @@ class SparseGraph(AbstractGraph):
         can be assigned here before Space resolves them.
         """
         self._weights = value
+
+    @property
+    def edge_indices(self) -> jnp.ndarray:
+        """Read-only ``[E, 2]`` COO indices in ``(target, source)`` order.
+
+        The order is the graph's public edge order and is preserved by
+        coupling preparation. Build scalable edge-shaped parameters in this
+        order, preferably via :meth:`gather_edges`.
+        """
+        return self._weights.indices
+
+    def gather_edges(self, graph_shaped: jnp.ndarray) -> jnp.ndarray:
+        """Gather dense ``[target, source]`` values in public edge order."""
+        values = jnp.asarray(graph_shaped)
+        if values.shape != self._weights.shape:
+            raise ValueError(
+                "graph_shaped must match the graph shape "
+                f"{self._weights.shape}, got {values.shape}"
+            )
+        return values[self.edge_indices[:, 0], self.edge_indices[:, 1]]
 
     @property
     def nnz(self) -> int:
@@ -286,108 +459,25 @@ class SparseGraph(AbstractGraph):
 
         # Split keys for edge sampling and weights
         key_edges, key_weights = jax.random.split(key)
-
-        # Calculate expected number of edges
-        max_edges = (
-            n_nodes * (n_nodes - 1) if not allow_self_loops else n_nodes * n_nodes
+        indices, value_indices, n_values = _sample_unique_edge_indices(
+            key_edges, n_nodes, density, symmetric, allow_self_loops
         )
-        if symmetric:
-            max_edges = max_edges // 2  # Only upper triangle
 
-        n_edges = int(round(density * max_edges))
-        # Guarantee at least one edge when a positive density is requested
-        if density > 0 and max_edges > 0:
-            n_edges = max(1, n_edges)
-
-        if symmetric:
-            # Sample edges from upper triangle only
-            key_row, key_col = jax.random.split(key_edges)
-
-            # Sample random upper triangular edges
-            row = jax.random.randint(key_row, (n_edges,), 0, n_nodes)
-            col = jax.random.randint(key_col, (n_edges,), 0, n_nodes)
-
-            # Ensure upper triangle (swap if needed) and no self-loops if required
-            needs_swap = row > col
-            row, col = jnp.where(needs_swap, col, row), jnp.where(needs_swap, row, col)
-
-            if not allow_self_loops:
-                # Filter out diagonal entries
-                valid = row != col
-                row, col = row[valid], col[valid]
-                # Resample to get back to desired edge count (approximate)
-                actual_n = len(row)
-                if actual_n < n_edges:
-                    # Add more edges to compensate
-                    key_extra = jax.random.fold_in(key_edges, 1)
-                    extra_needed = n_edges - actual_n
-                    key_row2, key_col2 = jax.random.split(key_extra)
-                    extra_row = jax.random.randint(
-                        key_row2, (extra_needed,), 0, n_nodes
-                    )
-                    extra_col = jax.random.randint(
-                        key_col2, (extra_needed,), 0, n_nodes
-                    )
-                    needs_swap2 = extra_row >= extra_col
-                    extra_row = jnp.where(needs_swap2, extra_row + 1, extra_row)
-                    extra_row = jnp.clip(extra_row, 0, n_nodes - 1)
-                    row = jnp.concatenate([row, extra_row])
-                    col = jnp.concatenate([col, extra_col])
-
-            # Guarantee at least one connection at low node count
-            row, col = _ensure_at_least_one_sparse_edge(
-                row, col, key_edges, n_nodes, symmetric, allow_self_loops, density
-            )
-
-            # Generate weights for upper triangle edges
-            if weight_dist == "lognormal":
-                edge_weights = jax.random.lognormal(key_weights, shape=(len(row),))
-            elif weight_dist == "uniform":
-                edge_weights = jax.random.uniform(key_weights, shape=(len(row),))
-            elif weight_dist == "binary":
-                edge_weights = jnp.ones(len(row))
-            else:
-                raise ValueError(f"Unknown weight_dist: {weight_dist}")
-
-            # Create symmetric edges by duplicating (i,j) -> (j,i)
-            row_sym = jnp.concatenate([row, col])
-            col_sym = jnp.concatenate([col, row])
-            weights_sym = jnp.concatenate([edge_weights, edge_weights])
-
-            # Create sparse matrix from COO
-            indices = jnp.stack([row_sym, col_sym], axis=1)
-            weights_bcoo = BCOO((weights_sym, indices), shape=(n_nodes, n_nodes))
-
+        if weight_dist == "lognormal":
+            sampled_weights = jax.random.lognormal(key_weights, shape=(n_values,))
+        elif weight_dist == "uniform":
+            sampled_weights = jax.random.uniform(key_weights, shape=(n_values,))
+        elif weight_dist == "binary":
+            sampled_weights = jnp.ones(n_values)
         else:
-            # Non-symmetric: sample random edges
-            key_row, key_col = jax.random.split(key_edges)
-            row = jax.random.randint(key_row, (n_edges,), 0, n_nodes)
-            col = jax.random.randint(key_col, (n_edges,), 0, n_nodes)
+            raise ValueError(f"Unknown weight_dist: {weight_dist}")
 
-            if not allow_self_loops:
-                # Filter and resample diagonal entries
-                valid = row != col
-                row, col = row[valid], col[valid]
-
-            # Guarantee at least one connection at low node count
-            row, col = _ensure_at_least_one_sparse_edge(
-                row, col, key_edges, n_nodes, symmetric, allow_self_loops, density
-            )
-
-            # Generate weights
-            if weight_dist == "lognormal":
-                edge_weights = jax.random.lognormal(key_weights, shape=(len(row),))
-            elif weight_dist == "uniform":
-                edge_weights = jax.random.uniform(key_weights, shape=(len(row),))
-            elif weight_dist == "binary":
-                edge_weights = jnp.ones(len(row))
-            else:
-                raise ValueError(f"Unknown weight_dist: {weight_dist}")
-
-            # Create sparse matrix from COO
-            indices = jnp.stack([row, col], axis=1)
-            weights_bcoo = BCOO((edge_weights, indices), shape=(n_nodes, n_nodes))
-
+        edge_weights = sampled_weights[value_indices]
+        weights_bcoo = BCOO(
+            (edge_weights, indices),
+            shape=(n_nodes, n_nodes),
+            unique_indices=True,
+        )
         return cls(weights_bcoo, threshold=0.0)
 
     def plot(self, log_scale_weights: bool = False, figsize: tuple = (12, 5)):
@@ -535,34 +625,30 @@ class SparseDelayGraph(SparseGraph):
         # Initialize weights via parent
         super().__init__(weights, region_labels=region_labels, threshold=threshold)
 
-        # Handle delays
+        weight_edges = _concrete_edge_tuples(self._weights, "weights")
+        shared_indices = self._weights.indices
+
         if isinstance(delays, BCOO):
-            self._delays = delays
-        else:
-            # Convert delays to sparse with same pattern as weights
-            delays_arr = jnp.asarray(delays)
-
-            # Get weight pattern (where weights are non-zero)
-            weights_dense = self._weights.todense()
-            weights_mask = jnp.abs(weights_dense) > 0.0
-
-            # Apply mask to delays (delays only where weights exist)
-            delays_masked = jnp.where(weights_mask, delays_arr, 0.0)
-            self._delays = BCOO.fromdense(delays_masked)
-
-        # Verify same shape
-        if self._delays.shape != self._weights.shape:
-            raise ValueError(
-                f"Delays shape {self._delays.shape} doesn't match "
-                f"weights shape {self._weights.shape}"
+            if delays.shape != self._weights.shape:
+                raise ValueError(
+                    f"Delays shape {delays.shape} doesn't match "
+                    f"weights shape {self._weights.shape}"
+                )
+            self._delays = _align_bcoo_data(
+                delays, weight_edges, shared_indices, "delays"
             )
-
-        # Ideally same sparsity pattern, but we'll allow some flexibility
-        if self._delays.nse != self._weights.nse:
-            print(
-                f"Warning: delays ({self._delays.nse} nnz) and "
-                f"weights ({self._weights.nse} nnz) have different sparsity patterns. "
-                f"This may indicate an issue."
+        else:
+            delays_arr = jnp.asarray(delays)
+            if delays_arr.shape != self._weights.shape:
+                raise ValueError(
+                    f"Delays shape {delays_arr.shape} doesn't match "
+                    f"weights shape {self._weights.shape}"
+                )
+            delay_data = delays_arr[shared_indices[:, 0], shared_indices[:, 1]]
+            self._delays = BCOO(
+                (delay_data, shared_indices),
+                shape=self._weights.shape,
+                unique_indices=True,
             )
 
         delays_are_concrete = not isinstance(self._delays.data, jax.core.Tracer)
@@ -728,131 +814,38 @@ class SparseDelayGraph(SparseGraph):
 
         # Split keys for edge sampling, weights, and delays
         key_edges, key_weights, key_delays = jax.random.split(key, 3)
-
-        # Calculate expected number of edges
-        max_edges = (
-            n_nodes * (n_nodes - 1) if not allow_self_loops else n_nodes * n_nodes
+        indices, value_indices, n_values = _sample_unique_edge_indices(
+            key_edges, n_nodes, density, symmetric, allow_self_loops
         )
-        if symmetric:
-            max_edges = max_edges // 2  # Only upper triangle
 
-        n_edges = int(round(density * max_edges))
-        # Guarantee at least one edge when a positive density is requested
-        if density > 0 and max_edges > 0:
-            n_edges = max(1, n_edges)
-
-        if symmetric:
-            # Sample edges from upper triangle only
-            key_row, key_col = jax.random.split(key_edges)
-
-            # Sample random upper triangular edges
-            row = jax.random.randint(key_row, (n_edges,), 0, n_nodes)
-            col = jax.random.randint(key_col, (n_edges,), 0, n_nodes)
-
-            # Ensure upper triangle (swap if needed) and no self-loops if required
-            needs_swap = row > col
-            row, col = jnp.where(needs_swap, col, row), jnp.where(needs_swap, row, col)
-
-            if not allow_self_loops:
-                # Filter out diagonal entries
-                valid = row != col
-                row, col = row[valid], col[valid]
-                # Resample to get back to desired edge count (approximate)
-                actual_n = len(row)
-                if actual_n < n_edges:
-                    # Add more edges to compensate
-                    key_extra = jax.random.fold_in(key_edges, 1)
-                    extra_needed = n_edges - actual_n
-                    key_row2, key_col2 = jax.random.split(key_extra)
-                    extra_row = jax.random.randint(
-                        key_row2, (extra_needed,), 0, n_nodes
-                    )
-                    extra_col = jax.random.randint(
-                        key_col2, (extra_needed,), 0, n_nodes
-                    )
-                    needs_swap2 = extra_row >= extra_col
-                    extra_row = jnp.where(needs_swap2, extra_row + 1, extra_row)
-                    extra_row = jnp.clip(extra_row, 0, n_nodes - 1)
-                    row = jnp.concatenate([row, extra_row])
-                    col = jnp.concatenate([col, extra_col])
-
-            # Guarantee at least one connection at low node count
-            row, col = _ensure_at_least_one_sparse_edge(
-                row, col, key_edges, n_nodes, symmetric, allow_self_loops, density
-            )
-
-            # Generate weights for upper triangle edges
-            if weight_dist == "lognormal":
-                edge_weights = jax.random.lognormal(key_weights, shape=(len(row),))
-            elif weight_dist == "uniform":
-                edge_weights = jax.random.uniform(key_weights, shape=(len(row),))
-            elif weight_dist == "binary":
-                edge_weights = jnp.ones(len(row))
-            else:
-                raise ValueError(f"Unknown weight_dist: {weight_dist}")
-
-            # Generate delays for upper triangle edges
-            if delay_dist == "uniform":
-                edge_delays = jax.random.uniform(
-                    key_delays, shape=(len(row),), minval=0.0, maxval=max_delay
-                )
-            elif delay_dist == "constant":
-                edge_delays = jnp.full((len(row),), max_delay)
-            else:
-                raise ValueError(f"Unknown delay_dist: {delay_dist}")
-
-            # Create symmetric edges by duplicating (i,j) -> (j,i)
-            row_sym = jnp.concatenate([row, col])
-            col_sym = jnp.concatenate([col, row])
-            weights_sym = jnp.concatenate([edge_weights, edge_weights])
-            delays_sym = jnp.concatenate([edge_delays, edge_delays])
-
-            # Create sparse matrices from COO
-            indices = jnp.stack([row_sym, col_sym], axis=1)
-            weights_bcoo = BCOO((weights_sym, indices), shape=(n_nodes, n_nodes))
-            delays_bcoo = BCOO((delays_sym, indices), shape=(n_nodes, n_nodes))
-
+        if weight_dist == "lognormal":
+            sampled_weights = jax.random.lognormal(key_weights, shape=(n_values,))
+        elif weight_dist == "uniform":
+            sampled_weights = jax.random.uniform(key_weights, shape=(n_values,))
+        elif weight_dist == "binary":
+            sampled_weights = jnp.ones(n_values)
         else:
-            # Non-symmetric: sample random edges
-            key_row, key_col = jax.random.split(key_edges)
-            row = jax.random.randint(key_row, (n_edges,), 0, n_nodes)
-            col = jax.random.randint(key_col, (n_edges,), 0, n_nodes)
+            raise ValueError(f"Unknown weight_dist: {weight_dist}")
 
-            if not allow_self_loops:
-                # Filter and resample diagonal entries
-                valid = row != col
-                row, col = row[valid], col[valid]
-
-            # Guarantee at least one connection at low node count
-            row, col = _ensure_at_least_one_sparse_edge(
-                row, col, key_edges, n_nodes, symmetric, allow_self_loops, density
+        if delay_dist == "uniform":
+            sampled_delays = jax.random.uniform(
+                key_delays, shape=(n_values,), minval=0.0, maxval=max_delay
             )
+        elif delay_dist == "constant":
+            sampled_delays = jnp.full((n_values,), max_delay)
+        else:
+            raise ValueError(f"Unknown delay_dist: {delay_dist}")
 
-            # Generate weights
-            if weight_dist == "lognormal":
-                edge_weights = jax.random.lognormal(key_weights, shape=(len(row),))
-            elif weight_dist == "uniform":
-                edge_weights = jax.random.uniform(key_weights, shape=(len(row),))
-            elif weight_dist == "binary":
-                edge_weights = jnp.ones(len(row))
-            else:
-                raise ValueError(f"Unknown weight_dist: {weight_dist}")
-
-            # Generate delays
-            if delay_dist == "uniform":
-                edge_delays = jax.random.uniform(
-                    key_delays, shape=(len(row),), minval=0.0, maxval=max_delay
-                )
-            elif delay_dist == "constant":
-                edge_delays = jnp.full((len(row),), max_delay)
-            else:
-                raise ValueError(f"Unknown delay_dist: {delay_dist}")
-
-            # Create sparse matrices from COO
-            indices = jnp.stack([row, col], axis=1)
-            weights_bcoo = BCOO((edge_weights, indices), shape=(n_nodes, n_nodes))
-            delays_bcoo = BCOO((edge_delays, indices), shape=(n_nodes, n_nodes))
-
+        weights_bcoo = BCOO(
+            (sampled_weights[value_indices], indices),
+            shape=(n_nodes, n_nodes),
+            unique_indices=True,
+        )
+        delays_bcoo = BCOO(
+            (sampled_delays[value_indices], indices),
+            shape=(n_nodes, n_nodes),
+            unique_indices=True,
+        )
         return cls(weights_bcoo, delays_bcoo, threshold=0.0)
 
     def plot(self, log_scale_weights: bool = False, figsize: tuple = (12, 10)):
