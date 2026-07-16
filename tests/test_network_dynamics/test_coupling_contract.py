@@ -67,6 +67,26 @@ def _prepare_data(coupling, graph):
     return data, state
 
 
+def _prepare_runtime(coupling, graph):
+    network = Network(Linear(), {"instant": coupling}, graph)
+    data, state = network.prepare(dt=0.1, t0=0.0, t1=0.2)
+    return data.instant, state.instant
+
+
+def _compute_instantaneous(coupling, graph, state, params=None):
+    data, coupling_state = _prepare_runtime(coupling, graph)
+    params = coupling.params if params is None else params
+    data = coupling.precompute(data, params, graph)
+    return coupling.compute(
+        0.0,
+        state,
+        data,
+        coupling_state,
+        params,
+        graph,
+    )
+
+
 @pytest.mark.parametrize("layout", ["graph", "prepared_e"])
 def test_dense_edge_params_normalize_to_graph_shape(layout):
     graph = DenseGraph(WEIGHTS)
@@ -227,3 +247,75 @@ def test_prepared_e_fixture_is_constructed_without_private_indices():
 
     actual = coupling.precompute(data, coupling.params, graph)
     np.testing.assert_array_equal(actual.aligned_edge_params.edge, prepared_e)
+
+
+@pytest.mark.parametrize("representation", ["dense", "sparse"])
+@pytest.mark.parametrize("layout", ["graph", "prepared_e"])
+def test_instantaneous_edge_params_execute_in_both_public_layouts(
+    representation, layout
+):
+    graph = DenseGraph(WEIGHTS) if representation == "dense" else SparseGraph(WEIGHTS)
+    edge = EDGE_VALUES if layout == "graph" else graph.gather_edges(EDGE_VALUES)
+    coupling = EdgeScaledCoupling(incoming_states="x", edge=edge, gain=2.0)
+    state = jnp.array([[2.0, 3.0, 7.0]])
+
+    actual = _compute_instantaneous(coupling, graph, state)
+    expected = (
+        2.0
+        * jnp.sum(
+            WEIGHTS * EDGE_VALUES * state[0][None, :],
+            axis=1,
+            keepdims=True,
+        ).T
+    )
+
+    np.testing.assert_allclose(actual, expected)
+
+
+def test_sparse_prepared_edge_param_and_state_gradients_match_dense():
+    dense_graph = DenseGraph(WEIGHTS)
+    sparse_graph = SparseGraph(WEIGHTS)
+    dense_coupling = EdgeScaledCoupling(
+        incoming_states="x",
+        edge=EDGE_VALUES,
+        gain=2.0,
+    )
+    sparse_edge = sparse_graph.gather_edges(EDGE_VALUES)
+    sparse_coupling = EdgeScaledCoupling(
+        incoming_states="x",
+        edge=sparse_edge,
+        gain=2.0,
+    )
+    dense_data, dense_state = _prepare_runtime(dense_coupling, dense_graph)
+    sparse_data, sparse_state = _prepare_runtime(sparse_coupling, sparse_graph)
+
+    def dense_loss(edge, state):
+        params = Bunch(edge=edge, gain=2.0)
+        data = dense_coupling.precompute(dense_data, params, dense_graph)
+        result = dense_coupling.compute(
+            0.0, state, data, dense_state, params, dense_graph
+        )
+        return jnp.sum(result**2)
+
+    def sparse_loss(edge, state):
+        params = Bunch(edge=edge, gain=2.0)
+        data = sparse_coupling.precompute(sparse_data, params, sparse_graph)
+        result = sparse_coupling.compute(
+            0.0, state, data, sparse_state, params, sparse_graph
+        )
+        return jnp.sum(result**2)
+
+    state = jnp.array([[2.0, 3.0, 7.0]])
+    dense_value, dense_grad = jax.jit(jax.value_and_grad(dense_loss, argnums=(0, 1)))(
+        EDGE_VALUES, state
+    )
+    sparse_value, sparse_grad = jax.jit(
+        jax.value_and_grad(sparse_loss, argnums=(0, 1))
+    )(sparse_edge, state)
+
+    np.testing.assert_allclose(sparse_value, dense_value)
+    np.testing.assert_allclose(
+        sparse_grad[0],
+        sparse_graph.gather_edges(dense_grad[0]),
+    )
+    np.testing.assert_allclose(sparse_grad[1], dense_grad[1])

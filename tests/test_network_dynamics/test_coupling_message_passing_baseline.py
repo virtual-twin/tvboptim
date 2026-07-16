@@ -1,7 +1,7 @@
-"""Pre-refactor coupling matrix pinned before message-passing implementation.
+"""Coupling matrix pinned to the independent message-passing oracle.
 
 Dense cells must agree with the independent NumPy/f64 oracle. Sparse cells do
-the same except for the six failures that motivate the refactor; those are
+the same except for delayed failures not migrated until P3; those are
 strict xfails, so fixing one without updating this inventory fails as XPASS.
 
 ``SubspaceCoupling`` is intentionally outside this direct pre/post matrix. Its
@@ -104,7 +104,6 @@ CASES = (
         Linear,
         partial(DifferenceCoupling, incoming_states="x", local_states="x", G=0.7),
         ("x",),
-        sparse_failure=True,
     ),
     CouplingCase(
         "sigmoid",
@@ -145,7 +144,6 @@ CASES = (
             r=0.6,
         ),
         ("y1", "y2"),
-        sparse_failure=True,
     ),
     CouplingCase(
         "kuramoto",
@@ -159,7 +157,6 @@ CASES = (
             G=0.9,
         ),
         ("theta",),
-        sparse_failure=True,
     ),
     CouplingCase(
         "delayed_linear",
@@ -231,9 +228,6 @@ CASES = (
 )
 
 EXPECTED_SPARSE_FAILURES = {
-    "difference",
-    "jansen_rit",
-    "kuramoto",
     "delayed_difference",
     "delayed_jansen_rit",
     "delayed_kuramoto",
@@ -414,7 +408,7 @@ def _sparse_case(case):
             case,
             marks=pytest.mark.xfail(
                 strict=True,
-                reason="pre-refactor sparsify(pre) cannot handle this sparse body",
+                reason="delayed sparse message passing is migrated in P3",
             ),
             id=case.name,
         )
@@ -428,6 +422,6 @@ def test_sparse_builtin_matches_declared_order_oracle(case):
     _assert_normwise(sparse, _compute(case, sparse=False))
 
 
-def test_inventory_pins_exactly_the_six_known_sparse_failures():
+def test_inventory_pins_only_the_remaining_delayed_sparse_failures():
     actual = {case.name for case in CASES if case.sparse_failure}
     assert actual == EXPECTED_SPARSE_FAILURES

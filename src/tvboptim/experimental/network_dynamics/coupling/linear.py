@@ -10,7 +10,6 @@ import jax.numpy as jnp
 
 from ..core.bunch import Bunch
 from .base import DelayedCoupling, InstantaneousCoupling
-from .transport import _aggregate_nodes
 
 
 class LinearCoupling(InstantaneousCoupling):
@@ -127,14 +126,6 @@ class FastLinearCoupling(InstantaneousCoupling):
     def pre(self, incoming_states, local_states, params):
         """Identity transform over transmitted source states."""
         return incoming_states
-
-    def compute(self, t, state, coupling_data, coupling_state, params, graph):
-        """Preserve the historical hand-rolled node-vector fast path."""
-        del t, coupling_state
-        incoming_states = state[coupling_data.incoming_indices]
-        local_states = state[coupling_data.local_indices]
-        summed = _aggregate_nodes(incoming_states, graph.weights)
-        return self.post(summed, local_states, params)
 
     def post(self, summed_inputs, local_states, params):
         """Apply linear transformation to summed inputs."""
