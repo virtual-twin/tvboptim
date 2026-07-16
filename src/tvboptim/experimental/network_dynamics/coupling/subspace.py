@@ -57,6 +57,17 @@ class _RegionalNetworkContext:
         self._n_regions = n_regions
         self._aggregator = aggregator
 
+    @property
+    def initial_state(self) -> jnp.ndarray:
+        """Node initial state aggregated into the regional state space."""
+        aggregation_data = Bunch(
+            region_one_hot_normalized=self._region_one_hot_normalized
+        )
+        return self._aggregator(
+            self._node_network.initial_state,
+            aggregation_data,
+        )
+
     def get_history(self, dt: float) -> Optional[jnp.ndarray]:
         """Get aggregated regional history buffer.
 
@@ -100,17 +111,7 @@ class _RegionalNetworkContext:
         # [t0 - max_delay, t0], plus the t0 endpoint.
         n_steps = delay_steps_bound(regional_max_delay, dt) + 1
 
-        # Get node-level initial state (not history, just initial state)
-        # Aggregate it and broadcast to create regional history
-        node_initial_state = self._node_network.initial_state  # [n_states, n_nodes]
-
-        # Create minimal coupling_data for aggregator
-        # (contains only the precomputed fields needed for aggregation)
-        aggregation_data = Bunch(
-            region_one_hot_normalized=self._region_one_hot_normalized
-        )
-
-        regional_initial_state = self._aggregator(node_initial_state, aggregation_data)
+        regional_initial_state = self.initial_state
 
         # Broadcast to create history buffer
         regional_history = jnp.broadcast_to(

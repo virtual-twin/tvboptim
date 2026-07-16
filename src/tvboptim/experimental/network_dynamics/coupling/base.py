@@ -18,6 +18,12 @@ from ..graph.base import AbstractGraph, delay_steps_bound, effective_max_delay
 
 BufferStrategy = Literal["roll", "circular", "preallocated"]
 
+_PRE_CONTRACT_MIGRATION = (
+    "pre() must be elementwise over the final message axes: remove explicit "
+    "[:, :, None] / [None, :, :] reshapes and declare PRE_USES_LOCAL or "
+    "EDGE_PARAMS when target-local or edge-shaped inputs are used."
+)
+
 # ============================================================================
 # Helper Functions
 # ============================================================================
@@ -320,9 +326,153 @@ class PrePostCoupling(AbstractCoupling):
     Users typically only need to override pre() and/or post() methods.
     """
 
+    PRE_USES_LOCAL = False
+    EDGE_PARAMS: tuple[str, ...] = ()
+
     # ========================================================================
     # Shared Helper Methods
     # ========================================================================
+
+    def _validate_edge_param_declarations(self, graph) -> None:
+        """Validate public edge-parameter declarations before tracing."""
+        graph_shape = tuple(graph.weights.shape)
+        n_edges = (
+            graph.nnz if hasattr(graph, "nnz") else graph_shape[0] * graph_shape[1]
+        )
+
+        if len(set(self.EDGE_PARAMS)) != len(self.EDGE_PARAMS) or not all(
+            isinstance(name, str) for name in self.EDGE_PARAMS
+        ):
+            raise ValueError(
+                f"{self.__class__.__name__}.EDGE_PARAMS must contain unique strings"
+            )
+
+        for name in self.EDGE_PARAMS:
+            if name not in self.params:
+                raise ValueError(
+                    f"{self.__class__.__name__}.EDGE_PARAMS declares {name!r}, "
+                    "but that parameter does not exist"
+                )
+            shape = tuple(jnp.shape(self.params[name]))
+            if shape not in (graph_shape, (n_edges,)):
+                raise ValueError(
+                    f"Edge parameter {name!r} has shape {shape}; expected the "
+                    f"graph-shaped layout {graph_shape} or prepared-edge layout "
+                    f"({n_edges},)"
+                )
+
+        declared = set(self.EDGE_PARAMS)
+        for name, value in self.params.items():
+            if name not in declared and tuple(jnp.shape(value)) == graph_shape:
+                raise ValueError(
+                    f"Parameter {name!r} has graph-shaped layout {graph_shape} but "
+                    f"is not declared in {self.__class__.__name__}.EDGE_PARAMS"
+                )
+
+    def _normalize_edge_params(self, params: Bunch, graph) -> Bunch:
+        """Map declared edge params to the graph's execution representation."""
+        from ..graph.sparse import SparseGraph
+
+        graph_shape = tuple(graph.weights.shape)
+        n_edges = (
+            graph.nnz
+            if isinstance(graph, SparseGraph)
+            else graph_shape[0] * graph_shape[1]
+        )
+        aligned = Bunch()
+        for name in self.EDGE_PARAMS:
+            value = jnp.asarray(params[name])
+            if value.shape == graph_shape:
+                aligned[name] = (
+                    graph.gather_edges(value)
+                    if isinstance(graph, SparseGraph)
+                    else value
+                )
+            elif value.shape == (n_edges,):
+                aligned[name] = (
+                    value
+                    if isinstance(graph, SparseGraph)
+                    else value.reshape(graph_shape)
+                )
+            else:
+                raise ValueError(
+                    f"Edge parameter {name!r} has shape {value.shape}; expected "
+                    f"{graph_shape} or ({n_edges},)"
+                )
+        return aligned
+
+    def _build_pre_params(self, coupling_data: Bunch, params: Bunch) -> Bunch:
+        """Overlay normalized edge leaves without capturing live parameters."""
+        pre_params = Bunch(params)
+        for name, value in coupling_data.aligned_edge_params.items():
+            pre_params[name] = value
+        return pre_params
+
+    def _validate_pre_contract(self, graph, incoming_idx, local_idx, dtype) -> None:
+        """Probe ``pre`` with exact abstract execution shapes and no allocation."""
+        from ..graph.sparse import SparseGraph
+
+        self._validate_edge_param_declarations(graph)
+
+        n_incoming = _get_n_states(incoming_idx)
+        n_local = _get_n_states(local_idx)
+        if self.PRE_USES_LOCAL and n_local == 0:
+            raise ValueError(
+                f"{self.__class__.__name__}.PRE_USES_LOCAL is True but no "
+                "local_states were configured"
+            )
+
+        n_target, n_source = graph.weights.shape
+        is_sparse = isinstance(graph, SparseGraph)
+        is_delayed = isinstance(self, DelayedCoupling)
+        uses_edge_path = is_delayed or self.PRE_USES_LOCAL or bool(self.EDGE_PARAMS)
+        if uses_edge_path:
+            message_shape = (graph.nnz,) if is_sparse else (n_target, n_source)
+        else:
+            message_shape = (n_source,)
+
+        incoming = jax.ShapeDtypeStruct((n_incoming, *message_shape), dtype)
+        local = (
+            jax.ShapeDtypeStruct((n_local, *message_shape), dtype)
+            if self.PRE_USES_LOCAL
+            else None
+        )
+
+        pre_params = Bunch(self.params)
+        for name, value in self.params.items():
+            value = jnp.asarray(value)
+            pre_params[name] = jax.ShapeDtypeStruct(value.shape, value.dtype)
+        for name in self.EDGE_PARAMS:
+            value = jnp.asarray(self.params[name])
+            normalized_shape = (graph.nnz,) if is_sparse else (n_target, n_source)
+            pre_params[name] = jax.ShapeDtypeStruct(normalized_shape, value.dtype)
+
+        try:
+            result = jax.eval_shape(self.pre, incoming, local, pre_params)
+        except Exception as exc:
+            raise ValueError(
+                f"{self.__class__.__name__}.pre() violates the coupling contract. "
+                f"{_PRE_CONTRACT_MIGRATION}"
+            ) from exc
+
+        expected = (self.N_OUTPUT_STATES, *message_shape)
+        if not hasattr(result, "shape") or tuple(result.shape) != expected:
+            actual = getattr(result, "shape", type(result).__name__)
+            raise ValueError(
+                f"{self.__class__.__name__}.pre() returned shape {actual}; "
+                f"expected {expected}. {_PRE_CONTRACT_MIGRATION}"
+            )
+
+    def precompute(
+        self,
+        coupling_data: Bunch,
+        params: Bunch,
+        graph: AbstractGraph,
+    ) -> Bunch:
+        """Align declared edge parameters once per forward pass."""
+        coupling_data = coupling_data.copy()
+        coupling_data.aligned_edge_params = self._normalize_edge_params(params, graph)
+        return coupling_data
 
     def _format_state_list(self, states, with_subscript: bool = False) -> str:
         """Format state names for display.
@@ -475,22 +625,15 @@ class PrePostCoupling(AbstractCoupling):
     def pre(
         self, incoming_states: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
     ) -> jnp.ndarray:
-        """Transform states before matrix multiplication. Default: identity (per-edge).
+        """Elementwise transform of pre-aligned source messages. Default: identity.
 
         Args:
-            incoming_states: States from connected nodes in per-edge format
-                           Shape: [n_incoming, n_nodes_target, n_nodes_source]
-                           where [:, j, k] is state from source node k to target node j
-                           For delayed coupling, these are delayed states from history.
-            local_states: States from current node [n_local, n_nodes]
+            incoming_states: Source values [n_incoming, *message_shape].
+            local_states: Aligned target values when PRE_USES_LOCAL, otherwise None.
             params: Coupling parameters
 
         Returns:
-            Transformed states - shape determines coupling mode:
-            - [n_states, n_nodes]: Vectorized mode (uses matmul)
-            - [n_states, n_nodes, n_nodes]: Per-edge mode (uses element-wise multiply + sum)
-
-            Default returns incoming_states unchanged (3D) → per-edge mode.
+            Transformed messages [N_OUTPUT_STATES, *message_shape].
         """
         return incoming_states
 
@@ -524,10 +667,7 @@ class InstantaneousCoupling(PrePostCoupling):
     """
 
     def get_mode(self, incoming_idx, local_idx, n_nodes=2) -> str:
-        """Detect coupling mode by calling pre() with dummy data.
-
-        This allows us to optimize sparse graphs by knowing ahead of time
-        whether the coupling uses vectorized or per-edge mode.
+        """Select the legacy runtime mode from explicit contract declarations.
 
         Args:
             incoming_idx: Indices for incoming states (for sizing dummy data)
@@ -537,18 +677,8 @@ class InstantaneousCoupling(PrePostCoupling):
             'vectorized' if pre() reduces dimensionality (2D output)
             'per_edge' if pre() preserves per-edge structure (3D output)
         """
-        # Create dummy data with correct shapes based on actual state selection
-        n_incoming = len(incoming_idx) if hasattr(incoming_idx, "__len__") else 1
-        n_local = len(local_idx) if hasattr(local_idx, "__len__") else 1
-
-        # Dummy per-edge tensor: [n_incoming, n_nodes, n_nodes] with n_nodes=2
-        dummy_incoming = jnp.zeros((n_incoming, n_nodes, n_nodes))
-        dummy_local = jnp.zeros((n_local, n_nodes))
-
-        # Call pre() to check output shape
-        result = self.pre(dummy_incoming, dummy_local, self.params)
-
-        return "vectorized" if result.ndim == 2 else "per_edge"
+        del incoming_idx, local_idx, n_nodes
+        return "per_edge" if self.PRE_USES_LOCAL or self.EDGE_PARAMS else "vectorized"
 
     def prepare(self, network, dt: float, t0: float, t1: float) -> Tuple[Bunch, Bunch]:
         """Standard preparation for instantaneous coupling.
@@ -570,6 +700,13 @@ class InstantaneousCoupling(PrePostCoupling):
         # Resolve state indices
         incoming_idx = dynamics.name_to_index(self.INCOMING_STATE_NAMES)
         local_idx = dynamics.name_to_index(self.LOCAL_STATE_NAMES)
+
+        self._validate_pre_contract(
+            graph,
+            incoming_idx,
+            local_idx,
+            network.initial_state.dtype,
+        )
 
         # Detect mode for optimization (used to decide sparse strategy)
         mode = self.get_mode(incoming_idx, local_idx, n_nodes=graph.n_nodes)
@@ -634,24 +771,27 @@ class InstantaneousCoupling(PrePostCoupling):
         # Extract states
         local_states = state[coupling_data.local_indices]
         incoming_states = state[coupling_data.incoming_indices]
+        pre_local_states = (
+            local_states[:, :, None] if self.PRE_USES_LOCAL else local_states
+        )
 
         # Build incoming_states_edge and compute coupling based on graph type
         if coupling_data.use_sparse_incoming:
             # SPARSE INCOMING: Build 3D BCOO to avoid dense materialization
             summed = self._compute_sparse_incoming(
-                incoming_states, local_states, params, graph, coupling_data
+                incoming_states, pre_local_states, params, graph, coupling_data
             )
 
         elif isinstance(graph, SparseGraph) and coupling_data.is_per_edge:
             # SPARSE FALLBACK: Dense incoming with sparse graph
             incoming_states_edge = incoming_states[:, coupling_data.state_indices]
-            pre_states = self.pre(incoming_states_edge, local_states, params)
+            pre_states = self.pre(incoming_states_edge, pre_local_states, params)
             summed = _sparse_weighted_sum(pre_states, graph, is_bcoo=False)
 
         else:
             # DENSE or VECTORIZED
             incoming_states_edge = incoming_states[:, coupling_data.state_indices]
-            pre_states = self.pre(incoming_states_edge, local_states, params)
+            pre_states = self.pre(incoming_states_edge, pre_local_states, params)
 
             if pre_states.ndim == 2:
                 # weights[target, source]: reduce over sources for each target.
@@ -860,6 +1000,13 @@ class DelayedCoupling(PrePostCoupling):
         # Resolve state indices
         incoming_idx = dynamics.name_to_index(self.INCOMING_STATE_NAMES)
         local_idx = dynamics.name_to_index(self.LOCAL_STATE_NAMES)
+
+        self._validate_pre_contract(
+            graph,
+            incoming_idx,
+            local_idx,
+            network.initial_state.dtype,
+        )
 
         # Buffer length is governed by the declared bound (max_delay_bound),
         # or max(delays) if none was declared -- see effective_max_delay().
@@ -1110,6 +1257,7 @@ class DelayedCoupling(PrePostCoupling):
         gathering out of range. That's a silent mis-simulation, not a crash
         -- enable warn_on_delay_clamp to surface it.
         """
+        coupling_data = super().precompute(coupling_data, params, graph)
         dt = coupling_data.dt
         max_delay_steps = coupling_data.max_delay_steps
 
@@ -1247,22 +1395,25 @@ class DelayedCoupling(PrePostCoupling):
 
         # Extract local states
         local_states = state[coupling_data.local_indices]
+        pre_local_states = (
+            local_states[:, :, None] if self.PRE_USES_LOCAL else local_states
+        )
 
         # Compute coupling based on graph type
         if coupling_data.use_sparse_incoming:
             # SPARSE DELAYED INCOMING: Build 3D BCOO
             summed = self._compute_sparse_delayed(
-                delayed_states, local_states, params, graph, coupling_data
+                delayed_states, pre_local_states, params, graph, coupling_data
             )
 
         elif isinstance(graph, SparseDelayGraph):
             # SPARSE FALLBACK: Dense delayed states with sparse graph
-            pre_states = self.pre(delayed_states, local_states, params)
+            pre_states = self.pre(delayed_states, pre_local_states, params)
             summed = _sparse_weighted_sum(pre_states, graph, is_bcoo=False)
 
         else:
             # DENSE DELAYED PATH
-            pre_states = self.pre(delayed_states, local_states, params)
+            pre_states = self.pre(delayed_states, pre_local_states, params)
             summed = jnp.sum(pre_states * graph.weights, axis=2)
 
         # Apply post-transform

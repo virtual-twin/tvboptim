@@ -10,6 +10,7 @@ import jax.numpy as jnp
 
 from ..core.bunch import Bunch
 from .base import DelayedCoupling, InstantaneousCoupling
+from .transport import _aggregate_nodes
 
 
 class LinearCoupling(InstantaneousCoupling):
@@ -113,15 +114,27 @@ class FastLinearCoupling(InstantaneousCoupling):
     N_OUTPUT_STATES = 1
     DEFAULT_PARAMS = Bunch(G=1.0, b=0.0)
 
-    def pre(self, incoming_states, local_states, params):
-        """Return local states to trigger vectorized mode.
+    def __init__(self, incoming_states=None, local_states=None, **kwargs):
+        """Accept the historical ``local_states`` spelling as a source alias."""
+        if incoming_states is not None and local_states is not None:
+            raise ValueError(
+                "FastLinearCoupling accepts either incoming_states or the "
+                "historical local_states alias, not both"
+            )
+        source_states = incoming_states if incoming_states is not None else local_states
+        super().__init__(incoming_states=source_states, local_states=[], **kwargs)
 
-        By returning [n_local, n_nodes] (2D), we trigger the vectorized
-        path which uses matmul instead of per-edge ops.
-        """
-        # Return local states (2D) instead of incoming states (3D)
-        # This triggers vectorized mode: summed = pre_states @ graph.weights.T
-        return local_states
+    def pre(self, incoming_states, local_states, params):
+        """Identity transform over transmitted source states."""
+        return incoming_states
+
+    def compute(self, t, state, coupling_data, coupling_state, params, graph):
+        """Preserve the historical hand-rolled node-vector fast path."""
+        del t, coupling_state
+        incoming_states = state[coupling_data.incoming_indices]
+        local_states = state[coupling_data.local_indices]
+        summed = _aggregate_nodes(incoming_states, graph.weights)
+        return self.post(summed, local_states, params)
 
     def post(self, summed_inputs, local_states, params):
         """Apply linear transformation to summed inputs."""
@@ -162,6 +175,7 @@ class DifferenceCoupling(InstantaneousCoupling):
 
     N_OUTPUT_STATES = 1
     DEFAULT_PARAMS = Bunch(G=1.0)
+    PRE_USES_LOCAL = True
 
     def pre(
         self, incoming_states: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
@@ -177,10 +191,7 @@ class DifferenceCoupling(InstantaneousCoupling):
         Returns:
             State differences [n_incoming, n_nodes, n_nodes] (per-edge)
         """
-        # Broadcast local_states to per-edge format and compute difference
-        # local_states[:, :, None] gives [n_local, n_nodes, 1]
-        # incoming_states has shape [n_incoming, n_nodes, n_nodes]
-        return incoming_states - local_states[:, :, None]
+        return incoming_states - local_states
 
     def post(
         self, summed_inputs: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
@@ -381,6 +392,7 @@ class DelayedDifferenceCoupling(DelayedCoupling):
 
     N_OUTPUT_STATES = 1
     DEFAULT_PARAMS = Bunch(G=1.0)
+    PRE_USES_LOCAL = True
 
     def pre(
         self, delayed_states: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
@@ -396,9 +408,7 @@ class DelayedDifferenceCoupling(DelayedCoupling):
         Returns:
             State differences [n_incoming, n_nodes, n_nodes] (per-edge)
         """
-        # Broadcast local_states to per-edge format and compute difference
-        # local_states[:, :, None] gives [n_local, n_nodes, 1]
-        return delayed_states - local_states[:, :, None]
+        return delayed_states - local_states
 
     def post(
         self, summed_inputs: jnp.ndarray, local_states: jnp.ndarray, params: Bunch

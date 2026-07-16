@@ -45,6 +45,7 @@ class KuramotoCoupling(InstantaneousCoupling):
 
     N_OUTPUT_STATES = 1
     DEFAULT_PARAMS = Bunch(G=1.0)
+    PRE_USES_LOCAL = True
 
     def pre(
         self, incoming_states: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
@@ -60,7 +61,7 @@ class KuramotoCoupling(InstantaneousCoupling):
         Returns:
             Per-edge phase-difference sine [n_incoming, n_nodes, n_nodes]
         """
-        return jnp.sin(incoming_states - local_states[:, :, None])
+        return jnp.sin(incoming_states - local_states)
 
     def post(
         self, summed_inputs: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
@@ -126,6 +127,7 @@ class DelayedKuramotoCoupling(DelayedCoupling):
 
     N_OUTPUT_STATES = 1
     DEFAULT_PARAMS = Bunch(G=1.0)
+    PRE_USES_LOCAL = True
 
     def pre(
         self, delayed_states: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
@@ -141,7 +143,7 @@ class DelayedKuramotoCoupling(DelayedCoupling):
         Returns:
             Per-edge delayed phase-difference sine [n_incoming, n_nodes, n_nodes]
         """
-        return jnp.sin(delayed_states - local_states[:, :, None])
+        return jnp.sin(delayed_states - local_states)
 
     def post(
         self, summed_inputs: jnp.ndarray, local_states: jnp.ndarray, params: Bunch

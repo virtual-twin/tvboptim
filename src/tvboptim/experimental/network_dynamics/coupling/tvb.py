@@ -84,8 +84,7 @@ class SigmoidalJansenRit(InstantaneousCoupling):
         exp_term = jnp.exp(params.r * (params.midpoint - state_diff))
         coupling_term = params.cmin + (params.cmax - params.cmin) / (1.0 + exp_term)
 
-        # Return as [1, n_nodes_target, n_nodes_source] for matrix multiplication
-        return coupling_term[jnp.newaxis, :, :]
+        return jnp.expand_dims(coupling_term, axis=0)
 
     def post(
         self, summed_inputs: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
@@ -182,8 +181,7 @@ class DelayedSigmoidalJansenRit(DelayedCoupling):
         exp_term = jnp.exp(params.r * (params.midpoint - state_diff))
         coupling_term = params.cmin + (params.cmax - params.cmin) / (1.0 + exp_term)
 
-        # Return as [1, n_nodes_target, n_nodes_source] for matrix multiplication
-        return coupling_term[jnp.newaxis, :, :]
+        return jnp.expand_dims(coupling_term, axis=0)
 
     def post(
         self, summed_inputs: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
