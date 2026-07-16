@@ -224,13 +224,16 @@ class ParallelExecution(Execution):
         self.n_pmap = n_pmap
         self.args = args
         self.kwargs = kwargs
-        diff_state, static_state = space.collect(n_pmap=n_pmap, combine=False)
+        diff_state, axis_tree_def, static_state = space._collect_mapping_inputs(
+            n_pmap=n_pmap
+        )
 
         self.diff_state = diff_state
 
         # kwargs args probably go directly into model
-        def _model(d):
-            state = combine_state(d, static_state)
+        def _model(axis_values):
+            axis_state = jax.tree.unflatten(axis_tree_def, axis_values)
+            state = combine_state(axis_state, static_state)
             return model(state, *self.args, **self.kwargs)
 
         def map_model(d):

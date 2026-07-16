@@ -16,6 +16,7 @@ from plum import dispatch
 from .core.bunch import Bunch
 from .core.network import Network
 from .dynamics.base import AbstractDynamics
+from .graph.topology import prepare_graph_topology, validate_graph_topology
 from .result import DiffraxSolution, wrap_native_result
 from .solvers.diffrax import DiffraxSolver
 from .solvers.native import NativeSolver
@@ -757,12 +758,14 @@ def prepare(
     # Prepare all couplings (creates history buffers, computes indices, etc.).
     # The solver's stage-time centroid rides along so delayed couplings can
     # undo the delay bias that freezing the coupling across stages introduces.
+    prepared_topology = prepare_graph_topology(network.graph)
     coupling_data_dict, coupling_state_dict_init = network.prepare(
         dt,
         t0,
         t1,
         stage_time_centroid=solver.stage_time_centroid,
         recompute_coupling_per_stage=solver.recompute_coupling_per_stage,
+        _prepared_topology=prepared_topology,
     )
 
     # Prepare all external inputs
@@ -996,7 +999,10 @@ def prepare(
 
     def _f(config):
         """Pure integration function."""
-        state0 = config.initial_state
+        state0 = config.initial_state.copy()
+        state0.dynamics = validate_graph_topology(
+            prepared_topology, config.graph, state0.dynamics
+        )
 
         # Run precompute() for all couplings once before the scan.
         # This allows parameter-dependent quantities (e.g. W_eff = W * wLRE) to
@@ -1238,7 +1244,10 @@ def prepare(
     # =========================================================================
 
     # Prepare all couplings (get read-only data, ignore state since we can't maintain it)
-    coupling_data_dict, _ = network.prepare(dt, t0, t1)
+    prepared_topology = prepare_graph_topology(network.graph)
+    coupling_data_dict, _ = network.prepare(
+        dt, t0, t1, _prepared_topology=prepared_topology
+    )
 
     # Prepare all external inputs (get read-only data, ignore state)
     external_data_dict, _ = network.prepare_external(dt)
@@ -1416,6 +1425,10 @@ def prepare(
 
     def _f(config):
         """Pure integration function using Diffrax."""
+        initial_state = validate_graph_topology(
+            prepared_topology, config.graph, config.initial_state
+        )
+
         # Run precompute() for all couplings once before the solve.
         # This allows parameter-dependent quantities (e.g. W_eff = W * wLRE) to
         # be computed with gradient flow while avoiding per-step redundancy.
@@ -1479,7 +1492,7 @@ def prepare(
             t0=t0,
             t1=t1,
             dt0=dt,
-            y0=config.initial_state,
+            y0=initial_state,
             saveat=solver.saveat,
             stepsize_controller=solver.stepsize_controller,
             max_steps=solver.max_steps,

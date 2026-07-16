@@ -15,6 +15,7 @@ import jax.numpy as jnp
 
 from ..core.bunch import Bunch
 from ..graph.base import AbstractGraph, delay_steps_bound, effective_max_delay
+from ..graph.topology import prepare_graph_topology, validate_graph_topology
 from .base import AbstractCoupling
 
 
@@ -307,6 +308,7 @@ class SubspaceCoupling(AbstractCoupling):
         inner_data, inner_state = self.inner_coupling.prepare(
             regional_context, dt, t0, t1
         )
+        inner_data._prepared_topology = prepare_graph_topology(self.regional_graph)
 
         # Precompute initial aggregated regional state for caching
         # This avoids redundant aggregation in first compute() call
@@ -357,6 +359,12 @@ class SubspaceCoupling(AbstractCoupling):
         for field in ("stage_time_centroid", "recompute_coupling_per_stage"):
             if field in coupling_data:
                 inner_data[field] = coupling_data[field]
+        if "incoming_indices" in inner_data:
+            inner_data.incoming_indices = validate_graph_topology(
+                inner_data._prepared_topology,
+                self.regional_graph,
+                inner_data.incoming_indices,
+            )
         coupling_data.inner_data = self.inner_coupling.precompute(
             inner_data,
             self.inner_coupling.params,

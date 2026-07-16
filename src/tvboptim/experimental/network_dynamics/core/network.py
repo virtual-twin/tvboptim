@@ -12,6 +12,7 @@ import jax.numpy as jnp
 from ..coupling.base import AbstractCoupling
 from ..dynamics.base import AbstractDynamics
 from ..graph.base import AbstractGraph, delay_steps_bound, effective_max_delay
+from ..graph.topology import prepare_graph_topology, validate_graph_topology
 from ..noise.base import AbstractNoise
 from ..result import NativeSolution
 from .bunch import Bunch
@@ -330,6 +331,7 @@ class Network:
         *,
         stage_time_centroid: float = 0.0,
         recompute_coupling_per_stage: bool = False,
+        _prepared_topology=None,
     ) -> tuple[Bunch, Bunch]:
         """Prepare all couplings for simulation.
 
@@ -362,9 +364,15 @@ class Network:
         """
         coupling_data_dict = Bunch()
         coupling_state_dict = Bunch()
+        prepared_topology = (
+            prepare_graph_topology(self.graph)
+            if _prepared_topology is None
+            else _prepared_topology
+        )
 
         for name, coupling in self.coupling.items():
             data, state = coupling.prepare(self, dt, t0, t1)
+            data._prepared_topology = prepared_topology
             data.stage_time_centroid = stage_time_centroid
             data.recompute_coupling_per_stage = recompute_coupling_per_stage
             coupling_data_dict[name] = data
@@ -422,6 +430,12 @@ class Network:
             resolves its delay read indices in precompute().
         """
         coupling_inputs = Bunch()
+
+        if coupling_data_dict:
+            first_data = next(iter(coupling_data_dict.values()))
+            state = validate_graph_topology(
+                first_data._prepared_topology, self.graph, state
+            )
 
         for name, n_dims in self.dynamics.COUPLING_INPUTS.items():
             if name not in self.coupling:
