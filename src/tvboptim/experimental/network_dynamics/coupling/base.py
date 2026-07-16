@@ -39,107 +39,6 @@ def _get_n_states(state_idx) -> int:
         return 0
 
 
-def _ensure_dense(arr):
-    """Convert sparse array to dense if needed."""
-    return arr.todense() if hasattr(arr, "todense") else arr
-
-
-def _prepare_delayed_bcoo_indices(
-    graph, incoming_idx
-) -> Tuple[Optional[jnp.ndarray], Optional[tuple], bool]:
-    """Prepare the legacy delayed BCOO tensor removed by P3.
-
-    Args:
-        graph: Graph instance (checked for sparsity)
-        incoming_idx: Incoming state indices
-
-    Returns:
-        Tuple of (bcoo_indices, bcoo_shape, use_sparse_incoming):
-        - bcoo_indices: [n_batch*nnz, 3] indices for BCOO construction
-        - bcoo_shape: (n_incoming, n_nodes, n_nodes) shape tuple
-        - use_sparse_incoming: bool flag whether to use sparse optimization
-    """
-    from ..graph.sparse import SparseDelayGraph, SparseGraph
-
-    if not isinstance(graph, (SparseGraph, SparseDelayGraph)):
-        return None, None, False
-
-    n_incoming = _get_n_states(incoming_idx)
-
-    # Only use sparse incoming if we actually have incoming states
-    if n_incoming == 0:
-        return None, None, False
-
-    nnz = graph.nnz
-    n_nodes = graph.n_nodes
-
-    # Build 3D indices [n_batch*nnz, 3] for BCOO [n_incoming, n_nodes, n_nodes]
-    batch_indices = jnp.repeat(jnp.arange(n_incoming), nnz)
-    spatial_indices = jnp.tile(graph.weights.indices, (n_incoming, 1))
-    bcoo_indices = jnp.column_stack([batch_indices, spatial_indices])
-
-    bcoo_shape = (n_incoming, n_nodes, n_nodes)
-
-    return bcoo_indices, bcoo_shape, True
-
-
-def _sparse_delayed_weighted_sum(pre_states, graph, is_bcoo: bool = False):
-    """Reduce the legacy delayed BCOO messages until P3 migrates them.
-
-    Handles both BCOO sparse pre_states and dense pre_states with sparse graph.
-
-    Args:
-        pre_states: Either BCOO [n_output, n_nodes, n_nodes] or dense array
-        graph: Sparse graph with weights
-        is_bcoo: True if pre_states is BCOO, False if dense
-
-    Returns:
-        Dense array [n_output, n_nodes] after weighted sum
-    """
-    import jax.experimental.sparse as jsparse
-
-    indices = graph.weights.indices  # [nnz, 2]
-    n_output = pre_states.shape[0]
-    nnz = graph.nnz
-
-    if is_bcoo or hasattr(pre_states, "todense"):
-        # BCOO path: pre_states.data is flat [n_output * nnz]
-        # Reshape pre data: [n_output * nnz] -> [n_output, nnz]
-        pre_data_batched = pre_states.data.reshape(n_output, nnz)
-
-        # Element-wise multiply: [n_output, nnz] * [nnz] -> [n_output, nnz]
-        weighted_data = pre_data_batched * graph.weights.data[None, :]
-
-        # Sum over edges for each output dimension
-        summed_list = []
-        for i in range(n_output):
-            weighted_bcoo_i = jsparse.BCOO(
-                (weighted_data[i], indices), shape=(graph.n_nodes, graph.n_nodes)
-            )
-            summed_i = jsparse.bcoo_reduce_sum(weighted_bcoo_i, axes=(1,))
-            summed_list.append(_ensure_dense(summed_i))
-
-        return jnp.stack(summed_list, axis=0)
-    else:
-        # Dense pre_states path: extract values at sparse locations
-        summed_list = []
-        for i in range(n_output):
-            # Extract values at sparse edges only
-            pre_values = pre_states[i, indices[:, 0], indices[:, 1]]  # [nnz]
-
-            # Element-wise multiply: pre.data * weights.data
-            weighted_values = pre_values * graph.weights.data  # [nnz]
-
-            # Reconstruct BCOO and sum over source nodes (axis=1)
-            pre_bcoo = jsparse.BCOO(
-                (weighted_values, indices), shape=graph.weights.shape
-            )
-            summed_i_sparse = jsparse.bcoo_reduce_sum(pre_bcoo, axes=(1,))
-            summed_list.append(_ensure_dense(summed_i_sparse))
-
-        return jnp.stack(summed_list, axis=0)
-
-
 # ============================================================================
 # Coupling Classes
 # ============================================================================
@@ -900,17 +799,6 @@ class DelayedCoupling(PrePostCoupling):
         """True when the history read blends samples (history_interpolation)."""
         return self.history_interpolation == "linear"
 
-    def _sparse_delayed_pre(
-        self,
-        incoming_states,
-        local_states: jnp.ndarray,
-        params: Bunch,
-    ):
-        """Bridge the delayed BCOO path until its P3 edge-vector migration."""
-        import jax.experimental.sparse as jsparse
-
-        return jsparse.sparsify(self.pre)(incoming_states, local_states, params)
-
     def prepare(self, network, dt: float, t0: float, t1: float) -> Tuple[Bunch, Bunch]:
         """Standard preparation for delayed coupling.
 
@@ -927,7 +815,7 @@ class DelayedCoupling(PrePostCoupling):
             t1: Simulation end time
 
         Returns:
-            coupling_data: Bunch with indices, dt, max_delay_steps, state_indices
+            coupling_data: Bunch with indices, dt, and max_delay_steps
                 (delay_steps / delay_indices are added by precompute())
             coupling_state: Bunch with history buffer (and write_idx for non-roll strategies)
         """
@@ -951,13 +839,6 @@ class DelayedCoupling(PrePostCoupling):
         # delays every forward pass, clamped into this buffer.
         max_delay_steps = delay_steps_bound(effective_max_delay(graph), dt)
         base_history_length = max_delay_steps + 1
-
-        state_indices = jnp.arange(graph.n_nodes)
-
-        # Precompute BCOO indices for sparse incoming states optimization
-        bcoo_indices, bcoo_shape, use_sparse_incoming = _prepare_delayed_bcoo_indices(
-            graph, incoming_idx
-        )
 
         # Initialize history buffer using network's get_history
         history_full = network.get_history(
@@ -1003,10 +884,6 @@ class DelayedCoupling(PrePostCoupling):
                 local_indices=local_idx,
                 dt=dt,
                 max_delay_steps=max_delay_steps,
-                state_indices=state_indices,
-                bcoo_indices=bcoo_indices,
-                bcoo_shape=bcoo_shape,
-                use_sparse_incoming=use_sparse_incoming,
             )
             coupling_state = Bunch(history=history_init)
 
@@ -1020,10 +897,6 @@ class DelayedCoupling(PrePostCoupling):
                 dt=dt,
                 max_delay_steps=max_delay_steps,
                 buffer_size=jnp.int32(buffer_size),
-                state_indices=state_indices,
-                bcoo_indices=bcoo_indices,
-                bcoo_shape=bcoo_shape,
-                use_sparse_incoming=use_sparse_incoming,
             )
             coupling_state = Bunch(
                 history=history_init,
@@ -1050,10 +923,6 @@ class DelayedCoupling(PrePostCoupling):
                 dt=dt,
                 max_delay_steps=max_delay_steps,
                 buffer_size=jnp.int32(buffer_size),
-                state_indices=state_indices,
-                bcoo_indices=bcoo_indices,
-                bcoo_shape=bcoo_shape,
-                use_sparse_incoming=use_sparse_incoming,
             )
             coupling_state = Bunch(
                 history=history,
@@ -1102,7 +971,7 @@ class DelayedCoupling(PrePostCoupling):
             return centroid
         return 0.0
 
-    def _clamp_out_of_bounds(self, d_real_raw, max_delay_steps, graph):
+    def _clamp_out_of_bounds(self, d_real_raw, max_delay_steps, weights):
         """Which edges fall outside the buffer, ignoring edges that carry no weight.
 
         A zero-weight edge contributes nothing to the coupling sum, so clamping
@@ -1111,7 +980,6 @@ class DelayedCoupling(PrePostCoupling):
         shift pushes ``delays[i, i] - centroid * dt`` negative and the warning
         fires on every run, for edges that do not exist.
         """
-        weights = _ensure_dense(graph.weights)
         relevant = weights != 0.0
         out = (d_real_raw < 0.0) | (d_real_raw > max_delay_steps)
         return jnp.any(out & relevant)
@@ -1195,19 +1063,22 @@ class DelayedCoupling(PrePostCoupling):
         -- enable warn_on_delay_clamp to surface it.
         """
         coupling_data = super().precompute(coupling_data, params, graph)
+        from ..graph.sparse import SparseGraph
+
         dt = coupling_data.dt
         max_delay_steps = coupling_data.max_delay_steps
-
-        delays_dense = _ensure_dense(graph.delays)
+        is_sparse = isinstance(graph, SparseGraph)
+        delays = graph.delays.data if is_sparse else graph.delays
+        weights = graph.weights.data if is_sparse else graph.weights
         coupling_data = coupling_data.copy()
 
         if self._interpolating:
             centroid = self._effective_stage_time_centroid(coupling_data)
-            d_real_raw = delays_dense / dt - centroid
+            d_real_raw = delays / dt - centroid
 
             if self.warn_on_delay_clamp:
                 out_of_bounds = self._clamp_out_of_bounds(
-                    d_real_raw, max_delay_steps, graph
+                    d_real_raw, max_delay_steps, weights
                 )
                 jax.debug.callback(self._warn_delay_clamp, out_of_bounds)
 
@@ -1233,11 +1104,11 @@ class DelayedCoupling(PrePostCoupling):
 
         # No stage-time shift on the nearest read: q = 1 caps the global order
         # at 1 anyway, so there is no order to recover (see docstring).
-        delay_steps_raw = jnp.rint(delays_dense / dt).astype(jnp.int32)
+        delay_steps_raw = jnp.rint(delays / dt).astype(jnp.int32)
 
         if self.warn_on_delay_clamp:
             out_of_bounds = self._clamp_out_of_bounds(
-                delay_steps_raw, max_delay_steps, graph
+                delay_steps_raw, max_delay_steps, weights
             )
             jax.debug.callback(self._warn_delay_clamp, out_of_bounds)
 
@@ -1276,7 +1147,12 @@ class DelayedCoupling(PrePostCoupling):
             Coupling input [n_coupling_inputs, n_nodes]
         """
         del t  # Unused
-        from ..graph.sparse import SparseDelayGraph
+        from ..graph.sparse import SparseGraph
+        from .transport import (
+            _gather_history,
+            _interpolate_history,
+            _reduce_edges,
+        )
 
         # Compute read indices based on buffer strategy. idx_hi (one step
         # further into the past than idx_lo) is only needed under
@@ -1310,89 +1186,69 @@ class DelayedCoupling(PrePostCoupling):
             read_indices = newest_idx - coupling_data.delay_steps
             read_indices_hi = read_indices - 1 if self._interpolating else None
 
-        def _gather(indices):
-            # Result: out[i, j, k] = history[indices[j,k], i, k]
-            # i.e. incoming state i from source node k, delayed by tau_jk,
-            # going to target j
-            return jnp.transpose(
-                coupling_state.history[indices, :, coupling_data.state_indices],
-                (2, 0, 1),  # Reorder to [n_incoming, n_nodes_target, n_nodes_source]
-            )
-
-        delayed_states = _gather(read_indices)
-        if self._interpolating:
-            # Linear blend between the floor read and one step further into
-            # the past, weighted by the fractional delay. Gradient wrt
-            # delays flows through frac (unlike the plain nearest-integer
-            # gather above, whose gradient is zero almost everywhere).
-            frac = coupling_data.delay_frac[None, :, :]
-            delayed_states = (1.0 - frac) * delayed_states + frac * _gather(
-                read_indices_hi
-            )
-
-        # Extract local states
         local_states = state[coupling_data.local_indices]
-        pre_local_states = (
-            local_states[:, :, None] if self.PRE_USES_LOCAL else local_states
+        pre_params = (
+            self._build_pre_params(coupling_data, params)
+            if self.EDGE_PARAMS
+            else params
         )
 
-        # Compute coupling based on graph type
-        if coupling_data.use_sparse_incoming:
-            # SPARSE DELAYED INCOMING: Build 3D BCOO
-            summed = self._compute_sparse_delayed(
-                delayed_states, pre_local_states, params, graph, coupling_data
-            )
+        if isinstance(graph, SparseGraph):
+            topology = coupling_data.get("_prepared_topology")
+            if topology is None:
+                edge_indices = graph.edge_indices
+                target_e = edge_indices[:, 0]
+                source_e = edge_indices[:, 1]
+                n_target = graph.weights.shape[0]
+            else:
+                target_e = topology.target_e
+                source_e = topology.source_e
+                n_target = topology.n_target
 
-        elif isinstance(graph, SparseDelayGraph):
-            # SPARSE FALLBACK: Dense delayed states with sparse graph
-            pre_states = self.pre(delayed_states, pre_local_states, params)
-            summed = _sparse_delayed_weighted_sum(
-                pre_states,
-                graph,
-                is_bcoo=False,
+            if self._interpolating:
+                delayed_states = _interpolate_history(
+                    coupling_state.history,
+                    read_indices,
+                    read_indices_hi,
+                    source_e,
+                    coupling_data.delay_frac,
+                )
+            else:
+                delayed_states = _gather_history(
+                    coupling_state.history,
+                    read_indices,
+                    source_e,
+                )
+            target_states = local_states[:, target_e] if self.PRE_USES_LOCAL else None
+            messages = self.pre(delayed_states, target_states, pre_params)
+            summed = _reduce_edges(
+                messages,
+                graph.weights.data,
+                target_e,
+                n_target,
             )
-
         else:
-            # DENSE DELAYED PATH
-            pre_states = self.pre(delayed_states, pre_local_states, params)
-            summed = jnp.sum(pre_states * graph.weights, axis=2)
+            source = jnp.arange(graph.weights.shape[1])
+            if self._interpolating:
+                delayed_states = _interpolate_history(
+                    coupling_state.history,
+                    read_indices,
+                    read_indices_hi,
+                    source,
+                    coupling_data.delay_frac,
+                )
+            else:
+                delayed_states = _gather_history(
+                    coupling_state.history,
+                    read_indices,
+                    source,
+                )
+            target_states = local_states[:, :, None] if self.PRE_USES_LOCAL else None
+            messages = self.pre(delayed_states, target_states, pre_params)
+            summed = jnp.sum(messages * graph.weights[None, :, :], axis=-1)
 
         # Apply post-transform
         return self.post(summed, local_states, params)
-
-    def _compute_sparse_delayed(
-        self, delayed_states, local_states, params, graph, coupling_data
-    ):
-        """Compute delayed coupling with sparse delayed states (BCOO optimization)."""
-        import jax.experimental.sparse as jsparse
-
-        indices = graph.weights.indices
-        n_incoming = coupling_data.bcoo_shape[0]
-
-        # Extract delayed values at edges for each incoming state
-        delayed_data_list = []
-        for i in range(n_incoming):
-            # Get delayed state from source_k to target_j for each edge
-            values_at_edges = delayed_states[i, indices[:, 0], indices[:, 1]]
-            delayed_data_list.append(values_at_edges)
-
-        delayed_data_flat = jnp.concatenate(delayed_data_list)
-
-        # Create 3D BCOO [n_incoming, n_nodes, n_nodes]
-        delayed_states_sparse = jsparse.BCOO(
-            (delayed_data_flat, coupling_data.bcoo_indices),
-            shape=coupling_data.bcoo_shape,
-        )
-
-        # Apply sparse pre-transform
-        pre_states = self._sparse_delayed_pre(
-            delayed_states_sparse,
-            local_states,
-            params,
-        )
-
-        # Perform sparse weighted sum
-        return _sparse_delayed_weighted_sum(pre_states, graph, is_bcoo=True)
 
     def update_state(
         self, coupling_data: Bunch, coupling_state: Bunch, new_state: jnp.ndarray
@@ -1407,6 +1263,8 @@ class DelayedCoupling(PrePostCoupling):
         Returns:
             New Bunch with updated history buffer (and write_idx for non-roll)
         """
+        from .transport import _roll_history, _write_history
+
         new_incoming_states = new_state[coupling_data.incoming_indices]
 
         if self.buffer_strategy == "roll":
@@ -1414,22 +1272,28 @@ class DelayedCoupling(PrePostCoupling):
             # Roll by -1 shifts all states towards index 0 (older end):
             #   [oldest, ..., newest] → [2nd_oldest, ..., newest, oldest]
             # Then overwrite index -1 with new current state
-            new_history = jnp.roll(coupling_state.history, -1, axis=0)
-            new_history = new_history.at[-1].set(new_incoming_states)
+            new_history = _roll_history(
+                coupling_state.history,
+                new_incoming_states,
+            )
             return Bunch(history=new_history)
 
         elif self.buffer_strategy == "circular":
             # Circular: write at pointer, wrap pointer with modulo
-            new_history = coupling_state.history.at[coupling_state.write_idx].set(
-                new_incoming_states
+            new_history = _write_history(
+                coupling_state.history,
+                coupling_state.write_idx,
+                new_incoming_states,
             )
             new_write_idx = (coupling_state.write_idx + 1) % coupling_data.buffer_size
             return Bunch(history=new_history, write_idx=new_write_idx)
 
         else:  # preallocated
             # Preallocated: write at pointer, increment (no wrap)
-            new_history = coupling_state.history.at[coupling_state.write_idx].set(
-                new_incoming_states
+            new_history = _write_history(
+                coupling_state.history,
+                coupling_state.write_idx,
+                new_incoming_states,
             )
             new_write_idx = coupling_state.write_idx + 1
             return Bunch(history=new_history, write_idx=new_write_idx)

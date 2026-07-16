@@ -1,8 +1,6 @@
 """Coupling matrix pinned to the independent message-passing oracle.
 
-Dense cells must agree with the independent NumPy/f64 oracle. Sparse cells do
-the same except for delayed failures not migrated until P3; those are
-strict xfails, so fixing one without updating this inventory fails as XPASS.
+Dense and sparse cells must agree with the independent NumPy/f64 oracle.
 
 ``SubspaceCoupling`` is intentionally outside this direct pre/post matrix. Its
 nested sparse-node/dense-regional integration fixture belongs to P4.
@@ -77,7 +75,6 @@ class CouplingCase:
     dynamics_factory: object
     coupling_factory: object
     incoming_names: tuple[str, ...]
-    sparse_failure: bool = False
 
 
 CASES = (
@@ -178,7 +175,6 @@ CASES = (
             G=0.7,
         ),
         ("x",),
-        sparse_failure=True,
     ),
     CouplingCase(
         "delayed_sigmoid",
@@ -209,7 +205,6 @@ CASES = (
             r=0.6,
         ),
         ("y1", "y2"),
-        sparse_failure=True,
     ),
     CouplingCase(
         "delayed_kuramoto",
@@ -223,15 +218,8 @@ CASES = (
             G=0.9,
         ),
         ("theta",),
-        sparse_failure=True,
     ),
 )
-
-EXPECTED_SPARSE_FAILURES = {
-    "delayed_difference",
-    "delayed_jansen_rit",
-    "delayed_kuramoto",
-}
 
 
 def _state(case):
@@ -402,26 +390,12 @@ def test_dense_builtin_matches_declared_order_oracle(case):
     _assert_normwise(_compute(case, sparse=False), _oracle(case, sparse=False))
 
 
-def _sparse_case(case):
-    if case.sparse_failure:
-        return pytest.param(
-            case,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="delayed sparse message passing is migrated in P3",
-            ),
-            id=case.name,
-        )
-    return pytest.param(case, id=case.name)
-
-
-@pytest.mark.parametrize("case", [_sparse_case(case) for case in CASES])
+@pytest.mark.parametrize("case", CASES, ids=lambda case: case.name)
 def test_sparse_builtin_matches_declared_order_oracle(case):
     sparse = _compute(case, sparse=True)
     _assert_normwise(sparse, _oracle(case, sparse=True))
     _assert_normwise(sparse, _compute(case, sparse=False))
 
 
-def test_inventory_pins_only_the_remaining_delayed_sparse_failures():
-    actual = {case.name for case in CASES if case.sparse_failure}
-    assert actual == EXPECTED_SPARSE_FAILURES
+def test_inventory_has_no_remaining_sparse_failures():
+    assert len(CASES) == 12

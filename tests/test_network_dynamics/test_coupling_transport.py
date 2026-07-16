@@ -6,7 +6,11 @@ import numpy as np
 
 from tvboptim.experimental.network_dynamics.coupling.transport import (
     _aggregate_nodes,
+    _gather_history,
+    _interpolate_history,
     _reduce_edges,
+    _roll_history,
+    _write_history,
 )
 
 MESSAGES = jnp.array(
@@ -75,3 +79,59 @@ def test_edge_reduce_jit_vmap_and_gradients_keep_numerical_data_live():
         jnp.broadcast_to(WEIGHTS_E, edge_messages.shape),
     )
     np.testing.assert_array_equal(grad_weights, edge_messages.sum(axis=0))
+
+
+def test_history_gather_is_array_only_channel_major_and_rectangular_ready():
+    history = jnp.arange(5 * 3 * 3, dtype=jnp.float32).reshape(5, 3, 3)
+    read_dense = jnp.array([[3, 2, 1], [0, 1, 2]])
+    source = jnp.arange(3)
+
+    dense = _gather_history(history, read_dense, source)
+    expected = np.empty((3, 2, 3), dtype=np.float32)
+    for channel in range(3):
+        for target in range(2):
+            for source_node in range(3):
+                expected[channel, target, source_node] = history[
+                    read_dense[target, source_node], channel, source_node
+                ]
+
+    assert dense.shape == (3, 2, 3)
+    np.testing.assert_array_equal(dense, expected)
+
+    target_e = jnp.array([1, 0, 1, 0])
+    source_e = jnp.array([2, 1, 0, 2])
+    read_e = read_dense[target_e, source_e]
+    edges = _gather_history(history, read_e, source_e)
+    np.testing.assert_array_equal(edges, dense[:, target_e, source_e])
+
+
+def test_interpolated_history_and_updates_accept_supplied_signals():
+    history = jnp.arange(5 * 3 * 3, dtype=jnp.float32).reshape(5, 3, 3)
+    read_lo = jnp.array([3, 2, 1, 2])
+    read_hi = read_lo - 1
+    source_e = jnp.array([2, 1, 0, 2])
+    fraction = jnp.array([0.0, 0.25, 0.5, 0.75])
+
+    actual = jax.jit(_interpolate_history)(
+        history,
+        read_lo,
+        read_hi,
+        source_e,
+        fraction,
+    )
+    lo = _gather_history(history, read_lo, source_e)
+    hi = _gather_history(history, read_hi, source_e)
+    np.testing.assert_array_equal(
+        actual,
+        (1.0 - fraction[None, :]) * lo + fraction[None, :] * hi,
+    )
+
+    transmitted = jnp.arange(9, dtype=history.dtype).reshape(3, 3) + 100.0
+    rolled = _roll_history(history, transmitted)
+    np.testing.assert_array_equal(rolled[:-1], history[1:])
+    np.testing.assert_array_equal(rolled[-1], transmitted)
+
+    written = _write_history(history, jnp.int32(2), transmitted)
+    np.testing.assert_array_equal(written[2], transmitted)
+    np.testing.assert_array_equal(written[:2], history[:2])
+    np.testing.assert_array_equal(written[3:], history[3:])
