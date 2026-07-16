@@ -120,7 +120,7 @@ class FastLinearCoupling(InstantaneousCoupling):
         path which uses matmul instead of per-edge ops.
         """
         # Return local states (2D) instead of incoming states (3D)
-        # This triggers vectorized mode: summed = pre_states @ graph.weights
+        # This triggers vectorized mode: summed = pre_states @ graph.weights.T
         return local_states
 
     def post(self, summed_inputs, local_states, params):

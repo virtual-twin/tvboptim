@@ -654,8 +654,8 @@ class InstantaneousCoupling(PrePostCoupling):
             pre_states = self.pre(incoming_states_edge, local_states, params)
 
             if pre_states.ndim == 2:
-                # Vectorized mode: matmul
-                summed = pre_states @ graph.weights
+                # weights[target, source]: reduce over sources for each target.
+                summed = pre_states @ graph.weights.T
             elif pre_states.ndim == 3:
                 # Per-edge mode: element-wise multiply + sum
                 summed = jnp.sum(pre_states * graph.weights, axis=2)

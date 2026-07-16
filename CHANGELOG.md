@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Corrected `FastLinearCoupling` to reduce dense directed connectivity using
+  the documented `weights[target, source]` orientation. Results on asymmetric
+  graphs now agree with `LinearCoupling`; symmetric graphs are unchanged.
+
 ## [0.3.0]
 
 ### Changed
