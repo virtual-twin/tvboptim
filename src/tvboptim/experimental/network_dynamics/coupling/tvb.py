@@ -65,19 +65,16 @@ class SigmoidalJansenRit(InstantaneousCoupling):
         """Apply sigmoidal transformation to state difference.
 
         Args:
-            incoming_states: States from connected nodes in per-edge format
-                           [n_incoming, n_nodes_target, n_nodes_source]
-                           Expected: n_incoming=2 (y1 and y2)
+            incoming_states: Aligned messages ``[2, *M]`` for y1 and y2.
             local_states: Local node states (unused in this implementation)
             params: Coupling parameters (cmin, cmax, midpoint, r)
 
         Returns:
-            Transformed states after sigmoidal coupling
-            [1, n_nodes_target, n_nodes_source]
+            Transformed messages ``[1, *M]``.
         """
         # Extract first two state variables: y1 and y2
         # incoming_states[0] = y1, incoming_states[1] = y2
-        # Each has shape [n_nodes_target, n_nodes_source]
+        # Both use the same active node/edge message layout.
         state_diff = incoming_states[0] - incoming_states[1]
 
         # Apply sigmoidal transformation
@@ -162,19 +159,16 @@ class DelayedSigmoidalJansenRit(DelayedCoupling):
         """Apply sigmoidal transformation to state difference.
 
         Args:
-            incoming_states: States from connected nodes in per-edge format
-                           [n_incoming, n_nodes_target, n_nodes_source]
-                           Expected: n_incoming=2 (y1 and y2)
+            incoming_states: Aligned delayed messages ``[2, *M]`` for y1 and y2.
             local_states: Local node states (unused in this implementation)
             params: Coupling parameters (cmin, cmax, midpoint, r)
 
         Returns:
-            Transformed states after sigmoidal coupling
-            [1, n_nodes_target, n_nodes_source]
+            Transformed messages ``[1, *M]``.
         """
         # Extract first two state variables: y1 and y2
         # incoming_states[0] = y1, incoming_states[1] = y2
-        # Each has shape [n_nodes_target, n_nodes_source]
+        # Both use the same active dense-grid or sparse-edge layout.
         state_diff = incoming_states[0] - incoming_states[1]
 
         # Apply sigmoidal transformation

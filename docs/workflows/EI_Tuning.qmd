@@ -87,7 +87,7 @@ from tvboptim.optim.callbacks import MultiCallback, DefaultPrintCallback, Saving
 # Network dynamics imports
 from tvboptim.experimental.network_dynamics import Network, solve, prepare
 from tvboptim.experimental.network_dynamics.dynamics.tvb import ReducedWongWang
-from tvboptim.experimental.network_dynamics.coupling import LinearCoupling, FastLinearCoupling
+from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
 from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph, DenseGraph
 from tvboptim.experimental.network_dynamics.solvers import Heun, BoundedSolver
 from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
@@ -297,6 +297,7 @@ class EIBLinearCoupling(InstantaneousCoupling):
     """
 
     N_OUTPUT_STATES = 2  # Produces two coupling outputs
+    EDGE_PARAMS = ("wLRE", "wFFI")
 
     DEFAULT_PARAMS = Bunch(
         wLRE = 1.0,  # Long-range excitation weight matrix
@@ -311,13 +312,12 @@ class EIBLinearCoupling(InstantaneousCoupling):
     ) -> jnp.ndarray:
         """Pre-synaptic transformation: multiply S_e with wLRE and wFFI."""
         # incoming_states[0] is S_e from all source nodes
-        S_e = incoming_states[0]  # [n_target, n_source]
-        # Apply weights: element-wise multiply S_e with each weight matrix
-        # params.wLRE and params.wFFI have shape [n_nodes, n_nodes]
-        c_lre = S_e * params.wLRE  # [n_target, n_source]
-        c_ffi = S_e * params.wFFI  # [n_target, n_source]
+        S_e = incoming_states[0]  # already aligned to nodes or prepared edges
+        # EDGE_PARAMS makes both operands follow the active message layout.
+        c_lre = S_e * params.wLRE
+        c_ffi = S_e * params.wFFI
 
-        # Stack into [2, n_target, n_source]
+        # Stack only the leading output-channel dimension.
         return jnp.stack([c_lre, c_ffi], axis=0)
 
     def post(
@@ -351,6 +351,10 @@ coupling = EIBLinearCoupling(incoming_states=["S_e"])
 # Both start as scaled versions of structural connectivity
 coupling.params.wLRE = jnp.ones((n_nodes, n_nodes)) #+ 0.8*fc_target  # [n_nodes, n_nodes]
 coupling.params.wFFI = jnp.ones((n_nodes, n_nodes)) #- 0.8*fc_target  # [n_nodes, n_nodes]
+
+# For a large SparseGraph, keep these parameters O(E) instead:
+# coupling.params.wLRE = graph.gather_edges(wLRE_matrix)
+# coupling.params.wFFI = graph.gather_edges(wFFI_matrix)
 
 # Small noise to break symmetry
 noise = AdditiveNoise(sigma=0.01, apply_to="S_e")
@@ -1247,4 +1251,3 @@ plt.colorbar(im6, ax=ax6, fraction=0.046)
 
 plt.show()
 ```
-

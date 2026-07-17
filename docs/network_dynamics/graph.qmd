@@ -79,7 +79,7 @@ The graph automatically detects properties like symmetry and computes sparsity:
 
 ```{python}
 print(f"Nodes: {graph.n_nodes}")
-print(f"Sparsity: {graph.sparsity:.3f}")
+print(f"Density: {graph.density:.3f}")
 print(f"Symmetric: {graph.symmetric}")
 print(f"Region labels: {graph.region_labels}")
 ```
@@ -95,7 +95,7 @@ import jax
 key = jax.random.key(42)
 random_graph = DenseGraph.random(
     n_nodes=20,
-    sparsity=0.5,           # 50% of connections present
+    density=0.5,            # 50% of connections present
     symmetric=True,          # Undirected connectivity
     weight_dist='lognormal', # Heavy-tailed weight distribution
     key=key
@@ -120,7 +120,7 @@ from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph
 # Create graph with random delays
 delay_graph = DenseDelayGraph.random(
     n_nodes=20,
-    sparsity=0.6,
+    density=0.6,
     max_delay=20.0,  # Maximum delay in ms
     delay_dist='uniform',
     key=key
@@ -187,7 +187,7 @@ sparse_from_dense = SparseGraph.from_dense(random_graph, threshold=0.1)
 # Create random sparse graph
 sparse_random = SparseGraph.random(
     n_nodes=100,
-    sparsity=0.1,  # Only 10% density
+    density=0.1,  # Only 10% density
     key=key
 )
 
@@ -195,6 +195,29 @@ sparse_random.plot(figsize=(8.1, 4));
 ```
 
 The BCOO format stores only non-zero elements, making it memory-efficient for sparse connectivity.
+
+## Sparse edge order and aligned metadata
+
+Sparse coupling executes directly on the stored edge list. The public
+`edge_indices` property returns an `[E, 2]` array in `(target, source)` order,
+and `gather_edges()` converts a dense graph-shaped value into that same order:
+
+```python
+edge_values = sparse_graph.gather_edges(graph_shaped_values)
+target_e = sparse_graph.edge_indices[:, 0]
+source_e = sparse_graph.edge_indices[:, 1]
+```
+
+Use the `[E]` representation for edge-shaped coupling parameters on large
+sparse networks; a graph-shaped parameter remains supported as a migration
+layout but still costs O(N²) storage.
+
+`SparseDelayGraph` stores weight and delay data on one shared edge order.
+Weighted edges with a zero delay retain an explicit delay slot, so delay
+sweeps and gradients do not change topology. Numerical `.data` leaves may be
+replaced in an already prepared configuration, while changing the number,
+order, or coordinates of edges invalidates the prepared topology and requires
+reconstructing the graph and calling `prepare()` again.
 
 # Example Connectivity Data
 

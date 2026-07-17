@@ -53,13 +53,12 @@ class KuramotoCoupling(InstantaneousCoupling):
         """Compute sin(theta_j - theta_i) per edge.
 
         Args:
-            incoming_states: Phases from connected nodes in per-edge format
-                            [n_incoming, n_nodes_target, n_nodes_source]
-            local_states: Phase of current node [n_local, n_nodes]
+            incoming_states: Source phases ``[n_incoming, *M]``.
+            local_states: Target phases aligned as ``[n_local, *M]``.
             params: Coupling parameters (not used in pre)
 
         Returns:
-            Per-edge phase-difference sine [n_incoming, n_nodes, n_nodes]
+            Phase-difference sine ``[n_output, *M]``.
         """
         return jnp.sin(incoming_states - local_states)
 
@@ -135,13 +134,12 @@ class DelayedKuramotoCoupling(DelayedCoupling):
         """Compute sin(theta_j(t - tau) - theta_i(t)) per edge.
 
         Args:
-            delayed_states: Delayed phases from history in per-edge format
-                           [n_incoming, n_nodes_target, n_nodes_source]
-            local_states: Current phase of current node [n_local, n_nodes]
+            delayed_states: Delayed source phases ``[n_incoming, *M]``.
+            local_states: Current target phases aligned as ``[n_local, *M]``.
             params: Coupling parameters (not used in pre)
 
         Returns:
-            Per-edge delayed phase-difference sine [n_incoming, n_nodes, n_nodes]
+            Delayed phase-difference sine ``[n_output, *M]``.
         """
         return jnp.sin(delayed_states - local_states)
 

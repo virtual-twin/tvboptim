@@ -345,7 +345,7 @@ That is a claim about the *flag*, and it is tempting to read it as a claim about
 The bit-identity above needs the coupling term to read nothing but the history.
 `DelayedLinearCoupling` qualifies. `DelayedDifferenceCoupling` and
 `DelayedKuramotoCoupling` do not: their `pre()` subtracts the *local* state,
-`delayed_states - local_states[:, :, None]`, and the local state is different in
+`delayed_states - local_states` after the framework aligns both operands, and the local state is different in
 each solver stage. For those, frozen and per-stage genuinely disagree.
 
 ```{python}

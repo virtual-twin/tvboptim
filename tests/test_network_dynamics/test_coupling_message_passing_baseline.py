@@ -48,6 +48,10 @@ from tvboptim.experimental.network_dynamics.graph import (
 
 from .coupling_message_passing_oracle import coupling_oracle
 
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:FastLinearCoupling is deprecated:DeprecationWarning"
+)
+
 WEIGHTS = np.array(
     [
         [0.0, 2.0, 0.0],

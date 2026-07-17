@@ -43,6 +43,7 @@ Networks support multiple coupling types through a named dictionary:
 
 ```{python}
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
 from tvboptim.experimental.network_dynamics import Network, solve
 from tvboptim.experimental.network_dynamics.dynamics import ReducedWongWang
 from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
@@ -74,15 +75,15 @@ Coupling objects follow a three-phase lifecycle that mirrors the simulation flow
 Called once before simulation starts:
 
 ```python
-coupling_data, coupling_state = coupling.prepare(network, dt)
+coupling_data, coupling_state = coupling.prepare(network, dt, t0, t1)
 ```
 
 **Returns**:
 
-- `coupling_data` (Bunch): Static precomputed data
-  - State indices to extract from network state
-  - Delay step indices (for delayed coupling)
-  - Optimization flags (sparse/dense modes)
+- `coupling_data` (Bunch): Prepared metadata
+  - State indices that adapt the dynamics state into transmitted signals
+  - A prepared graph-topology view shared across coupling channels
+  - Edge-aligned parameter values and live delay read indices from `precompute()`
 
 - `coupling_state` (Bunch): Mutable internal state
   - History buffers (for delayed coupling)
@@ -116,7 +117,7 @@ coupling_state = coupling.update_state(coupling_data,
 
 ```python
 # Before simulation
-coupling_data, coupling_state = coupling.prepare(network, dt)
+coupling_data, coupling_state = coupling.prepare(network, dt, t0, t1)
 
 # During simulation (at each time step)
 for step in range(n_steps):
@@ -187,152 +188,55 @@ print(f"Local states: {diff_coupling.LOCAL_STATE_NAMES}")
 The `pre()` method computes differences:
 
 ```python
+PRE_USES_LOCAL = True
+
 def pre(self, incoming_states, local_states, params):
-    # incoming_states: [n_states, n_nodes, n_nodes] per-edge format
-    # local_states: [n_states, n_nodes]
-    return incoming_states - local_states[:, :, None]
+    # Both operands are already aligned to the same message axis.
+    return incoming_states - local_states
 ```
 
 This enables synchronization dynamics where coupling strength depends on state mismatch.
 
-# Vectorized vs Per-Edge Modes
+# Node and Edge Message Paths
 
-A key performance consideration is how coupling interacts with the connectivity matrix. TVB-Optim supports two modes:
+The framework selects the scalable transport representation from the coupling contract:
 
-**Per-Edge Mode (3D)**: `pre()` returns `[n_states, n_nodes, n_nodes]`
-- Element-wise multiply with weights: `pre_states * weights`
-- Then sum over source nodes
-- Flexible: supports per-connection transformations
-- Slower for dense graphs
+- Incoming-only instantaneous coupling without edge parameters transforms one value per source node. Dense graphs reduce with `messages @ weights.T`; sparse graphs gather source values at stored edges and reduce by target.
+- Delays, target-local operands (`PRE_USES_LOCAL = True`), or declared `EDGE_PARAMS` require an aligned message per connection. Sparse graphs execute these as `[channels, E]`, while dense graphs use `[channels, N_target, N_source]`.
 
-**Vectorized Mode (2D)**: `pre()` returns `[n_states, n_nodes]`
-- Matrix multiplication: `pre_states @ weights`
-- Faster for dense graphs (optimized BLAS)
-- Less flexible: same operation for all connections
+The `pre()` body is identical in every case: it performs only elementwise math on operands the framework has already aligned. Do not add `[:, :, None]` or `[None, :, :]` reshapes. Incoming-only `pre()` receives `local_states=None`; `post()` continues to receive node-shaped local states.
 
-## LinearCoupling vs FastLinearCoupling
+`LinearCoupling` now uses the optimized incoming-only path directly. `FastLinearCoupling` is a deprecated compatibility wrapper that maps its historical `local_states=...` spelling to `LinearCoupling(incoming_states=...)`; new code should use `LinearCoupling`.
 
-`FastLinearCoupling` achieves vectorized mode by using `local_states` instead of `incoming_states`:
+## Custom `pre()` migration and edge parameters
 
-```{python}
-from tvboptim.experimental.network_dynamics.coupling import FastLinearCoupling
-
-# Standard: uses incoming_states (per-edge)
-standard = LinearCoupling(incoming_states='S', G=1.0)
-
-# Fast: uses local_states (vectorized)
-fast = FastLinearCoupling(local_states='S', G=1.0)
-
-print("Standard coupling mode: per-edge (3D)")
-print("Fast coupling mode: vectorized (2D)")
-```
-
-The difference is in `pre()`:
+Custom couplings must declare the operands that force edge messages:
 
 ```python
-# LinearCoupling: inherits default pre() returning incoming_states (3D)
-# → per-edge mode
+class EdgeScaledCoupling(InstantaneousCoupling):
+    N_OUTPUT_STATES = 1
+    DEFAULT_PARAMS = Bunch(edge_gain=1.0)
+    EDGE_PARAMS = ("edge_gain",)
 
-# FastLinearCoupling:
-def pre(self, incoming_states, local_states, params):
-    return local_states  # 2D → vectorized mode
+    def pre(self, incoming_states, local_states, params):
+        return incoming_states * params.edge_gain
 ```
 
-## Performance Benchmark
+Each name in `EDGE_PARAMS` accepts either a graph-shaped `[N_target, N_source]` array or a prepared-edge `[E]` array. For a large sparse graph, construct the scalable form through the public graph API:
 
-Let's compare runtime with empirical connectivity (84 regions, 5000 time steps):
-
-```{python}
-import time
-from tvboptim.data import load_structural_connectivity
-from tvboptim.experimental.network_dynamics.dynamics.tvb import ReducedWongWang
-from tvboptim.experimental.network_dynamics.solvers import Heun
-
-# Load empirical connectivity
-weights, lengths, labels = load_structural_connectivity("dk_average")
-weights_norm = weights / jnp.max(weights)  # Normalize
-
-print(f"Network size: {weights.shape[0]} nodes")
-print(f"Simulation: 5000 steps (dt=0.5 ms)")
-
-# Setup
-dynamics = ReducedWongWang()
-graph = DenseGraph(weights_norm)
-
-# Standard LinearCoupling (per-edge mode)
-coupling_standard = LinearCoupling(incoming_states='S', G=0.5)
-network_standard = Network(dynamics=dynamics, coupling={'instant': coupling_standard}, graph=graph)
-
-# FastLinearCoupling (vectorized mode)
-coupling_fast = FastLinearCoupling(local_states='S', G=0.5)
-network_fast = Network(dynamics=dynamics, coupling={'instant': coupling_fast}, graph=graph)
-
-solver = Heun()
-n_steps = 5000
-dt = 0.5
-
-# Benchmark: Standard coupling
-start = time.time()
-result_standard = solve(network_standard, solver, t0=0.0, t1=n_steps*dt, dt=dt)
-time_standard = time.time() - start
-
-# Benchmark: Fast coupling
-start = time.time()
-result_fast = solve(network_fast, solver, t0=0.0, t1=n_steps*dt, dt=dt)
-time_fast = time.time() - start
-
-print(f"\nStandard LinearCoupling: {time_standard:.3f} s")
-print(f"FastLinearCoupling: {time_fast:.3f} s")
-print(f"Speedup: {time_standard/time_fast:.2f}x")
+```python
+edge_gain_e = sparse_graph.gather_edges(edge_gain_matrix)
+coupling = EdgeScaledCoupling(incoming_states="S", edge_gain=edge_gain_e)
 ```
 
-```{python}
-#| code-fold: true
-#| code-summary: "Visualization"
+`sparse_graph.edge_indices` documents how an existing E-vector is interpreted: rows are `(target, source)` in the same order used by `gather_edges()`. That topology remains fixed for one prepared solve; numerical weights, delays, and edge parameters may be swept or differentiated, but changing or reordering indices requires graph reconstruction and another `prepare()` call.
 
-import matplotlib.pyplot as plt
+Preparation validates `PRE_USES_LOCAL`, `EDGE_PARAMS`, and the exact output shape of `pre()` before JIT compilation. If an older custom coupling fails with the elementwise-contract migration message, remove explicit message-axis reshapes and declare the operands above.
 
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.1, 2.7))
-
-# Bar chart
-couplings = ['Standard\nLinearCoupling', 'Fast\nLinearCoupling']
-times = [time_standard, time_fast]
-colors = ['#3498db', '#e74c3c']
-
-ax1.bar(couplings, times, color=colors, alpha=0.7, edgecolor='black')
-ax1.set_ylabel('Runtime (seconds)')
-ax1.set_title('Coupling Performance Comparison')
-ax1.grid(True, alpha=0.3, axis='y')
-
-# Add speedup annotation
-speedup = time_standard / time_fast
-ax1.text(1, time_fast + 0.1, f'{speedup:.2f}x faster',
-         ha='center', fontsize=11, fontweight='bold')
-
-# Verify results are similar
-ax2.plot(result_standard.ts[::10], result_standard.ys[::10, 0, 0],
-         'b-', label='Standard', alpha=0.7)
-ax2.plot(result_fast.ts[::10], result_fast.ys[::10, 0, 0],
-         'r--', label='Fast', alpha=0.7)
-ax2.set_xlabel('Time [ms]')
-ax2.set_ylabel('S (synaptic gating)')
-ax2.set_title('Results Comparison (Node 0)')
-ax2.legend()
-ax2.grid(True, alpha=0.3)
-
-plt.tight_layout()
-plt.show()
-```
-
-For dense networks, vectorized mode provides significant speedup while producing identical results. Use `FastLinearCoupling` when:
-
-- Coupling function is simple (linear)
-- Performance is critical
-
-Use standard (per-edge mode) like `LinearCoupling` when:
-
-- Need per-connection transformations
-- Coupling is complex (differences, nonlinearities)
+Dense graphs evaluate an edge-path `pre()` at every matrix cell, including
+zero-weight cells; sparse graphs omit cells that are not stored. These are
+equivalent for finite elementwise math, but a custom transform that deliberately
+emits NaN or raises at a zero-weight cell can observe the difference.
 
 # Creating Custom Couplings: Adaptive Gain
 
@@ -617,7 +521,7 @@ Coupling enables inter-region communication in brain networks:
 
 - **Lifecycle**: Three-phase pattern (`prepare` → `compute` → `update_state`) mirrors simulation flow
 - **TVB pattern**: Most couplings use `pre()` → weighted sum → `post()` pattern; typically only `post()` needs implementation
-- **Performance**: Vectorized mode (2D) faster for dense graphs; per-edge mode (3D) more flexible
+- **Performance**: Incoming-only transforms use node messages; delays, target-local math, and edge parameters use aligned edge messages (O(E) on sparse graphs)
 - **Delays**: Computed from tract lengths and conduction speed; managed automatically via history buffers with increased computational cost
 - **Multiple couplings**: Named dictionary with automatic zero-filling for missing inputs
 - **Custom couplings**: Subclass `InstantaneousCoupling` or `DelayedCoupling` and override `pre()`/`post()`

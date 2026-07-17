@@ -12,12 +12,20 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Added Python 3.14 support.
 - Exposed transmission delays as live values for parameter sweeps and gradients,
   with interpolated delay reads and delayed Kuramoto coverage.
+- Added stable sparse `edge_indices` and `gather_edges()` APIs for constructing
+  edge-aligned parameters without reaching into prepared coupling internals.
 
 ### Changed
 
 - Switched the documentation build to committed Quarto freeze artifacts.
 - Refined dense and sparse random graph generation, including explicit density
   semantics and low-density edge handling.
+- Reworked instantaneous and delayed coupling around aligned node/edge message
+  passing. Sparse local, nonlinear, edge-parameter, and delayed transforms now
+  execute in O(E), and custom `pre()` implementations use one elementwise
+  contract across dense and sparse graphs.
+- Deprecated `FastLinearCoupling`; `LinearCoupling` now uses the same optimized
+  incoming-only path, while the old class remains as a compatibility wrapper.
 
 ### Fixed
 

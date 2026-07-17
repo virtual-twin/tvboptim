@@ -74,8 +74,10 @@ All three parts use `DelayedKuramotoCoupling`, added alongside this notebook. `d
 ```{python}
 #| eval: false
 class DelayedKuramotoCoupling(DelayedCoupling):
+    PRE_USES_LOCAL = True
+
     def pre(self, delayed_states, local_states, params):
-        return jnp.sin(delayed_states - local_states[:, :, None])
+        return jnp.sin(delayed_states - local_states)
 
     def post(self, summed_inputs, local_states, params):
         return params.G * summed_inputs

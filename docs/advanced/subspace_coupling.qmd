@@ -56,7 +56,7 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
 import time
 from tvboptim.experimental.network_dynamics import Network, solve
 from tvboptim.experimental.network_dynamics.dynamics.tvb import ReducedWongWang
-from tvboptim.experimental.network_dynamics.coupling.linear import FastLinearCoupling, DelayedLinearCoupling
+from tvboptim.experimental.network_dynamics.coupling.linear import LinearCoupling, DelayedLinearCoupling
 from tvboptim.experimental.network_dynamics.coupling.subspace import SubspaceCoupling
 from tvboptim.experimental.network_dynamics.graph import SparseGraph, DenseDelayGraph
 from tvboptim.experimental.network_dynamics.solvers import Euler
@@ -230,7 +230,7 @@ region_mapping = jax.random.randint(
 
 regional_graph = DenseDelayGraph.random(
     n_nodes=n_regions,
-    sparsity=0.8,      # 80% of connections present
+    density=0.8,       # 80% of connections present
     max_delay=50.0,    # ~150mm at 3 m/s
     key=jax.random.key(0)
 )
@@ -238,7 +238,7 @@ regional_graph = DenseDelayGraph.random(
 # Local connectivity: Sparse short-range connections
 node_graph = SparseGraph.random(
     n_nodes=n_nodes,
-    sparsity=0.000366,  # 0.0366% connectivity (typical density, depending on kernel)
+    density=0.000366,  # 0.0366% connectivity (typical density, depending on kernel)
     key=jax.random.key(1)
 )
 
@@ -255,7 +255,7 @@ Now create a network with two coupling types:
 
 ```{python}
 # Local instantaneous coupling
-coupling_instant = FastLinearCoupling(local_states='S', G=0.2)
+coupling_instant = LinearCoupling(incoming_states='S', G=0.2)
 
 # Regional delayed coupling via subspace
 coupling_delayed = SubspaceCoupling(

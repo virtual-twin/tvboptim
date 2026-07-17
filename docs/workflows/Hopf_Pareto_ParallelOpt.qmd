@@ -78,7 +78,7 @@ from tvboptim.optim.optax import OptaxOptimizer
 
 from tvboptim.experimental.network_dynamics import Network, prepare
 from tvboptim.experimental.network_dynamics.dynamics.tvb import SupHopf
-from tvboptim.experimental.network_dynamics.coupling import FastLinearCoupling
+from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
 from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph
 from tvboptim.experimental.network_dynamics.solvers import Heun
 from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
@@ -136,7 +136,7 @@ weights_laplacian = weights - np.diag(row_sums)
 
 graph = DenseDelayGraph(weights_laplacian, delays, region_labels=region_labels)
 dynamics = SupHopf(a=0.01, omega=jnp.asarray(omega_target))
-coupling = FastLinearCoupling(local_states=["x"], G=0.025)
+coupling = LinearCoupling(incoming_states=["x"], G=0.025)
 noise = AdditiveNoise(sigma=1e-2, apply_to=["x", "y"])
 
 network = Network(

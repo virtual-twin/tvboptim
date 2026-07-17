@@ -363,15 +363,15 @@ class DelayedSigmoidalJansenRit(DelayedCoupling):
     ) -> jnp.ndarray:
         # Extract first two state variables: y1 and y2
         # incoming_states[0] = y1, incoming_states[1] = y2
-        # Each has shape [n_nodes_target, n_nodes_source]
+        # Each is already aligned to the active node/edge message layout.
         state_diff = incoming_states[0] - incoming_states[1]
 
         # Apply sigmoidal transformation
         exp_term = jnp.exp(params.r * (params.midpoint - state_diff))
         coupling_term = params.cmin + (params.cmax - params.cmin) / (1.0 + exp_term)
 
-        # Return as [1, n_nodes_target, n_nodes_source] for matrix multiplication
-        return coupling_term[jnp.newaxis, :, :]
+        # Add only the leading output-channel dimension.
+        return coupling_term[jnp.newaxis, ...]
 
     def post(
         self, summed_inputs: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
@@ -892,4 +892,3 @@ This tutorial demonstrated the complete workflow for fitting brain network model
 5. **Validation**: We visualized the results showing successful reproduction of the spatial frequency gradient across brain regions.
 
 This approach showcases key features of TVB-Optim including the modular `Network` architecture, JAX-based automatic differentiation for gradient-based optimization, and integration with visualization tools for neuroimaging data.
-
