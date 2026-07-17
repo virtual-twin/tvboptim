@@ -4,31 +4,86 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - Unreleased
 
 ### Added
 
+- **Transmission delays are now live values that can be swept and
+  differentiated.** Delay read indices are rebuilt from the graph on every
+  forward pass, so assigning to `delays` (from a `GridAxis`, a `Space` sweep, or
+  a `jax.grad` step) changes the simulation without another `prepare()` call.
+  - Added `DenseLengthGraph`, which owns `lengths` and a scalar `speed` and
+    derives `delays = lengths / speed`. Conduction speed becomes a single
+    sweepable, differentiable leaf, the delay-domain counterpart of the coupling
+    gain `G`.
+  - Added `KuramotoCoupling` and `DelayedKuramotoCoupling`.
+  - Added `history_interpolation="linear"` on delayed couplings, which blends
+    two history slots so `d/d(delays)` is informative. The default nearest-slot
+    read leaves delays sweepable but not gradient-accessible, and is unchanged.
+  - `history_interpolation="linear"` also enables the solver's stage-time shift,
+    which removes the delay bias introduced by freezing the coupling across
+    solver stages and restores second-order accuracy in the delayed term. This
+    is opt-in: default delayed simulations are numerically unchanged.
+  - Added `max_delay_bound` on the delay graphs, declaring buffer headroom so a
+    sweep or gradient step can grow a delay beyond its initial value, plus
+    `warn_on_delay_clamp` on delayed couplings to surface delays that exceed it.
+  - Added the `effective_max_delay` and `delay_steps_bound` helpers.
+  - See `docs/workflows/Delay_Speed_Synchronization.qmd` for a worked
+    speed-sweep and gradient workflow.
 - Added `Parameter.constrained_value` and clearer parameter display helpers.
 - Added Python 3.14 support.
-- Exposed transmission delays as live values for parameter sweeps and gradients,
-  with interpolated delay reads and delayed Kuramoto coverage.
 - Added stable sparse `edge_indices` and `gather_edges()` APIs for constructing
   edge-aligned parameters without reaching into prepared coupling internals.
 
 ### Changed
 
-- Switched the documentation build to committed Quarto freeze artifacts.
-- Refined dense and sparse random graph generation, including explicit density
-  semantics and low-density edge handling.
+- **Custom coupling `pre()` now receives pre-aligned operands and must be
+  elementwise.** The framework fetches source and target values, applies edge
+  weights, and reduces; `pre()` performs only elementwise math on operands that
+  already share a layout. Built-in couplings are migrated, so this affects
+  custom couplings only.
+  - Remove explicit message-axis reshapes such as `[:, :, None]` or
+    `[None, :, :]`.
+  - Set `PRE_USES_LOCAL = True` when `pre()` folds in the target state, and
+    list edge-shaped parameters in `EDGE_PARAMS`.
+  - Incoming-only `pre()` now receives `local_states=None`. Post-aggregation
+    local effects belong in `post()`, which still receives node-shaped local
+    states.
+  - `prepare()` validates the contract before compilation and raises with a
+    migration message, so an unmigrated coupling fails loudly rather than
+    silently computing a wrong result.
+  - See `docs/network_dynamics/coupling.qmd` for the migration guide.
 - Reworked instantaneous and delayed coupling around aligned node/edge message
   passing. Sparse local, nonlinear, edge-parameter, and delayed transforms now
-  execute in O(E), and custom `pre()` implementations use one elementwise
-  contract across dense and sparse graphs.
-- Deprecated `FastLinearCoupling`; `LinearCoupling` now uses the same optimized
-  incoming-only path, while the old class remains as a compatibility wrapper.
+  execute in O(E) rather than materializing node-by-node operands.
+- Coupling sums now reduce in edge order, so results shift within dtype
+  tolerance relative to 0.3.x. Comparisons against older versions should use a
+  normwise tolerance rather than bit-exact equality.
+- Graph topology is now fixed for a prepared solve. Numerical weight, delay, and
+  edge-parameter data may still be replaced, swept, or differentiated, but
+  replacing or reordering edge indices after `prepare()` is rejected with a
+  reconstruction message, and `Space` rejects an axis placed on an index leaf.
+- Switched the documentation build to committed Quarto freeze artifacts.
+- Refined dense and sparse random graph generation, including explicit density
+  semantics, low-density edge handling, and unique edge sampling. Sparse
+  generators no longer emit duplicate edges, so a given seed produces a
+  different graph than in 0.3.x.
+
+### Deprecated
+
+- Deprecated `FastLinearCoupling`. `LinearCoupling` now uses the same optimized
+  incoming-only path, so the separate class is unnecessary. It remains as a
+  compatibility wrapper that maps its historical `local_states=...` spelling
+  onto `incoming_states` and emits a `DeprecationWarning`; use
+  `LinearCoupling(incoming_states=...)` instead.
 
 ### Fixed
 
+- Fixed the crash that made difference, phase, and Jansen-Rit style couplings
+  unusable on sparse graphs (`NotImplementedError: Subtraction between sparse
+  and dense array`). `DifferenceCoupling`, `KuramotoCoupling`,
+  `SigmoidalJansenRit`, and their delayed variants now run on sparse graphs and
+  agree with their dense results within tolerance.
 - Corrected `FastLinearCoupling` to reduce dense directed connectivity using
   the documented `weights[target, source]` orientation. Results on asymmetric
   graphs now agree with `LinearCoupling`; symmetric graphs are unchanged.
