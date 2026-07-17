@@ -12,14 +12,35 @@
 <!-- [![Downloads](https://img.shields.io/pypi/dm/tvboptim.svg)](https://pypi.org/project/tvboptim/) -->
 <!-- [![codecov](https://codecov.io/gh/virtual-twin/tvboptim/branch/main/graph/badge.svg)](https://codecov.io/gh/virtual-twin/tvboptim) -->
 
-[JAX](https://jax.readthedocs.io/en/latest/)-based framework for brain network simulation and gradient-based optimization.
+**Fast, differentiable, and parallel whole-brain simulation and inference in
+[JAX](https://jax.readthedocs.io/en/latest/).**
 
-## Key Features
+Use the same brain network model code on CPUs and GPUs. Evaluate parameter
+ensembles in parallel and choose the inference strategy that fits your problem,
+from end-to-end automatic differentiation to simulation-based and evolutionary
+methods.
 
-- **Gradient-based optimization:** Fit thousands of parameters using automatic differentiation through the entire simulation pipeline
-- **Performance:** JAX-powered with seamless GPU/TPU scaling
-- **Flexible & extensible:** Build models with [Network Dynamics](https://virtual-twin.github.io/tvboptim/network_dynamics/network_dynamics.html), a composable framework for whole-brain modeling. Existing TVB workflows supported via [TVB-O](https://github.com/virtual-twin/tvbo).
-- **Intuitive parameter control:** Mark values for optimization with [Parameter()](https://virtual-twin.github.io/tvboptim/parameters_and_optimization.html). Define exploration spaces with [Axes](https://virtual-twin.github.io/tvboptim/axes_and_spaces.html) for automatic parallel evaluation via JAX vmap/pmap.
+## Why TVB-Optim?
+
+- **Accelerated simulation:** JIT-compile brain network models and run them on
+  CPUs and GPUs.
+- **Parallel inference:** Batch parameter sets, stochastic realizations, and
+  candidate populations with `vmap`, then distribute them across devices with
+  `pmap`.
+- **End-to-end automatic differentiation:** Differentiate through dynamics,
+  coupling, transmission delays, observation models, and summary statistics.
+- **Inference-method agnostic:** Use the same simulator for gradient descent,
+  Bayesian and simulation-based inference, genetic algorithms, parameter
+  sweeps, and ensemble analysis.
+- **Composable whole-brain models:** Combine neural dynamics, connectivity,
+  delays, coupling, noise, external inputs, solvers, and observation models
+  with [Network Dynamics](https://virtual-twin.github.io/tvboptim/network_dynamics/network_dynamics.html).
+- **Structured parameter exploration:** Mark trainable values with
+  [`Parameter`](https://virtual-twin.github.io/tvboptim/basics/parameters_and_optimization.html)
+  and express Cartesian, zipped, grouped, or sampled parameter spaces with
+  [Axes and Spaces](https://virtual-twin.github.io/tvboptim/basics/axes_and_spaces.html).
+  Existing TVB workflows are supported through
+  [TVB-O](https://github.com/virtual-twin/tvbo).
 
 ## Installation
 
@@ -35,47 +56,84 @@ pip install tvboptim
 
 ## Quick Example
 
+Fit the coupling strength of an 84-region whole-brain model to empirical fMRI
+functional connectivity:
+
+<details>
+<summary>Imports (expand to run)</summary>
+
 ```python
+import jax
 import jax.numpy as jnp
-from tvboptim.experimental.network_dynamics import Network, solve, prepare
-from tvboptim.experimental.network_dynamics.dynamics.tvb import ReducedWongWang
-from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
-from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph
-from tvboptim.observations.tvb_monitors import Bold
-from tvboptim.observations import compute_fc, rmse
-from tvboptim.optim import OptaxOptimizer
-from tvboptim.types import Parameter
 import optax
 
-# Build brain network model
-network = Network(
-    dynamics=ReducedWongWang(),
-    coupling={'delayed': LinearCoupling(incoming_states="S", G=Parameter(0.5))},
-    graph=DenseDelayGraph(weights, delays)
-)
-
-# Run simulation
-result = solve(network, Heun(), t0=0.0, t1=60_000.0, dt=1.0)
-
-# Optimize coupling strength to match empirical functional connectivity
-simulator, params = prepare(network, Heun(), t0=0.0, t1=60_000.0, dt=1.0)
-bold_monitor = Bold(history=result, period=720.0)
-
-def loss(params):
-    predicted_fc = compute_fc(bold_monitor(simulator(params)))
-    return rmse(predicted_fc, target_fc)
-
-opt = OptaxOptimizer(loss, optax.adam(learning_rate=0.03))
-final_params, history = opt.run(params, max_steps=50)
+from tvboptim.data import load_functional_connectivity, load_structural_connectivity
+from tvboptim.experimental.network_dynamics import Network, prepare, solve
+from tvboptim.experimental.network_dynamics.coupling import DelayedLinearCoupling
+from tvboptim.experimental.network_dynamics.dynamics.tvb import ReducedWongWang
+from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph
+from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
+from tvboptim.experimental.network_dynamics.solvers import BoundedSolver, Heun
+from tvboptim.observations import compute_fc, rmse
+from tvboptim.observations.tvb_monitors import Bold
+from tvboptim.optim import OptaxOptimizer
+from tvboptim.types import Parameter
 ```
 
-See the [full example with visualization](https://virtual-twin.github.io/tvboptim/) in the documentation or [run it directly in Google Colab](https://colab.research.google.com/github/virtual-twin/tvboptim/blob/main/docs/workflows/RWW.ipynb): 
+</details>
+
+```python
+# Bundled structural and functional connectivity for 84 brain regions.
+weights, lengths, labels = load_structural_connectivity("dk_average")
+weights = weights / jnp.max(weights)
+target_fc = load_functional_connectivity("dk_average")
+
+# Build a delayed whole-brain network from the structural connectome.
+network = Network(
+    dynamics=ReducedWongWang(),
+    coupling={"delayed": DelayedLinearCoupling(incoming_states="S", G=0.5)},
+    graph=DenseDelayGraph(
+        weights=weights,
+        delays=lengths / 3.0,
+        region_labels=labels,
+    ),
+    noise=AdditiveNoise(sigma=0.01, key=jax.random.key(42)),
+)
+
+# Simulate once to initialize the delay history.
+solver = BoundedSolver(Heun(), low=0.0, high=1.0)
+result = solve(network, solver, t0=0.0, t1=60_000.0, dt=1.0)
+network.update_history(result)
+
+# Prepare a differentiable simulator and convert neural activity to BOLD.
+simulator, params = prepare(network, solver, t0=0.0, t1=60_000.0, dt=1.0)
+params.coupling.delayed.G = Parameter(0.5)
+bold = Bold(history=result, period=720.0)
+
+# Compare simulated and empirical functional connectivity.
+def loss(params):
+    predicted_fc = compute_fc(bold(simulator(params)))
+    return rmse(predicted_fc, target_fc)
+
+# Fit the global coupling strength with Adam.
+optimizer = OptaxOptimizer(loss, optax.adam(learning_rate=0.03))
+fitted_params, history = optimizer.run(params, max_steps=5)
+```
+
+For a complete 84-region model fitting empirical fMRI functional connectivity,
+see the [whole-brain optimization workflow](https://virtual-twin.github.io/tvboptim/workflows/RWW.html)
+or [run it in Google Colab](https://colab.research.google.com/github/virtual-twin/tvboptim/blob/main/docs/workflows/RWW.ipynb).
 
 ## [Documentation](https://virtual-twin.github.io/tvboptim)
 
-- **[Network Dynamics](https://virtual-twin.github.io/tvboptim/network_dynamics/network_dynamics.html)** - Build differentiable brain network models in TVB-Optim
-- **[Parameters & Optimization](https://virtual-twin.github.io/tvboptim/parameters_and_optimization.html)** - Gradient-based parameter inference
-- **[API Reference](https://virtual-twin.github.io/tvboptim/reference/index.html)** - Complete API documentation
+- **[Get Started](https://virtual-twin.github.io/tvboptim/basics/get_started.html):** Build and simulate your first model
+- **[Network Dynamics](https://virtual-twin.github.io/tvboptim/network_dynamics/network_dynamics.html):** Compose differentiable whole-brain models
+- **[Parameters & Optimization](https://virtual-twin.github.io/tvboptim/basics/parameters_and_optimization.html):** Define trainable parameters and fit models with gradients
+- **[Axes & Spaces](https://virtual-twin.github.io/tvboptim/basics/axes_and_spaces.html):** Explore and evaluate parameter spaces in parallel
+- **[Bayesian Inference](https://virtual-twin.github.io/tvboptim/workflows/Stimulation_with_Bayesian_Inference.html):** Connect forward simulation to NumPyro
+- **[Genetic + Gradient Optimization](https://virtual-twin.github.io/tvboptim/workflows/Hopf_Pareto_ParallelOpt.html):** Combine NSGA-II pre-search with parallel gradient refinement
+- **[Differentiable Delays](https://virtual-twin.github.io/tvboptim/workflows/Delay_Speed_Synchronization.html):** Sweep and fit delays and conduction speed
+- **[API Reference](https://virtual-twin.github.io/tvboptim/reference/index.html):** Complete API documentation
 
 ## Contributing
 

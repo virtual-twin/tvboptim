@@ -5,15 +5,10 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
-      - 'src/**'
-      - 'pyproject.toml'
-      - '.github/workflows/docs.yml'
   pull_request:
     branches: [main]
     paths:
       - 'docs/**'
-      - 'src/**'
-      - 'pyproject.toml'
   workflow_dispatch:  # Allow manual triggering
 
 # Sets permissions for GitHub Pages deployment
