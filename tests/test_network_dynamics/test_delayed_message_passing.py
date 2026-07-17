@@ -315,9 +315,9 @@ def test_sparse_delayed_jaxpr_has_no_node_squared_array():
             shapes.append(tuple(int(size) for size in shape))
 
     def visit(value):
-        if isinstance(value, jax_core.ClosedJaxpr):
-            visit(value.jaxpr)
-        elif isinstance(value, jax_core.Jaxpr):
+        # Newer JAX aliases ClosedJaxpr to Jaxpr, and a Jaxpr's .jaxpr is
+        # itself, so unwrap only a genuinely distinct inner jaxpr.
+        if isinstance(value, jax_core.Jaxpr):
             if id(value) in seen:
                 return
             seen.add(id(value))
@@ -327,6 +327,8 @@ def test_sparse_delayed_jaxpr_has_no_node_squared_array():
                 for var in (*equation.invars, *equation.outvars):
                     inspect(var)
                 visit(equation.params)
+        elif isinstance(getattr(value, "jaxpr", None), jax_core.Jaxpr):
+            visit(value.jaxpr)
         elif isinstance(value, dict):
             for item in value.values():
                 visit(item)
