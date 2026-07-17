@@ -701,6 +701,48 @@ class NumPyroAxis(AbstractAxis):
 # =============================================================================
 
 
+def _reject_topology_axes(state) -> None:
+    """Reject mapped sparse topology while allowing mapped numerical data."""
+    from tvboptim.experimental.network_dynamics.graph.sparse import (
+        SparseDelayGraph,
+        SparseGraph,
+    )
+    from tvboptim.experimental.network_dynamics.graph.topology import (
+        PreparedTopology,
+    )
+
+    owner_types = (SparseGraph, PreparedTopology)
+    owners = jax.tree.leaves(
+        state, is_leaf=lambda value: isinstance(value, owner_types)
+    )
+    message = (
+        "Space axes may vary sparse weight, delay, and edge-parameter data, "
+        "but not current or prepared topology indices. Reconstruct the graph "
+        "and run prepare() separately for each topology."
+    )
+
+    for owner in owners:
+        if not isinstance(owner, owner_types):
+            continue
+        if isinstance(owner, PreparedTopology):
+            if isinstance(owner.edge_indices, AbstractAxis):
+                raise ValueError(message)
+            continue
+
+        weights = owner.weights
+        if isinstance(weights, AbstractAxis) or isinstance(
+            getattr(weights, "indices", None), AbstractAxis
+        ):
+            raise ValueError(message)
+
+        if isinstance(owner, SparseDelayGraph):
+            delays = owner.delays
+            if isinstance(delays, AbstractAxis) or isinstance(
+                getattr(delays, "indices", None), AbstractAxis
+            ):
+                raise ValueError(message)
+
+
 class Space:
     """Composable parameter space built from multiple axes.
 
@@ -781,6 +823,8 @@ class Space:
 
         if mode not in ["product", "zip"]:
             raise ValueError(f"Mode must be 'product' or 'zip', got {mode}")
+
+        _reject_topology_axes(state)
 
         # Use equinox.partition to separate axes from static values
         self.axis_state, self.static_state = eqx.partition(
@@ -1195,6 +1239,29 @@ class Space:
             return eqx.combine(batched_axis_tree, self.static_state)
         else:
             return batched_axis_tree, self.static_state
+
+    def _collect_mapping_inputs(
+        self,
+        n_pmap: int = 1,
+        fill_value: float = jnp.nan,
+    ):
+        """Return only batched axis arrays for mapped execution.
+
+        Mapping partial custom PyTrees is unsafe: for example, partitioning a
+        BCOO data axis produces a temporary BCOO whose static indices are
+        ``None``, which JAX's sparse batching rule rejects. Keep the mapped
+        inputs as a flat tuple of numerical axis arrays and reconstruct the
+        full state inside the mapped function instead. Static leaves—including
+        sparse current and prepared topology indices—never acquire a batch
+        dimension this way.
+        """
+        arrays, axis_tree_def = self._generate_all_combinations()
+        n_map = int(jnp.ceil(self.N / n_pmap))
+        batched = tuple(
+            safe_reshape(array, (n_pmap, n_map) + array.shape[1:], fill_value)
+            for array in arrays
+        )
+        return batched, axis_tree_def, self.static_state
 
     def to_dataframe(self) -> pd.DataFrame:
         """Convert parameter space to a pandas DataFrame.

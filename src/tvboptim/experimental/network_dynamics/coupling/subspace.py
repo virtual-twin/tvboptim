@@ -15,6 +15,7 @@ import jax.numpy as jnp
 
 from ..core.bunch import Bunch
 from ..graph.base import AbstractGraph, delay_steps_bound, effective_max_delay
+from ..graph.topology import prepare_graph_topology, validate_graph_topology
 from .base import AbstractCoupling
 
 
@@ -55,6 +56,17 @@ class _RegionalNetworkContext:
         self._region_one_hot_normalized = region_one_hot_normalized
         self._n_regions = n_regions
         self._aggregator = aggregator
+
+    @property
+    def initial_state(self) -> jnp.ndarray:
+        """Node initial state aggregated into the regional state space."""
+        aggregation_data = Bunch(
+            region_one_hot_normalized=self._region_one_hot_normalized
+        )
+        return self._aggregator(
+            self._node_network.initial_state,
+            aggregation_data,
+        )
 
     def get_history(self, dt: float) -> Optional[jnp.ndarray]:
         """Get aggregated regional history buffer.
@@ -99,17 +111,7 @@ class _RegionalNetworkContext:
         # [t0 - max_delay, t0], plus the t0 endpoint.
         n_steps = delay_steps_bound(regional_max_delay, dt) + 1
 
-        # Get node-level initial state (not history, just initial state)
-        # Aggregate it and broadcast to create regional history
-        node_initial_state = self._node_network.initial_state  # [n_states, n_nodes]
-
-        # Create minimal coupling_data for aggregator
-        # (contains only the precomputed fields needed for aggregation)
-        aggregation_data = Bunch(
-            region_one_hot_normalized=self._region_one_hot_normalized
-        )
-
-        regional_initial_state = self._aggregator(node_initial_state, aggregation_data)
+        regional_initial_state = self.initial_state
 
         # Broadcast to create history buffer
         regional_history = jnp.broadcast_to(
@@ -307,6 +309,7 @@ class SubspaceCoupling(AbstractCoupling):
         inner_data, inner_state = self.inner_coupling.prepare(
             regional_context, dt, t0, t1
         )
+        inner_data._prepared_topology = prepare_graph_topology(self.regional_graph)
 
         # Precompute initial aggregated regional state for caching
         # This avoids redundant aggregation in first compute() call
@@ -357,6 +360,12 @@ class SubspaceCoupling(AbstractCoupling):
         for field in ("stage_time_centroid", "recompute_coupling_per_stage"):
             if field in coupling_data:
                 inner_data[field] = coupling_data[field]
+        if "incoming_indices" in inner_data:
+            inner_data.incoming_indices = validate_graph_topology(
+                inner_data._prepared_topology,
+                self.regional_graph,
+                inner_data.incoming_indices,
+            )
         coupling_data.inner_data = self.inner_coupling.precompute(
             inner_data,
             self.inner_coupling.params,

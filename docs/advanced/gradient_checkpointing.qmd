@@ -128,7 +128,7 @@ set_cache_path("./gradient_checkpointing_benchmark")
 ## Workload: RWW + Delays + BOLD FC Fitting
 
 We reuse the Reduced Wong-Wang / BOLD / FC workflow from
-[`RWW.qmd`](../workflows/RWW.qmd), swapping `FastLinearCoupling` for
+[`RWW.qmd`](../workflows/RWW.qmd), swapping `LinearCoupling` for
 **`DelayedLinearCoupling`**: the configuration where gradient memory usually
 becomes the bottleneck for empirical fits. Structural connectivity is the
 `dk_average` parcellation (68 regions), with tract lengths converted to delays at a

@@ -2,6 +2,7 @@
 
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from tvboptim.experimental.network_dynamics import Network
 from tvboptim.experimental.network_dynamics.coupling import (
@@ -38,7 +39,10 @@ def test_fast_linear_uses_target_source_orientation_on_directed_graph():
     graph = DenseGraph(weights)
 
     linear = _compute(LinearCoupling(incoming_states="x"), graph, state)
-    fast = _compute(FastLinearCoupling(local_states="x"), graph, state)
+    with pytest.warns(DeprecationWarning, match="use LinearCoupling"):
+        compatibility = FastLinearCoupling(local_states="x")
+    assert isinstance(compatibility, LinearCoupling)
+    fast = _compute(compatibility, graph, state)
 
     expected = jnp.array([[14.0, 33.0, 5.0]])  # state @ weights.T
     np.testing.assert_array_equal(linear, expected)

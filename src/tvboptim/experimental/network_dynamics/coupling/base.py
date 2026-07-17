@@ -18,6 +18,12 @@ from ..graph.base import AbstractGraph, delay_steps_bound, effective_max_delay
 
 BufferStrategy = Literal["roll", "circular", "preallocated"]
 
+_PRE_CONTRACT_MIGRATION = (
+    "pre() must be elementwise over the final message axes: remove explicit "
+    "[:, :, None] / [None, :, :] reshapes and declare PRE_USES_LOCAL or "
+    "EDGE_PARAMS when target-local or edge-shaped inputs are used."
+)
+
 # ============================================================================
 # Helper Functions
 # ============================================================================
@@ -31,107 +37,6 @@ def _get_n_states(state_idx) -> int:
         return 1
     else:
         return 0
-
-
-def _ensure_dense(arr):
-    """Convert sparse array to dense if needed."""
-    return arr.todense() if hasattr(arr, "todense") else arr
-
-
-def _prepare_bcoo_indices(
-    graph, incoming_idx
-) -> Tuple[Optional[jnp.ndarray], Optional[tuple], bool]:
-    """Prepare BCOO sparse indices for 3D tensor [n_incoming, n_nodes, n_nodes].
-
-    Args:
-        graph: Graph instance (checked for sparsity)
-        incoming_idx: Incoming state indices
-
-    Returns:
-        Tuple of (bcoo_indices, bcoo_shape, use_sparse_incoming):
-        - bcoo_indices: [n_batch*nnz, 3] indices for BCOO construction
-        - bcoo_shape: (n_incoming, n_nodes, n_nodes) shape tuple
-        - use_sparse_incoming: bool flag whether to use sparse optimization
-    """
-    from ..graph.sparse import SparseDelayGraph, SparseGraph
-
-    if not isinstance(graph, (SparseGraph, SparseDelayGraph)):
-        return None, None, False
-
-    n_incoming = _get_n_states(incoming_idx)
-
-    # Only use sparse incoming if we actually have incoming states
-    if n_incoming == 0:
-        return None, None, False
-
-    nnz = graph.nnz
-    n_nodes = graph.n_nodes
-
-    # Build 3D indices [n_batch*nnz, 3] for BCOO [n_incoming, n_nodes, n_nodes]
-    batch_indices = jnp.repeat(jnp.arange(n_incoming), nnz)
-    spatial_indices = jnp.tile(graph.weights.indices, (n_incoming, 1))
-    bcoo_indices = jnp.column_stack([batch_indices, spatial_indices])
-
-    bcoo_shape = (n_incoming, n_nodes, n_nodes)
-
-    return bcoo_indices, bcoo_shape, True
-
-
-def _sparse_weighted_sum(pre_states, graph, is_bcoo: bool = False):
-    """Perform sparse weighted sum: sum over edges of (pre_states * weights).
-
-    Handles both BCOO sparse pre_states and dense pre_states with sparse graph.
-
-    Args:
-        pre_states: Either BCOO [n_output, n_nodes, n_nodes] or dense array
-        graph: Sparse graph with weights
-        is_bcoo: True if pre_states is BCOO, False if dense
-
-    Returns:
-        Dense array [n_output, n_nodes] after weighted sum
-    """
-    import jax.experimental.sparse as jsparse
-
-    indices = graph.weights.indices  # [nnz, 2]
-    n_output = pre_states.shape[0]
-    nnz = graph.nnz
-
-    if is_bcoo or hasattr(pre_states, "todense"):
-        # BCOO path: pre_states.data is flat [n_output * nnz]
-        # Reshape pre data: [n_output * nnz] -> [n_output, nnz]
-        pre_data_batched = pre_states.data.reshape(n_output, nnz)
-
-        # Element-wise multiply: [n_output, nnz] * [nnz] -> [n_output, nnz]
-        weighted_data = pre_data_batched * graph.weights.data[None, :]
-
-        # Sum over edges for each output dimension
-        summed_list = []
-        for i in range(n_output):
-            weighted_bcoo_i = jsparse.BCOO(
-                (weighted_data[i], indices), shape=(graph.n_nodes, graph.n_nodes)
-            )
-            summed_i = jsparse.bcoo_reduce_sum(weighted_bcoo_i, axes=(1,))
-            summed_list.append(_ensure_dense(summed_i))
-
-        return jnp.stack(summed_list, axis=0)
-    else:
-        # Dense pre_states path: extract values at sparse locations
-        summed_list = []
-        for i in range(n_output):
-            # Extract values at sparse edges only
-            pre_values = pre_states[i, indices[:, 0], indices[:, 1]]  # [nnz]
-
-            # Element-wise multiply: pre.data * weights.data
-            weighted_values = pre_values * graph.weights.data  # [nnz]
-
-            # Reconstruct BCOO and sum over source nodes (axis=1)
-            pre_bcoo = jsparse.BCOO(
-                (weighted_values, indices), shape=graph.weights.shape
-            )
-            summed_i_sparse = jsparse.bcoo_reduce_sum(pre_bcoo, axes=(1,))
-            summed_list.append(_ensure_dense(summed_i_sparse))
-
-        return jnp.stack(summed_list, axis=0)
 
 
 # ============================================================================
@@ -320,9 +225,156 @@ class PrePostCoupling(AbstractCoupling):
     Users typically only need to override pre() and/or post() methods.
     """
 
+    PRE_USES_LOCAL = False
+    EDGE_PARAMS: tuple[str, ...] = ()
+
     # ========================================================================
     # Shared Helper Methods
     # ========================================================================
+
+    def _validate_edge_param_declarations(self, graph) -> None:
+        """Validate public edge-parameter declarations before tracing."""
+        graph_shape = tuple(graph.weights.shape)
+        n_edges = (
+            graph.nnz if hasattr(graph, "nnz") else graph_shape[0] * graph_shape[1]
+        )
+
+        if len(set(self.EDGE_PARAMS)) != len(self.EDGE_PARAMS) or not all(
+            isinstance(name, str) for name in self.EDGE_PARAMS
+        ):
+            raise ValueError(
+                f"{self.__class__.__name__}.EDGE_PARAMS must contain unique strings"
+            )
+
+        for name in self.EDGE_PARAMS:
+            if name not in self.params:
+                raise ValueError(
+                    f"{self.__class__.__name__}.EDGE_PARAMS declares {name!r}, "
+                    "but that parameter does not exist"
+                )
+            shape = tuple(jnp.shape(self.params[name]))
+            if shape not in (graph_shape, (n_edges,)):
+                raise ValueError(
+                    f"Edge parameter {name!r} has shape {shape}; expected the "
+                    f"graph-shaped layout {graph_shape} or prepared-edge layout "
+                    f"({n_edges},)"
+                )
+
+        declared = set(self.EDGE_PARAMS)
+        for name, value in self.params.items():
+            if name not in declared and tuple(jnp.shape(value)) == graph_shape:
+                raise ValueError(
+                    f"Parameter {name!r} has graph-shaped layout {graph_shape} but "
+                    f"is not declared in {self.__class__.__name__}.EDGE_PARAMS"
+                )
+
+    def _normalize_edge_params(self, params: Bunch, graph) -> Bunch:
+        """Map declared edge params to the graph's execution representation."""
+        from ..graph.sparse import SparseGraph
+
+        graph_shape = tuple(graph.weights.shape)
+        n_edges = (
+            graph.nnz
+            if isinstance(graph, SparseGraph)
+            else graph_shape[0] * graph_shape[1]
+        )
+        aligned = Bunch()
+        for name in self.EDGE_PARAMS:
+            value = jnp.asarray(params[name])
+            if value.shape == graph_shape:
+                aligned[name] = (
+                    graph.gather_edges(value)
+                    if isinstance(graph, SparseGraph)
+                    else value
+                )
+            elif value.shape == (n_edges,):
+                aligned[name] = (
+                    value
+                    if isinstance(graph, SparseGraph)
+                    else value.reshape(graph_shape)
+                )
+            else:
+                raise ValueError(
+                    f"Edge parameter {name!r} has shape {value.shape}; expected "
+                    f"{graph_shape} or ({n_edges},)"
+                )
+        return aligned
+
+    def _build_pre_params(self, coupling_data: Bunch, params: Bunch) -> Bunch:
+        """Overlay normalized edge leaves without capturing live parameters."""
+        pre_params = Bunch(params)
+        for name, value in coupling_data.aligned_edge_params.items():
+            pre_params[name] = value
+        return pre_params
+
+    def _validate_pre_contract(self, graph, incoming_idx, local_idx, dtype) -> None:
+        """Probe ``pre`` with exact abstract execution shapes and no allocation."""
+        from ..graph.sparse import SparseGraph
+
+        self._validate_edge_param_declarations(graph)
+
+        n_incoming = _get_n_states(incoming_idx)
+        n_local = _get_n_states(local_idx)
+        if self.PRE_USES_LOCAL and n_local == 0:
+            raise ValueError(
+                f"{self.__class__.__name__}.PRE_USES_LOCAL is True but no "
+                "local_states were configured"
+            )
+
+        n_target, n_source = graph.weights.shape
+        is_sparse = isinstance(graph, SparseGraph)
+        is_delayed = isinstance(self, DelayedCoupling)
+        uses_edge_path = is_delayed or self.PRE_USES_LOCAL or bool(self.EDGE_PARAMS)
+        if uses_edge_path:
+            message_shape = (graph.nnz,) if is_sparse else (n_target, n_source)
+        else:
+            message_shape = (n_source,)
+
+        incoming = jax.ShapeDtypeStruct((n_incoming, *message_shape), dtype)
+        if self.PRE_USES_LOCAL:
+            local_message_shape = message_shape if is_sparse else (n_target, 1)
+            local = jax.ShapeDtypeStruct(
+                (n_local, *local_message_shape),
+                dtype,
+            )
+        else:
+            local = None
+
+        pre_params = Bunch(self.params)
+        for name, value in self.params.items():
+            value = jnp.asarray(value)
+            pre_params[name] = jax.ShapeDtypeStruct(value.shape, value.dtype)
+        for name in self.EDGE_PARAMS:
+            value = jnp.asarray(self.params[name])
+            normalized_shape = (graph.nnz,) if is_sparse else (n_target, n_source)
+            pre_params[name] = jax.ShapeDtypeStruct(normalized_shape, value.dtype)
+
+        try:
+            result = jax.eval_shape(self.pre, incoming, local, pre_params)
+        except Exception as exc:
+            raise ValueError(
+                f"{self.__class__.__name__}.pre() violates the coupling contract. "
+                f"{_PRE_CONTRACT_MIGRATION}"
+            ) from exc
+
+        expected = (self.N_OUTPUT_STATES, *message_shape)
+        if not hasattr(result, "shape") or tuple(result.shape) != expected:
+            actual = getattr(result, "shape", type(result).__name__)
+            raise ValueError(
+                f"{self.__class__.__name__}.pre() returned shape {actual}; "
+                f"expected {expected}. {_PRE_CONTRACT_MIGRATION}"
+            )
+
+    def precompute(
+        self,
+        coupling_data: Bunch,
+        params: Bunch,
+        graph: AbstractGraph,
+    ) -> Bunch:
+        """Align declared edge parameters once per forward pass."""
+        coupling_data = coupling_data.copy()
+        coupling_data.aligned_edge_params = self._normalize_edge_params(params, graph)
+        return coupling_data
 
     def _format_state_list(self, states, with_subscript: bool = False) -> str:
         """Format state names for display.
@@ -408,24 +460,6 @@ class PrePostCoupling(AbstractCoupling):
 
         return ""
 
-    def _sparse_pre(self, incoming_states, local_states: jnp.ndarray, params: Bunch):
-        """Sparse version of pre() using sparsify decorator.
-
-        Default implementation wraps self.pre() with sparsify.
-        Subclasses can override this for custom sparse implementations.
-
-        Args:
-            incoming_states: BCOO tensor [n_incoming, n_nodes, n_nodes]
-            local_states: Dense tensor [n_local, n_nodes]
-            params: Coupling parameters
-
-        Returns:
-            BCOO tensor [n_output, n_nodes, n_nodes]
-        """
-        import jax.experimental.sparse as jsparse
-
-        return jsparse.sparsify(self.pre)(incoming_states, local_states, params)
-
     # ========================================================================
     # Describe Infrastructure (Template Method Pattern)
     # ========================================================================
@@ -475,22 +509,15 @@ class PrePostCoupling(AbstractCoupling):
     def pre(
         self, incoming_states: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
     ) -> jnp.ndarray:
-        """Transform states before matrix multiplication. Default: identity (per-edge).
+        """Elementwise transform of pre-aligned source messages. Default: identity.
 
         Args:
-            incoming_states: States from connected nodes in per-edge format
-                           Shape: [n_incoming, n_nodes_target, n_nodes_source]
-                           where [:, j, k] is state from source node k to target node j
-                           For delayed coupling, these are delayed states from history.
-            local_states: States from current node [n_local, n_nodes]
+            incoming_states: Source values [n_incoming, *message_shape].
+            local_states: Aligned target values when PRE_USES_LOCAL, otherwise None.
             params: Coupling parameters
 
         Returns:
-            Transformed states - shape determines coupling mode:
-            - [n_states, n_nodes]: Vectorized mode (uses matmul)
-            - [n_states, n_nodes, n_nodes]: Per-edge mode (uses element-wise multiply + sum)
-
-            Default returns incoming_states unchanged (3D) → per-edge mode.
+            Transformed messages [N_OUTPUT_STATES, *message_shape].
         """
         return incoming_states
 
@@ -523,33 +550,6 @@ class InstantaneousCoupling(PrePostCoupling):
     Users typically only need to override pre() and/or post() methods.
     """
 
-    def get_mode(self, incoming_idx, local_idx, n_nodes=2) -> str:
-        """Detect coupling mode by calling pre() with dummy data.
-
-        This allows us to optimize sparse graphs by knowing ahead of time
-        whether the coupling uses vectorized or per-edge mode.
-
-        Args:
-            incoming_idx: Indices for incoming states (for sizing dummy data)
-            local_idx: Indices for local states (for sizing dummy data)
-
-        Returns:
-            'vectorized' if pre() reduces dimensionality (2D output)
-            'per_edge' if pre() preserves per-edge structure (3D output)
-        """
-        # Create dummy data with correct shapes based on actual state selection
-        n_incoming = len(incoming_idx) if hasattr(incoming_idx, "__len__") else 1
-        n_local = len(local_idx) if hasattr(local_idx, "__len__") else 1
-
-        # Dummy per-edge tensor: [n_incoming, n_nodes, n_nodes] with n_nodes=2
-        dummy_incoming = jnp.zeros((n_incoming, n_nodes, n_nodes))
-        dummy_local = jnp.zeros((n_local, n_nodes))
-
-        # Call pre() to check output shape
-        result = self.pre(dummy_incoming, dummy_local, self.params)
-
-        return "vectorized" if result.ndim == 2 else "per_edge"
-
     def prepare(self, network, dt: float, t0: float, t1: float) -> Tuple[Bunch, Bunch]:
         """Standard preparation for instantaneous coupling.
 
@@ -560,7 +560,7 @@ class InstantaneousCoupling(PrePostCoupling):
             t1: Simulation end time (not used for instantaneous coupling)
 
         Returns:
-            coupling_data: Bunch with incoming_indices, local_indices, state_indices, mode
+            coupling_data: Bunch with resolved incoming and local state indices
             coupling_state: Empty Bunch (no internal state)
         """
         del t0, t1  # Unused for instantaneous coupling
@@ -571,30 +571,16 @@ class InstantaneousCoupling(PrePostCoupling):
         incoming_idx = dynamics.name_to_index(self.INCOMING_STATE_NAMES)
         local_idx = dynamics.name_to_index(self.LOCAL_STATE_NAMES)
 
-        # Detect mode for optimization (used to decide sparse strategy)
-        mode = self.get_mode(incoming_idx, local_idx, n_nodes=graph.n_nodes)
-
-        # Create state_indices for per-edge coupling support (from v1 system)
-        # This allows incoming_states[:, state_indices] to expand to per-edge format
-        n_nodes = graph.n_nodes
-        state_indices = jnp.arange(n_nodes) * jnp.ones((n_nodes, n_nodes)).astype(int)
-
-        # Store mode as boolean flags (JAX-traceable) instead of string
-        is_per_edge = mode == "per_edge"
-
-        # Precompute BCOO indices for sparse incoming states optimization
-        bcoo_indices, bcoo_shape, use_sparse_incoming = _prepare_bcoo_indices(
-            graph, incoming_idx
+        self._validate_pre_contract(
+            graph,
+            incoming_idx,
+            local_idx,
+            network.initial_state.dtype,
         )
 
         coupling_data = Bunch(
             incoming_indices=incoming_idx,
             local_indices=local_idx,
-            state_indices=state_indices,
-            is_per_edge=is_per_edge,
-            bcoo_indices=bcoo_indices,
-            bcoo_shape=bcoo_shape,
-            use_sparse_incoming=use_sparse_incoming,
         )
         coupling_state = Bunch()  # Empty for instantaneous coupling
 
@@ -609,19 +595,16 @@ class InstantaneousCoupling(PrePostCoupling):
         params: Bunch,
         graph: AbstractGraph,
     ) -> jnp.ndarray:
-        """Coupling computation with automatic vectorized vs per-edge dispatch.
+        """Transform and transport instantaneous source messages.
 
-        Supports two modes based on pre() output shape:
-        1. Vectorized (2D): pre() returns [n_states, n_nodes] → use matmul
-        2. Per-edge (3D): pre() returns [n_states, n_nodes, n_nodes] → element-wise multiply + sum
-
-        Both modes support dense and sparse graphs automatically.
-        For sparse graphs, per-edge expansion is kept sparse to save memory.
+        Incoming-only couplings transform node signals before transport. Couplings
+        that declare ``PRE_USES_LOCAL`` or ``EDGE_PARAMS`` instead transform
+        messages aligned to dense matrix cells or sparse prepared edges.
 
         Args:
             t: Current simulation time
             state: Current network state [n_states, n_nodes]
-            coupling_data: Bunch with incoming_indices, local_indices, state_indices
+            coupling_data: Bunch with resolved state indices and prepared topology
             coupling_state: Empty Bunch (not used)
             params: Coupling parameters
             graph: Network graph for accessing weights (dense or sparse)
@@ -630,72 +613,54 @@ class InstantaneousCoupling(PrePostCoupling):
             Coupling input [n_coupling_inputs, n_nodes]
         """
         from ..graph.sparse import SparseGraph
+        from .transport import _aggregate_nodes, _reduce_edges
 
-        # Extract states
+        del t, coupling_state
         local_states = state[coupling_data.local_indices]
         incoming_states = state[coupling_data.incoming_indices]
+        uses_edge_messages = self.PRE_USES_LOCAL or bool(self.EDGE_PARAMS)
+        pre_params = (
+            self._build_pre_params(coupling_data, params)
+            if self.EDGE_PARAMS
+            else params
+        )
 
-        # Build incoming_states_edge and compute coupling based on graph type
-        if coupling_data.use_sparse_incoming:
-            # SPARSE INCOMING: Build 3D BCOO to avoid dense materialization
-            summed = self._compute_sparse_incoming(
-                incoming_states, local_states, params, graph, coupling_data
-            )
-
-        elif isinstance(graph, SparseGraph) and coupling_data.is_per_edge:
-            # SPARSE FALLBACK: Dense incoming with sparse graph
-            incoming_states_edge = incoming_states[:, coupling_data.state_indices]
-            pre_states = self.pre(incoming_states_edge, local_states, params)
-            summed = _sparse_weighted_sum(pre_states, graph, is_bcoo=False)
-
-        else:
-            # DENSE or VECTORIZED
-            incoming_states_edge = incoming_states[:, coupling_data.state_indices]
-            pre_states = self.pre(incoming_states_edge, local_states, params)
-
-            if pre_states.ndim == 2:
-                # weights[target, source]: reduce over sources for each target.
-                summed = pre_states @ graph.weights.T
-            elif pre_states.ndim == 3:
-                # Per-edge mode: element-wise multiply + sum
-                summed = jnp.sum(pre_states * graph.weights, axis=2)
+        if isinstance(graph, SparseGraph):
+            topology = coupling_data.get("_prepared_topology")
+            if topology is None:
+                edge_indices = graph.edge_indices
+                target_e = edge_indices[:, 0]
+                source_e = edge_indices[:, 1]
+                n_target = graph.weights.shape[0]
             else:
-                raise ValueError(
-                    f"pre() returned unexpected shape: {pre_states.shape}. "
-                    f"Expected 2D or 3D."
-                )
+                target_e = topology.target_e
+                source_e = topology.source_e
+                n_target = topology.n_target
+
+            source_messages = incoming_states[:, source_e]
+            target_messages = local_states[:, target_e] if self.PRE_USES_LOCAL else None
+            messages = self.pre(source_messages, target_messages, pre_params)
+            summed = _reduce_edges(
+                messages,
+                graph.weights.data,
+                target_e,
+                n_target,
+            )
+        elif uses_edge_messages:
+            n_target, n_source = graph.weights.shape
+            source_messages = jnp.broadcast_to(
+                incoming_states[:, None, :],
+                (incoming_states.shape[0], n_target, n_source),
+            )
+            target_messages = local_states[:, :, None] if self.PRE_USES_LOCAL else None
+            messages = self.pre(source_messages, target_messages, pre_params)
+            summed = jnp.sum(messages * graph.weights[None, :, :], axis=-1)
+        else:
+            messages = self.pre(incoming_states, None, pre_params)
+            summed = _aggregate_nodes(messages, graph.weights)
 
         # Apply post-transform
         return self.post(summed, local_states, params)
-
-    def _compute_sparse_incoming(
-        self, incoming_states, local_states, params, graph, coupling_data
-    ):
-        """Compute coupling with sparse incoming states (BCOO optimization)."""
-        import jax.experimental.sparse as jsparse
-
-        indices = graph.weights.indices
-        n_incoming = incoming_states.shape[0]
-
-        # Extract values at source nodes for each incoming state
-        incoming_data_list = []
-        for i in range(n_incoming):
-            values_at_sources = incoming_states[i, indices[:, 1]]
-            incoming_data_list.append(values_at_sources)
-
-        incoming_data_flat = jnp.concatenate(incoming_data_list)
-
-        # Create 3D BCOO [n_incoming, n_nodes, n_nodes]
-        incoming_states_edge = jsparse.BCOO(
-            (incoming_data_flat, coupling_data.bcoo_indices),
-            shape=coupling_data.bcoo_shape,
-        )
-
-        # Apply sparse pre-transform
-        pre_states = self._sparse_pre(incoming_states_edge, local_states, params)
-
-        # Perform sparse weighted sum
-        return _sparse_weighted_sum(pre_states, graph, is_bcoo=True)
 
     def update_state(
         self, coupling_data: Bunch, coupling_state: Bunch, new_state: jnp.ndarray
@@ -850,7 +815,7 @@ class DelayedCoupling(PrePostCoupling):
             t1: Simulation end time
 
         Returns:
-            coupling_data: Bunch with indices, dt, max_delay_steps, state_indices
+            coupling_data: Bunch with indices, dt, and max_delay_steps
                 (delay_steps / delay_indices are added by precompute())
             coupling_state: Bunch with history buffer (and write_idx for non-roll strategies)
         """
@@ -861,19 +826,19 @@ class DelayedCoupling(PrePostCoupling):
         incoming_idx = dynamics.name_to_index(self.INCOMING_STATE_NAMES)
         local_idx = dynamics.name_to_index(self.LOCAL_STATE_NAMES)
 
+        self._validate_pre_contract(
+            graph,
+            incoming_idx,
+            local_idx,
+            network.initial_state.dtype,
+        )
+
         # Buffer length is governed by the declared bound (max_delay_bound),
         # or max(delays) if none was declared -- see effective_max_delay().
         # precompute() recomputes the actual read indices from the live
         # delays every forward pass, clamped into this buffer.
         max_delay_steps = delay_steps_bound(effective_max_delay(graph), dt)
         base_history_length = max_delay_steps + 1
-
-        state_indices = jnp.arange(graph.n_nodes)
-
-        # Precompute BCOO indices for sparse incoming states optimization
-        bcoo_indices, bcoo_shape, use_sparse_incoming = _prepare_bcoo_indices(
-            graph, incoming_idx
-        )
 
         # Initialize history buffer using network's get_history
         history_full = network.get_history(
@@ -919,10 +884,6 @@ class DelayedCoupling(PrePostCoupling):
                 local_indices=local_idx,
                 dt=dt,
                 max_delay_steps=max_delay_steps,
-                state_indices=state_indices,
-                bcoo_indices=bcoo_indices,
-                bcoo_shape=bcoo_shape,
-                use_sparse_incoming=use_sparse_incoming,
             )
             coupling_state = Bunch(history=history_init)
 
@@ -936,10 +897,6 @@ class DelayedCoupling(PrePostCoupling):
                 dt=dt,
                 max_delay_steps=max_delay_steps,
                 buffer_size=jnp.int32(buffer_size),
-                state_indices=state_indices,
-                bcoo_indices=bcoo_indices,
-                bcoo_shape=bcoo_shape,
-                use_sparse_incoming=use_sparse_incoming,
             )
             coupling_state = Bunch(
                 history=history_init,
@@ -966,10 +923,6 @@ class DelayedCoupling(PrePostCoupling):
                 dt=dt,
                 max_delay_steps=max_delay_steps,
                 buffer_size=jnp.int32(buffer_size),
-                state_indices=state_indices,
-                bcoo_indices=bcoo_indices,
-                bcoo_shape=bcoo_shape,
-                use_sparse_incoming=use_sparse_incoming,
             )
             coupling_state = Bunch(
                 history=history,
@@ -1018,7 +971,7 @@ class DelayedCoupling(PrePostCoupling):
             return centroid
         return 0.0
 
-    def _clamp_out_of_bounds(self, d_real_raw, max_delay_steps, graph):
+    def _clamp_out_of_bounds(self, d_real_raw, max_delay_steps, weights):
         """Which edges fall outside the buffer, ignoring edges that carry no weight.
 
         A zero-weight edge contributes nothing to the coupling sum, so clamping
@@ -1027,7 +980,6 @@ class DelayedCoupling(PrePostCoupling):
         shift pushes ``delays[i, i] - centroid * dt`` negative and the warning
         fires on every run, for edges that do not exist.
         """
-        weights = _ensure_dense(graph.weights)
         relevant = weights != 0.0
         out = (d_real_raw < 0.0) | (d_real_raw > max_delay_steps)
         return jnp.any(out & relevant)
@@ -1110,19 +1062,23 @@ class DelayedCoupling(PrePostCoupling):
         gathering out of range. That's a silent mis-simulation, not a crash
         -- enable warn_on_delay_clamp to surface it.
         """
+        coupling_data = super().precompute(coupling_data, params, graph)
+        from ..graph.sparse import SparseGraph
+
         dt = coupling_data.dt
         max_delay_steps = coupling_data.max_delay_steps
-
-        delays_dense = _ensure_dense(graph.delays)
+        is_sparse = isinstance(graph, SparseGraph)
+        delays = graph.delays.data if is_sparse else graph.delays
+        weights = graph.weights.data if is_sparse else graph.weights
         coupling_data = coupling_data.copy()
 
         if self._interpolating:
             centroid = self._effective_stage_time_centroid(coupling_data)
-            d_real_raw = delays_dense / dt - centroid
+            d_real_raw = delays / dt - centroid
 
             if self.warn_on_delay_clamp:
                 out_of_bounds = self._clamp_out_of_bounds(
-                    d_real_raw, max_delay_steps, graph
+                    d_real_raw, max_delay_steps, weights
                 )
                 jax.debug.callback(self._warn_delay_clamp, out_of_bounds)
 
@@ -1148,11 +1104,11 @@ class DelayedCoupling(PrePostCoupling):
 
         # No stage-time shift on the nearest read: q = 1 caps the global order
         # at 1 anyway, so there is no order to recover (see docstring).
-        delay_steps_raw = jnp.rint(delays_dense / dt).astype(jnp.int32)
+        delay_steps_raw = jnp.rint(delays / dt).astype(jnp.int32)
 
         if self.warn_on_delay_clamp:
             out_of_bounds = self._clamp_out_of_bounds(
-                delay_steps_raw, max_delay_steps, graph
+                delay_steps_raw, max_delay_steps, weights
             )
             jax.debug.callback(self._warn_delay_clamp, out_of_bounds)
 
@@ -1191,7 +1147,12 @@ class DelayedCoupling(PrePostCoupling):
             Coupling input [n_coupling_inputs, n_nodes]
         """
         del t  # Unused
-        from ..graph.sparse import SparseDelayGraph
+        from ..graph.sparse import SparseGraph
+        from .transport import (
+            _gather_history,
+            _interpolate_history,
+            _reduce_edges,
+        )
 
         # Compute read indices based on buffer strategy. idx_hi (one step
         # further into the past than idx_lo) is only needed under
@@ -1225,78 +1186,69 @@ class DelayedCoupling(PrePostCoupling):
             read_indices = newest_idx - coupling_data.delay_steps
             read_indices_hi = read_indices - 1 if self._interpolating else None
 
-        def _gather(indices):
-            # Result: out[i, j, k] = history[indices[j,k], i, k]
-            # i.e. incoming state i from source node k, delayed by tau_jk,
-            # going to target j
-            return jnp.transpose(
-                coupling_state.history[indices, :, coupling_data.state_indices],
-                (2, 0, 1),  # Reorder to [n_incoming, n_nodes_target, n_nodes_source]
-            )
-
-        delayed_states = _gather(read_indices)
-        if self._interpolating:
-            # Linear blend between the floor read and one step further into
-            # the past, weighted by the fractional delay. Gradient wrt
-            # delays flows through frac (unlike the plain nearest-integer
-            # gather above, whose gradient is zero almost everywhere).
-            frac = coupling_data.delay_frac[None, :, :]
-            delayed_states = (1.0 - frac) * delayed_states + frac * _gather(
-                read_indices_hi
-            )
-
-        # Extract local states
         local_states = state[coupling_data.local_indices]
+        pre_params = (
+            self._build_pre_params(coupling_data, params)
+            if self.EDGE_PARAMS
+            else params
+        )
 
-        # Compute coupling based on graph type
-        if coupling_data.use_sparse_incoming:
-            # SPARSE DELAYED INCOMING: Build 3D BCOO
-            summed = self._compute_sparse_delayed(
-                delayed_states, local_states, params, graph, coupling_data
+        if isinstance(graph, SparseGraph):
+            topology = coupling_data.get("_prepared_topology")
+            if topology is None:
+                edge_indices = graph.edge_indices
+                target_e = edge_indices[:, 0]
+                source_e = edge_indices[:, 1]
+                n_target = graph.weights.shape[0]
+            else:
+                target_e = topology.target_e
+                source_e = topology.source_e
+                n_target = topology.n_target
+
+            if self._interpolating:
+                delayed_states = _interpolate_history(
+                    coupling_state.history,
+                    read_indices,
+                    read_indices_hi,
+                    source_e,
+                    coupling_data.delay_frac,
+                )
+            else:
+                delayed_states = _gather_history(
+                    coupling_state.history,
+                    read_indices,
+                    source_e,
+                )
+            target_states = local_states[:, target_e] if self.PRE_USES_LOCAL else None
+            messages = self.pre(delayed_states, target_states, pre_params)
+            summed = _reduce_edges(
+                messages,
+                graph.weights.data,
+                target_e,
+                n_target,
             )
-
-        elif isinstance(graph, SparseDelayGraph):
-            # SPARSE FALLBACK: Dense delayed states with sparse graph
-            pre_states = self.pre(delayed_states, local_states, params)
-            summed = _sparse_weighted_sum(pre_states, graph, is_bcoo=False)
-
         else:
-            # DENSE DELAYED PATH
-            pre_states = self.pre(delayed_states, local_states, params)
-            summed = jnp.sum(pre_states * graph.weights, axis=2)
+            source = jnp.arange(graph.weights.shape[1])
+            if self._interpolating:
+                delayed_states = _interpolate_history(
+                    coupling_state.history,
+                    read_indices,
+                    read_indices_hi,
+                    source,
+                    coupling_data.delay_frac,
+                )
+            else:
+                delayed_states = _gather_history(
+                    coupling_state.history,
+                    read_indices,
+                    source,
+                )
+            target_states = local_states[:, :, None] if self.PRE_USES_LOCAL else None
+            messages = self.pre(delayed_states, target_states, pre_params)
+            summed = jnp.sum(messages * graph.weights[None, :, :], axis=-1)
 
         # Apply post-transform
         return self.post(summed, local_states, params)
-
-    def _compute_sparse_delayed(
-        self, delayed_states, local_states, params, graph, coupling_data
-    ):
-        """Compute delayed coupling with sparse delayed states (BCOO optimization)."""
-        import jax.experimental.sparse as jsparse
-
-        indices = graph.weights.indices
-        n_incoming = coupling_data.bcoo_shape[0]
-
-        # Extract delayed values at edges for each incoming state
-        delayed_data_list = []
-        for i in range(n_incoming):
-            # Get delayed state from source_k to target_j for each edge
-            values_at_edges = delayed_states[i, indices[:, 0], indices[:, 1]]
-            delayed_data_list.append(values_at_edges)
-
-        delayed_data_flat = jnp.concatenate(delayed_data_list)
-
-        # Create 3D BCOO [n_incoming, n_nodes, n_nodes]
-        delayed_states_sparse = jsparse.BCOO(
-            (delayed_data_flat, coupling_data.bcoo_indices),
-            shape=coupling_data.bcoo_shape,
-        )
-
-        # Apply sparse pre-transform
-        pre_states = self._sparse_pre(delayed_states_sparse, local_states, params)
-
-        # Perform sparse weighted sum
-        return _sparse_weighted_sum(pre_states, graph, is_bcoo=True)
 
     def update_state(
         self, coupling_data: Bunch, coupling_state: Bunch, new_state: jnp.ndarray
@@ -1311,6 +1263,8 @@ class DelayedCoupling(PrePostCoupling):
         Returns:
             New Bunch with updated history buffer (and write_idx for non-roll)
         """
+        from .transport import _roll_history, _write_history
+
         new_incoming_states = new_state[coupling_data.incoming_indices]
 
         if self.buffer_strategy == "roll":
@@ -1318,22 +1272,28 @@ class DelayedCoupling(PrePostCoupling):
             # Roll by -1 shifts all states towards index 0 (older end):
             #   [oldest, ..., newest] → [2nd_oldest, ..., newest, oldest]
             # Then overwrite index -1 with new current state
-            new_history = jnp.roll(coupling_state.history, -1, axis=0)
-            new_history = new_history.at[-1].set(new_incoming_states)
+            new_history = _roll_history(
+                coupling_state.history,
+                new_incoming_states,
+            )
             return Bunch(history=new_history)
 
         elif self.buffer_strategy == "circular":
             # Circular: write at pointer, wrap pointer with modulo
-            new_history = coupling_state.history.at[coupling_state.write_idx].set(
-                new_incoming_states
+            new_history = _write_history(
+                coupling_state.history,
+                coupling_state.write_idx,
+                new_incoming_states,
             )
             new_write_idx = (coupling_state.write_idx + 1) % coupling_data.buffer_size
             return Bunch(history=new_history, write_idx=new_write_idx)
 
         else:  # preallocated
             # Preallocated: write at pointer, increment (no wrap)
-            new_history = coupling_state.history.at[coupling_state.write_idx].set(
-                new_incoming_states
+            new_history = _write_history(
+                coupling_state.history,
+                coupling_state.write_idx,
+                new_incoming_states,
             )
             new_write_idx = coupling_state.write_idx + 1
             return Bunch(history=new_history, write_idx=new_write_idx)

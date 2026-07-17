@@ -6,6 +6,8 @@ This module provides common coupling functions:
 - DelayedLinearCoupling: Linear coupling with delays
 """
 
+import warnings
+
 import jax.numpy as jnp
 
 from ..core.bunch import Bunch
@@ -49,8 +51,7 @@ class LinearCoupling(InstantaneousCoupling):
     N_OUTPUT_STATES = 1
     DEFAULT_PARAMS = Bunch(G=1.0, b=0.0)
 
-    # No pre() override - uses default identity which returns per-edge format
-    # This matches v1 LinearCoupling behavior
+    # No pre() override: the default identity runs on source-node messages.
 
     def post(
         self, summed_inputs: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
@@ -74,58 +75,48 @@ class LinearCoupling(InstantaneousCoupling):
         return params.G * summed_inputs + params.b
 
 
-class FastLinearCoupling(InstantaneousCoupling):
-    """Fast linear coupling using vectorized mode.
+class FastLinearCoupling(LinearCoupling):
+    """Deprecated compatibility spelling for :class:`LinearCoupling`.
 
-    Uses local states (instead of incoming states) to trigger vectorized matrix
-    multiplication instead of per-edge element-wise operations. This is significantly
-    faster for dense all-to-all connectivity patterns.
-
-    Implements the same transformation as LinearCoupling:
+    ``LinearCoupling`` now uses the same incoming-only node-message path, so a
+    separate fast implementation is unnecessary. This wrapper preserves the
+    historical ``local_states=...`` source spelling while forwarding all math
+    to ``LinearCoupling``.
 
     $$c = G \\cdot \\sum_{j} w_{ij} x_j + b$$
 
-    but uses optimized matrix operations.
-
     Parameters
     ----------
-    local_states : str or list of str
-        State name(s) from current node (required for vectorized mode)
-
-    Attributes
-    ----------
-    N_OUTPUT_STATES : int
-        Number of output coupling states: ``1``
-    DEFAULT_PARAMS : Bunch
-        Default parameters: ``G=1.0`` (coupling strength), ``b=0.0`` (offset/bias)
+    incoming_states : str or list of str, optional
+        Preferred source-state spelling.
+    local_states : str or list of str, optional
+        Deprecated historical alias for ``incoming_states``.
 
     Notes
     -----
-    Use this variant when you have dense connectivity and want better performance.
-    For sparse graphs, the standard LinearCoupling may be more efficient.
+    New code should construct ``LinearCoupling(incoming_states=...)`` directly.
 
     Examples
     --------
-    >>> # Fast vectorized coupling for dense networks
+    >>> # Historical spelling; emits DeprecationWarning
     >>> coupling = FastLinearCoupling(local_states='S', G=1.0)
     """
 
-    N_OUTPUT_STATES = 1
-    DEFAULT_PARAMS = Bunch(G=1.0, b=0.0)
-
-    def pre(self, incoming_states, local_states, params):
-        """Return local states to trigger vectorized mode.
-
-        By returning [n_local, n_nodes] (2D), we trigger the vectorized
-        path which uses matmul instead of per-edge ops.
-        """
-        # Return local states (2D) instead of incoming states (3D)
-        # This triggers vectorized mode: summed = pre_states @ graph.weights.T
-        return local_states
-
-    def post(self, summed_inputs, local_states, params):
-        """Apply linear transformation to summed inputs."""
-        return params.G * summed_inputs + params.b
+    def __init__(self, incoming_states=None, local_states=None, **kwargs):
+        """Accept the historical ``local_states`` spelling as a source alias."""
+        warnings.warn(
+            "FastLinearCoupling is deprecated; use "
+            "LinearCoupling(incoming_states=...) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if incoming_states is not None and local_states is not None:
+            raise ValueError(
+                "FastLinearCoupling accepts either incoming_states or the "
+                "historical local_states alias, not both"
+            )
+        source_states = incoming_states if incoming_states is not None else local_states
+        super().__init__(incoming_states=source_states, local_states=[], **kwargs)
 
 
 class DifferenceCoupling(InstantaneousCoupling):
@@ -162,25 +153,23 @@ class DifferenceCoupling(InstantaneousCoupling):
 
     N_OUTPUT_STATES = 1
     DEFAULT_PARAMS = Bunch(G=1.0)
+    PRE_USES_LOCAL = True
 
     def pre(
         self, incoming_states: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
     ) -> jnp.ndarray:
-        """Compute difference between incoming and local states (per-edge).
+        """Compute an elementwise difference on aligned messages.
 
         Args:
-            incoming_states: States from connected nodes in per-edge format
-                           [n_incoming, n_nodes_target, n_nodes_source]
-            local_states: States from current node [n_local, n_nodes]
+            incoming_states: Source states ``[n_incoming, *M]``.
+            local_states: Target states aligned as ``[n_local, *M]``.
             params: Coupling parameters (not used in pre)
 
         Returns:
-            State differences [n_incoming, n_nodes, n_nodes] (per-edge)
+            State differences ``[n_output, *M]``. ``M`` is a dense
+            target/source grid or the prepared sparse edge axis.
         """
-        # Broadcast local_states to per-edge format and compute difference
-        # local_states[:, :, None] gives [n_local, n_nodes, 1]
-        # incoming_states has shape [n_incoming, n_nodes, n_nodes]
-        return incoming_states - local_states[:, :, None]
+        return incoming_states - local_states
 
     def post(
         self, summed_inputs: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
@@ -381,24 +370,23 @@ class DelayedDifferenceCoupling(DelayedCoupling):
 
     N_OUTPUT_STATES = 1
     DEFAULT_PARAMS = Bunch(G=1.0)
+    PRE_USES_LOCAL = True
 
     def pre(
         self, delayed_states: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
     ) -> jnp.ndarray:
-        """Compute difference between delayed and local states (per-edge).
+        """Compute an elementwise delayed/local difference on aligned messages.
 
         Args:
-            delayed_states: Delayed states from history in per-edge format
-                          [n_incoming, n_nodes_target, n_nodes_source]
-            local_states: Current local states [n_local, n_nodes]
+            delayed_states: Delayed source states ``[n_incoming, *M]``.
+            local_states: Current target states aligned as ``[n_local, *M]``.
             params: Coupling parameters (not used in pre)
 
         Returns:
-            State differences [n_incoming, n_nodes, n_nodes] (per-edge)
+            State differences ``[n_output, *M]``. ``M`` is a dense
+            target/source grid or the prepared sparse edge axis.
         """
-        # Broadcast local_states to per-edge format and compute difference
-        # local_states[:, :, None] gives [n_local, n_nodes, 1]
-        return delayed_states - local_states[:, :, None]
+        return delayed_states - local_states
 
     def post(
         self, summed_inputs: jnp.ndarray, local_states: jnp.ndarray, params: Bunch

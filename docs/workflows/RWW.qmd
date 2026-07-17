@@ -78,7 +78,7 @@ from tvboptim.optim.callbacks import MultiCallback, DefaultPrintCallback, Saving
 # Network dynamics imports
 from tvboptim.experimental.network_dynamics import Network, solve, prepare
 from tvboptim.experimental.network_dynamics.dynamics.tvb import ReducedWongWang
-from tvboptim.experimental.network_dynamics.coupling import LinearCoupling, FastLinearCoupling
+from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
 from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph, DenseGraph
 from tvboptim.experimental.network_dynamics.solvers import Heun
 from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
@@ -173,7 +173,7 @@ We combine the RWW dynamics with structural connectivity to create a whole-brain
 # Create network components
 graph = DenseGraph(weights, region_labels=region_labels)
 dynamics = ReducedWongWang(w=0.3, I_o=0.32, INITIAL_STATE=(0.3,))
-coupling = FastLinearCoupling(local_states=["S"], G=0.15)
+coupling = LinearCoupling(incoming_states=["S"], G=0.15)
 noise = AdditiveNoise(sigma=0.00283, apply_to="S")
 
 # Assemble the network
