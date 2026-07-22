@@ -7,7 +7,6 @@ import pandas as pd
 from tqdm import tqdm
 
 from tvboptim.types.spaces import _keypath_to_name
-from tvboptim.types.stateutils import combine_state
 
 
 class Execution(ABC):
@@ -224,16 +223,13 @@ class ParallelExecution(Execution):
         self.n_pmap = n_pmap
         self.args = args
         self.kwargs = kwargs
-        diff_state, axis_tree_def, static_state = space._collect_mapping_inputs(
-            n_pmap=n_pmap
-        )
+        diff_state, axis_tree_def, _ = space._collect_mapping_inputs(n_pmap=n_pmap)
 
         self.diff_state = diff_state
 
         # kwargs args probably go directly into model
         def _model(axis_values):
-            axis_state = jax.tree.unflatten(axis_tree_def, axis_values)
-            state = combine_state(axis_state, static_state)
+            state = space._materialize_flat_values(axis_tree_def, axis_values)
             return model(state, *self.args, **self.kwargs)
 
         def map_model(d):

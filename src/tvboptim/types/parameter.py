@@ -22,6 +22,16 @@ def _coerce_operand(value: Any) -> Any:
     return jax_array() if callable(jax_array) else value
 
 
+def _is_concrete(value: jnp.ndarray) -> bool:
+    """Whether a value can be inspected on the host.
+
+    Constructors that reject out-of-range input must not branch on a traced
+    array, so the check is skipped under a trace. The value is still clamped
+    into the valid range in that case, which keeps the leaf finite.
+    """
+    return not isinstance(value, jax.core.Tracer)
+
+
 @register_pytree_node_class
 class Parameter:
     """
@@ -264,68 +274,6 @@ class Parameter:
 
 
 @register_pytree_node_class
-class NormalizedParameter(Parameter):
-    """
-    Parameter that stores normalized values (ones) internally but presents
-    scaled values (scale * ones) to the outside world.
-
-    This enables optimization with normalized coordinates where gradients
-    have consistent magnitudes across different parameter scales, while
-    still returning properly scaled values for computation.
-
-    Parameters
-    ----------
-    value : Union[float, int, jnp.ndarray]
-        The original parameter value used to compute the static scale.
-
-    Examples
-    --------
-    >>> param = NormalizedParameter(jnp.array([2.0, 4.0, 6.0]))
-    >>> param.value  # Internal normalized storage (ones)
-    Array([1., 1., 1.], dtype=float32)
-    >>> param.__jax_array__()  # External scaled values (scale * ones)
-    Array([2., 4., 6.], dtype=float32)
-    >>> param.scale  # Static scale factor
-    Array([2., 4., 6.], dtype=float32)
-    """
-
-    def __init__(self, value: Union[float, int, jnp.ndarray]) -> None:
-        # Store original value as static scale
-        original_value = jnp.asarray(value)
-        self.scale = original_value
-
-        # Store normalized values (ones) internally
-        normalized_value = jnp.ones_like(original_value)
-
-        # Initialize parent with normalized value
-        super().__init__(normalized_value)
-
-    def __repr__(self) -> str:
-        return f"NormalizedParameter(scale={self.scale}, normalized={self.value}, value ={self.__jax_array__()})"
-
-    def __jax_array__(self) -> jnp.ndarray:
-        """Return scaled values: scale * normalized_ones."""
-        return self.scale * self.value  # scale * ones = original values
-
-    def tree_flatten(self) -> Tuple[Tuple[jnp.ndarray], jnp.ndarray]:
-        """Flatten for JAX pytree registration."""
-        children = (self.value,)  # Only normalized ones are differentiable
-        aux_data = self.scale  # Scale is static (not differentiable)
-        return children, aux_data
-
-    @classmethod
-    def tree_unflatten(
-        cls, aux_data: jnp.ndarray, children: Tuple[jnp.ndarray]
-    ) -> "NormalizedParameter":
-        """Unflatten for JAX pytree registration."""
-        # Reconstruct from normalized values and static scale
-        instance = cls.__new__(cls)
-        instance.value = children[0]  # Normalized values (ones)
-        instance.scale = aux_data  # Static scale factor
-        return instance
-
-
-@register_pytree_node_class
 class TransformedParameter(Parameter):
     """
     Parameter with custom forward and reverse transformations.
@@ -401,6 +349,132 @@ class TransformedParameter(Parameter):
         instance.forward_transform = forward_transform
         instance.inverse_transform = inverse_transform
         return instance
+
+
+@register_pytree_node_class
+class RescaledParameter(TransformedParameter):
+    """
+    Parameter optimized in units of a chosen scale.
+
+    Gradient optimizers step the differentiable leaf, not the physical value,
+    and Adam in particular moves each leaf by roughly the learning rate per
+    step whatever the gradient magnitude. Parameters that live on different
+    numeric scales therefore explore by very different *relative* amounts under
+    a single learning rate. Dividing each leaf by a scale of your choosing puts
+    them on a common footing.
+
+    Pick `scale` as the range the parameter should explore. That is often, but
+    not always, its starting value.
+
+    Parameters
+    ----------
+    value : Union[float, int, jnp.ndarray]
+        Initial value, in physical units.
+    scale : Union[float, int, jnp.ndarray]
+        Divisor applied to obtain the differentiable leaf. Must be non-zero,
+        and broadcastable against `value`.
+
+    Notes
+    -----
+    When the meaningful range of a parameter straddles zero, scaling by its own
+    starting value is the wrong choice: a parameter starting at 0.01 that has
+    to reach -0.05 would need its leaf to travel from 1 to -5, which a learning
+    rate tuned for the other parameters will never cover. Scale it by the width
+    of the range it must cross instead.
+
+    Use `NormalizedParameter` for the common case where the starting value is
+    itself the right scale.
+
+    Examples
+    --------
+    >>> # A coupling gain that should explore roughly its own magnitude
+    >>> g = RescaledParameter(0.15, scale=0.15)
+    >>> g.value            # leaf, order one
+    Array(1., dtype=float32)
+    >>> g.constrained_value  # physical value
+    Array(0.15, dtype=float32)
+    >>>
+    >>> # A bifurcation parameter starting near zero that must cross it
+    >>> a = RescaledParameter(0.01, scale=0.1)
+    >>> a.value            # leaf is 0.1, so a step of 1.0 reaches -0.09
+    Array(0.1, dtype=float32)
+    """
+
+    def __init__(
+        self,
+        value: Union[float, int, jnp.ndarray],
+        scale: Union[float, int, jnp.ndarray],
+    ) -> None:
+        self._initialize_rescaling(value, scale, validate_scale=True)
+
+    def _initialize_rescaling(self, value, scale, *, validate_scale: bool) -> None:
+        scale = jnp.asarray(scale)
+        if validate_scale and _is_concrete(scale) and bool(jnp.any(scale == 0)):
+            raise ValueError("scale must be non-zero")
+        # The scale is captured in the transforms rather than stored as pytree
+        # metadata. Metadata must be hashable with simple equality, which
+        # arrays are not, so holding it there breaks any structural comparison
+        # (lax.scan carries, value_and_grad output checks) once the values are
+        # traced or non-scalar.
+        super().__init__(value, lambda x: x * scale, lambda x: x / scale)
+
+    @property
+    def scale(self) -> jnp.ndarray:
+        """The divisor relating the leaf to the physical value."""
+        return self.forward_transform(jnp.ones(()))
+
+    def __repr__(self) -> str:
+        return (
+            f"RescaledParameter(value={self.__jax_array__()}, "
+            f"scale={self.scale}, leaf={self.value})"
+        )
+
+
+@register_pytree_node_class
+class NormalizedParameter(RescaledParameter):
+    """
+    Parameter rescaled by its own initial value, so its leaf starts at one.
+
+    The common case of `RescaledParameter`: the starting value is also the
+    scale, which suits parameters that should explore a range comparable to
+    where they begin. `.value` holds ones and `.constrained_value` returns
+    `scale * .value`.
+
+    Prefer `RescaledParameter` with an explicit scale when the parameter starts
+    near zero or has to change sign, since its own start is then far smaller
+    than the range it needs to cover.
+
+    Parameters
+    ----------
+    value : Union[float, int, jnp.ndarray]
+        The original parameter value, used as the static scale.
+
+    Examples
+    --------
+    >>> param = NormalizedParameter(jnp.array([2.0, 4.0, 6.0]))
+    >>> param.value  # Internal normalized storage (ones)
+    Array([1., 1., 1.], dtype=float32)
+    >>> param.__jax_array__()  # External scaled values (scale * ones)
+    Array([2., 4., 6.], dtype=float32)
+    >>> param.scale  # Static scale factor
+    Array([2., 4., 6.], dtype=float32)
+    """
+
+    def __init__(self, value: Union[float, int, jnp.ndarray]) -> None:
+        value = jnp.asarray(value)
+        # Zero starting values intentionally have zero scale: their normalized
+        # leaf is set to one below and their physical value remains fixed at
+        # zero. Explicit RescaledParameter scales remain strictly non-zero.
+        self._initialize_rescaling(value, scale=value, validate_scale=False)
+        # scale == value, so the leaf is ones. Set it directly rather than
+        # relying on value / scale, which is nan where an entry is zero.
+        self.value = jnp.ones_like(value)
+
+    def __repr__(self) -> str:
+        return (
+            f"NormalizedParameter(scale={self.scale}, normalized={self.value}, "
+            f"value ={self.__jax_array__()})"
+        )
 
 
 @register_pytree_node_class
@@ -512,10 +586,19 @@ class LogPositiveParameter(TransformedParameter):
         self, value: Union[float, int, jnp.ndarray], lower: float = 0.0
     ) -> None:
         value_array = jnp.asarray(value)
-        if jnp.any(value_array <= lower):
-            raise ValueError(f"Initial value must be > {lower}, got {value}")
+        self.validate_initial_value(value_array, lower=lower)
+
+        if not jnp.issubdtype(value_array.dtype, jnp.inexact):
+            value_array = value_array.astype(jnp.result_type(value_array, 1.0))
 
         self.lower = lower
+
+        # log(x - lower) is -inf at the bound and nan below it, so the offset is
+        # held just inside the open interval. Concrete input has already been
+        # rejected above; under a trace this is what keeps the leaf finite.
+        # The clamp is applied to the offset rather than to x, because
+        # `lower + tiny` rounds back to `lower` for any nonzero bound.
+        tiny = jnp.finfo(value_array.dtype).tiny
 
         def forward_transform(x):
             """Map from unconstrained space to (lower, ∞) using exp."""
@@ -523,9 +606,16 @@ class LogPositiveParameter(TransformedParameter):
 
         def inverse_transform(x):
             """Map from (lower, ∞) to unconstrained space using log."""
-            return jnp.log(x - lower)
+            return jnp.log(jnp.maximum(x - lower, tiny))
 
-        super().__init__(value, forward_transform, inverse_transform)
+        super().__init__(value_array, forward_transform, inverse_transform)
+
+    @staticmethod
+    def validate_initial_value(value, *, lower: float = 0.0) -> None:
+        """Reject concrete values outside the open lower bound."""
+        value_array = jnp.asarray(value)
+        if _is_concrete(value_array) and bool(jnp.any(value_array <= lower)):
+            raise ValueError(f"Initial value must be > {lower}, got {value}")
 
     def __repr__(self) -> str:
         return f"LogPositiveParameter({self.__jax_array__()}, lower={self.lower})"
@@ -577,10 +667,16 @@ class LogNegativeParameter(TransformedParameter):
         self, value: Union[float, int, jnp.ndarray], upper: float = 0.0
     ) -> None:
         value_array = jnp.asarray(value)
-        if jnp.any(value_array >= upper):
-            raise ValueError(f"Initial value must be < {upper}, got {value}")
+        self.validate_initial_value(value_array, upper=upper)
+
+        if not jnp.issubdtype(value_array.dtype, jnp.inexact):
+            value_array = value_array.astype(jnp.result_type(value_array, 1.0))
 
         self.upper = upper
+
+        # log(upper - x) is -inf at the bound and nan above it, so the offset is
+        # held just inside the open interval. See LogPositiveParameter.
+        tiny = jnp.finfo(value_array.dtype).tiny
 
         def forward_transform(x):
             """Map from unconstrained space to (-∞, upper) using -exp."""
@@ -588,9 +684,16 @@ class LogNegativeParameter(TransformedParameter):
 
         def inverse_transform(x):
             """Map from (-∞, upper) to unconstrained space using log."""
-            return jnp.log(upper - x)
+            return jnp.log(jnp.maximum(upper - x, tiny))
 
-        super().__init__(value, forward_transform, inverse_transform)
+        super().__init__(value_array, forward_transform, inverse_transform)
+
+    @staticmethod
+    def validate_initial_value(value, *, upper: float = 0.0) -> None:
+        """Reject concrete values outside the open upper bound."""
+        value_array = jnp.asarray(value)
+        if _is_concrete(value_array) and bool(jnp.any(value_array >= upper)):
+            raise ValueError(f"Initial value must be < {upper}, got {value}")
 
     def __repr__(self) -> str:
         return f"LogNegativeParameter({self.__jax_array__()}, upper={self.upper})"
@@ -652,60 +755,54 @@ class MaskedParameter(TransformedParameter):
         self, value: Union[float, int, jnp.ndarray], mask: jnp.ndarray
     ) -> None:
         value_array = jnp.asarray(value)
-        self.mask = jnp.asarray(mask, dtype=bool)
+        mask = jnp.asarray(mask, dtype=bool)
 
         # Ensure mask and value have compatible shapes
-        if self.mask.shape != value_array.shape:
+        if mask.shape != value_array.shape:
             raise ValueError(
-                f"Mask shape {self.mask.shape} must match value shape {value_array.shape}"
+                f"Mask shape {mask.shape} must match value shape {value_array.shape}"
             )
 
-        # Store frozen values (entries where mask is False)
-        self.frozen_values = jnp.where(self.mask, 0.0, value_array)
+        # Frozen values (entries where mask is False). Both this and the mask
+        # are captured by the transforms below rather than stored as pytree
+        # metadata; see the `mask` property.
+        frozen_values = jnp.where(mask, 0.0, value_array)
 
         def forward_transform(x):
             """Apply mask: use optimized values where mask=True, frozen values where mask=False."""
-            return jnp.where(self.mask, x, self.frozen_values)
+            return jnp.where(mask, x, frozen_values)
 
         def inverse_transform(x):
             """Extract optimizable values: set frozen entries to 0 in unconstrained space."""
-            return jnp.where(self.mask, x, 0.0)
+            return jnp.where(mask, x, 0.0)
 
         super().__init__(value, forward_transform, inverse_transform)
 
+    @property
+    def mask(self) -> jnp.ndarray:
+        """Which entries are optimized.
+
+        Recovered from the transform rather than stored as pytree metadata,
+        which must be hashable with simple equality and so cannot hold arrays.
+        `inverse_transform` maps ones to one where the entry is free and zero
+        where it is frozen.
+        """
+        return self.inverse_transform(jnp.ones_like(self.value)).astype(bool)
+
+    @property
+    def frozen_values(self) -> jnp.ndarray:
+        """The values held fixed at masked-out entries.
+
+        `forward_transform` maps zeros to zero at free entries and to the
+        frozen value elsewhere, which is exactly how they were stored.
+        """
+        return self.forward_transform(jnp.zeros_like(self.value))
+
     def __repr__(self) -> str:
-        n_optimizable = jnp.sum(self.mask)
-        n_frozen = jnp.sum(~self.mask)
-        return f"MaskedParameter(shape={self.mask.shape}, optimizable={n_optimizable}, frozen={n_frozen})"
-
-    def tree_flatten(
-        self,
-    ) -> Tuple[Tuple[jnp.ndarray], Tuple[jnp.ndarray, jnp.ndarray, callable, callable]]:
-        """Flatten for JAX pytree registration."""
-        children = (self.value,)
-        aux_data = (
-            self.mask,
-            self.frozen_values,
-            self.forward_transform,
-            self.inverse_transform,
-        )
-        return children, aux_data
-
-    @classmethod
-    def tree_unflatten(
-        cls,
-        aux_data: Tuple[jnp.ndarray, jnp.ndarray, callable, callable],
-        children: Tuple[jnp.ndarray],
-    ) -> "MaskedParameter":
-        """Unflatten for JAX pytree registration."""
-        mask, frozen_values, forward_transform, inverse_transform = aux_data
-        instance = cls.__new__(cls)
-        instance.value = children[0]
-        instance.mask = mask
-        instance.frozen_values = frozen_values
-        instance.forward_transform = forward_transform
-        instance.inverse_transform = inverse_transform
-        return instance
+        mask = self.mask
+        n_optimizable = jnp.sum(mask)
+        n_frozen = jnp.sum(~mask)
+        return f"MaskedParameter(shape={mask.shape}, optimizable={n_optimizable}, frozen={n_frozen})"
 
 
 @register_pytree_node_class

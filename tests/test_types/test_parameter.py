@@ -18,10 +18,12 @@ import pytest
 
 from tvboptim.types.parameter import (
     BoundedParameter,
+    LogNegativeParameter,
     LogPositiveParameter,
     MaskedParameter,
     NormalizedParameter,
     Parameter,
+    RescaledParameter,
     SigmoidBoundedParameter,
     extract_values,
     is_parameter,
@@ -280,8 +282,14 @@ class TestNormalizedParameter(unittest.TestCase):
         self.assertEqual(len(children), 1)
         np_testing.assert_array_equal(children[0], jnp.ones(2))
 
-        # Scale should be in aux_data (static)
-        np_testing.assert_array_equal(aux_data, original_value)
+        # The scale rides in the transforms, not in aux_data. JAX requires
+        # metadata to be hashable with simple equality, which an array is not:
+        # holding the scale there broke every structural comparison once the
+        # values were traced or non-scalar.
+        self.assertFalse(
+            any(isinstance(a, jnp.ndarray) for a in aux_data),
+            "aux_data must not contain arrays",
+        )
 
         # Test unflatten
         reconstructed = NormalizedParameter.tree_unflatten(aux_data, children)
@@ -582,6 +590,7 @@ CONSTRAINED_VALUE_CASES = [
     (lambda: BoundedParameter(0.5, low=0.0, high=1.0), 0.5),
     (lambda: BoundedParameter(-0.0001, low=0.0, high=1.0), 0.0),  # clipped on read
     (lambda: NormalizedParameter(100.0), 100.0),
+    (lambda: RescaledParameter(0.01, scale=0.1), 0.01),
     (lambda: SigmoidBoundedParameter(0.641, low=0.0, high=1.0), 0.641),
     (lambda: LogPositiveParameter(2.0), 2.0),
     (
@@ -597,6 +606,170 @@ def test_constrained_value(make, expected):
     p = make()
     np_testing.assert_allclose(p.constrained_value, p.__jax_array__())
     np_testing.assert_allclose(p.constrained_value, expected, rtol=1e-5)
+
+
+# Vector-valued builders, taken through the pytree contract below. A scalar
+# scale used to hide the metadata bug because bool() of a one-element array is
+# well defined, so these are deliberately non-scalar.
+PYTREE_CASES = [
+    pytest.param(lambda v: Parameter(v), id="Parameter"),
+    pytest.param(lambda v: NormalizedParameter(v), id="Normalized"),
+    pytest.param(lambda v: RescaledParameter(v, scale=0.1), id="Rescaled"),
+    pytest.param(lambda v: BoundedParameter(v, low=0.0, high=10.0), id="Bounded"),
+    pytest.param(
+        lambda v: SigmoidBoundedParameter(v, low=0.0, high=10.0), id="SigmoidBounded"
+    ),
+    pytest.param(lambda v: LogPositiveParameter(v), id="LogPositive"),
+    pytest.param(
+        lambda v: MaskedParameter(v, jnp.array([True, False, True])), id="Masked"
+    ),
+]
+VEC = jnp.array([1.0, 2.0, 3.0])
+
+
+@pytest.mark.parametrize("make", PYTREE_CASES)
+def test_aux_data_holds_no_arrays(make):
+    """JAX metadata must be hashable with simple equality; arrays are neither.
+
+    NormalizedParameter used to put its scale array here, which made every
+    structural comparison raise once the values were traced or non-scalar.
+    """
+    _children, aux_data = make(VEC).tree_flatten()
+    aux = aux_data if isinstance(aux_data, tuple) else (aux_data,)
+    for entry in aux:
+        assert not isinstance(entry, jnp.ndarray), f"array in aux_data: {entry!r}"
+
+
+@pytest.mark.parametrize("make", PYTREE_CASES)
+def test_treedef_comparison_under_trace(make):
+    """Comparing treedefs built from distinct tracers must not raise.
+
+    This is the operation lax.scan performs on its carry and value_and_grad
+    performs on its output, so a failure here breaks chunked optimization.
+    """
+    outcome = {}
+
+    def probe(a, b):
+        try:
+            jax.tree.structure(make(a)) == jax.tree.structure(make(b))
+            outcome["error"] = None
+        except Exception as exc:  # noqa: BLE001 - recorded and re-raised below
+            outcome["error"] = exc
+        return a
+
+    jax.eval_shape(probe, VEC, VEC)
+    assert outcome["error"] is None, f"treedef comparison raised: {outcome['error']}"
+
+
+@pytest.mark.parametrize("make", PYTREE_CASES)
+def test_pytree_roundtrip_preserves_type_and_value(make):
+    """A tree_map round trip returns the same type and constrained value."""
+    original = make(VEC)
+    restored = jax.tree.map(lambda x: x, original)
+    assert type(restored) is type(original)
+    np_testing.assert_allclose(
+        restored.constrained_value, original.constrained_value, rtol=1e-6
+    )
+
+
+@pytest.mark.parametrize("make", PYTREE_CASES)
+def test_constructible_under_trace(make):
+    """Every parameter type must be constructible from a traced value.
+
+    Axis `wrap=` callables run inside the mapped model, so a constructor that
+    branches on its value on the host cannot be used there at all.
+    """
+    outcome = {}
+
+    def probe(x):
+        try:
+            make(x)
+            outcome["error"] = None
+        except Exception as exc:  # noqa: BLE001 - reported below
+            outcome["error"] = exc
+        return x
+
+    jax.eval_shape(probe, VEC)
+    assert outcome["error"] is None, f"construction raised: {outcome['error']}"
+
+
+# (builder, out-of-range value, message fragment) for the one-sided log types.
+LOG_RANGE_CASES = [
+    (lambda v: LogPositiveParameter(v), -1.0, "must be > 0.0"),
+    (lambda v: LogPositiveParameter(v, lower=1.0), 0.5, "must be > 1.0"),
+    (lambda v: LogNegativeParameter(v), 1.0, "must be < 0.0"),
+    (lambda v: LogNegativeParameter(v, upper=5.0), 6.0, "must be < 5.0"),
+]
+
+
+@pytest.mark.parametrize("make, bad, message", LOG_RANGE_CASES)
+def test_log_parameter_rejects_out_of_range_when_concrete(make, bad, message):
+    """A host-side value outside the open interval still fails loudly."""
+    with pytest.raises(ValueError, match=message):
+        make(bad)
+
+
+@pytest.mark.parametrize("make, bad, _message", LOG_RANGE_CASES)
+def test_log_parameter_clamps_out_of_range_when_traced(make, bad, _message):
+    """Under a trace the value cannot be inspected, so it is clamped instead.
+
+    The leaf stays finite rather than becoming -inf at the bound or nan past
+    it, which would otherwise poison the whole optimization silently.
+    """
+    leaf = jax.jit(lambda v: make(v).value)(jnp.asarray(bad))
+    assert bool(jnp.isfinite(leaf)), f"leaf was {leaf}"
+
+
+def test_normalized_is_rescaled_by_its_own_value():
+    """NormalizedParameter is the scale=value special case of RescaledParameter."""
+    normalized = NormalizedParameter(VEC)
+    rescaled = RescaledParameter(VEC, scale=VEC)
+    np_testing.assert_allclose(normalized.value, rescaled.value)
+    np_testing.assert_allclose(normalized.scale, rescaled.scale)
+    np_testing.assert_allclose(normalized.constrained_value, rescaled.constrained_value)
+    assert isinstance(normalized, RescaledParameter)
+
+
+def test_normalized_handles_zero_entries():
+    """A zero entry must give a leaf of one, not value / scale = nan."""
+    p = NormalizedParameter(jnp.array([0.0, 2.0]))
+    np_testing.assert_array_equal(p.value, jnp.ones(2))
+    np_testing.assert_array_equal(p.constrained_value, jnp.array([0.0, 2.0]))
+
+
+def test_rescaled_leaf_can_cross_zero():
+    """The reason to choose a scale other than the starting value.
+
+    A parameter starting at 0.01 that must reach -0.05 needs a leaf that
+    travels O(1). Scaling by its own start would demand a travel of 6.
+    """
+    own_start = RescaledParameter(0.01, scale=0.01)
+    range_scaled = RescaledParameter(0.01, scale=0.1)
+    assert float(own_start.value) == pytest.approx(1.0)
+    assert float(range_scaled.value) == pytest.approx(0.1)
+    # Same leaf step of 1.0 in each case:
+    own_start.value = own_start.value - 1.0
+    range_scaled.value = range_scaled.value - 1.0
+    assert float(own_start.constrained_value) == pytest.approx(0.0, abs=1e-9)
+    assert float(range_scaled.constrained_value) < -0.05
+
+
+@pytest.mark.parametrize(
+    "make, expected",
+    [
+        (lambda: LogPositiveParameter(2), 2.0),
+        (lambda: LogNegativeParameter(-2), -2.0),
+    ],
+)
+def test_log_parameters_accept_integer_initial_values(make, expected):
+    parameter = make()
+    assert jnp.issubdtype(parameter.value.dtype, jnp.inexact)
+    assert float(parameter.constrained_value) == pytest.approx(expected)
+
+
+def test_rescaled_parameter_rejects_zero_scale():
+    with pytest.raises(ValueError, match="scale must be non-zero"):
+        RescaledParameter(1.0, scale=0.0)
 
 
 if __name__ == "__main__":

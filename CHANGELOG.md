@@ -30,6 +30,33 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Added the `effective_max_delay` and `delay_steps_bound` helpers.
   - See `docs/workflows/Delay_Speed_Synchronization.qmd` for a worked
     speed-sweep and gradient workflow.
+- **Swept values can now initialize optimisable parameters.** An axis accepts an
+  optional `wrap=` callable, applied when each selected value is materialised
+  into the state. This supports multi-start optimisation without parameter
+  construction inside the mapped model.
+  - Wrapper arguments are explicit because axis sampling bounds and parameter
+    constraints are separate concepts. Bind bounds with `functools.partial`,
+    for example `wrap=partial(SigmoidBoundedParameter, low=0.05, high=3.0)`.
+  - Wrapper configuration is explicit; invalid callables fail naturally when
+    a selected value is materialised.
+  - The wrap runs on the per-combination value rather than the stacked array,
+    so `size`, `Space.N`, axis grouping, and `to_dataframe` are unaffected.
+    Axes without `wrap` substitute raw arrays.
+  - `Space.collect(combine=True)` rejects wrapped spaces because a vector
+    parameter is not generally equivalent to independently materialised lane
+    parameters. `collect(combine=False)` returns raw batched axis arrays.
+  - See `docs/basics/axes_and_spaces.qmd` for a worked multi-start optimisation.
+- **Added `RescaledParameter` for optimisation in user-defined units.** Its leaf
+  is `value / scale`, so the scale relates optimiser updates to changes in the
+  physical parameter.
+  - Choose a scale from the characteristic expected change. Initial-value
+    scaling can be unsuitable near zero or when the parameter must change sign.
+  - `NormalizedParameter` is now the `scale = value` special case and is
+    implemented on top of it. Its public behaviour is unchanged: `.value` holds
+    ones, `.scale` returns the original value, and `.constrained_value` returns
+    `scale * .value`.
+  - See `docs/workflows/Hopf_Pareto_ParallelOpt.qmd`, where the coupling gain
+    and the bifurcation parameter need different scales.
 - Added `Parameter.constrained_value` and clearer parameter display helpers.
 - Added Python 3.14 support.
 - Added stable sparse `edge_indices` and `gather_edges()` APIs for constructing
@@ -37,6 +64,26 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **`OptaxOptimizer.run` uses `lax.scan` when traced.** This prevents the
+  compiled graph from growing linearly with `max_steps`. If `chunk_size` is
+  unset, traced execution uses one scan. An explicit smaller value produces
+  multiple sequential scans and may increase compilation overhead.
+  - Traced execution rejects Python callbacks because they cannot observe
+    individual runtime steps.
+  - `chunk_size` values below 1 are rejected; `chunk_size=0` previously hung.
+- **Array-valued parameter configuration is no longer stored as pytree
+  metadata.** JAX metadata requires scalar equality and hashability. The scale
+  for `NormalizedParameter`, and the mask and fixed values for
+  `MaskedParameter`, are now captured by their transforms. This permits stable
+  tree comparisons in `lax.scan` and batched optimisation.
+- **`LogPositiveParameter` and `LogNegativeParameter` support traced
+  construction.** Concrete inputs retain strict range validation. Wrapped axis
+  values are validated before mapped execution, and traced inverse transforms
+  clamp their bound offsets to a positive finite value.
+- **`Space` preserves parameters that are not on an axis.** States can combine
+  swept values with existing optimisable parameters.
+- **`OptaxOptimizer.run` rejects states without `Parameter` leaves.** This
+  prevents an ineffective optimisation when a swept value is missing `wrap=`.
 - **Custom coupling `pre()` now receives pre-aligned operands and must be
   elementwise.** The framework fetches source and target values, applies edge
   weights, and reduces; `pre()` performs only elementwise math on operands that

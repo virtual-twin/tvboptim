@@ -1,6 +1,6 @@
 ---
 title: "Competing Objectives in Hopf Network Fitting: FC vs. Frequency Gradient"
-subtitle: "Optimizing two contradictory losses together acts as a biological regularizer"
+subtitle: "Parallel optimization from Pareto-selected initial states"
 format:
   html:
     code-fold: false
@@ -22,19 +22,19 @@ Try this notebook interactively:
 
 ## Introduction
 
-We fit a delay-coupled Hopf network to two targets at once: an empirical **functional connectivity (FC)** matrix and a spatial **peak-frequency gradient**. The point of this workflow is what happens when those targets disagree.
+We fit a delay-coupled Hopf network to two targets: an empirical **functional connectivity (FC)** matrix and a spatial **peak-frequency gradient**. This workflow examines their trade-off.
 
-Optimized on its own, each target drives the model into a biologically implausible corner:
+In this model and dataset, optimizing either target alone favors a limiting regime:
 
-- **FC correlation alone** is maximized by *global oversynchronization*: drive the coupling $G$ up until every region phase-locks. FC correlation looks excellent, but the regional frequency structure collapses onto a single global rhythm.
-- **The frequency-gradient term alone** is maximized by *decoupling*: drive $G \to 0$ so every node free-runs at its own natural frequency. The gradient is reproduced perfectly, but with no coupling there is no FC structure left.
+- **FC correlation alone** favors stronger coupling and greater synchronization, which reduces regional frequency differences.
+- **The frequency-gradient term alone** favors weaker coupling, which preserves regional natural frequencies but reduces interaction-driven FC structure.
 
-The two objectives therefore pull toward opposite ends of the $G$ axis. Optimizing them *together* acts as a **biological regularizer**: each term holds the other back from its degenerate optimum, forcing the fit into the intermediate, metastable regime where real cortex operates. The aim is a *plausible* fit, not a perfect one — a single Hopf node is a coarse caricature of a brain region, so some residual mismatch is expected by construction.
+The combined loss penalizes both limits and favors an intermediate model regime. This is a model-based regularization effect, not evidence that the fitted regime uniquely characterizes cortical dynamics. Residual mismatch is expected because each brain region is represented by a single Hopf oscillator.
 
 We first show the conflict directly on one starting point, then build the workflow around it in two stages:
 
-0. **Genetic pre-search (NSGA-II)** over $(G, a, \sigma)$. We *skip* searching $\omega$ here: the natural frequency of an isolated Hopf node is just $\omega/2\pi$, so we can initialize $\omega$ directly from the per-region target peak frequencies. The GA's job is then only to find global scalars that counteract the frequency-shift induced by coupling, while every region already starts from the correct natural frequency. $\omega$ remains a parameter of the gradient stage.
-1. **Parallel gradient optimization from every Pareto seed.** We *skip* the per-region pretune step and instead launch one full multimodal optimization per non-dominated solution on the Pareto front, all running in parallel via `ParallelExecution`. A small wrapper turns the `OptaxOptimizer.run` loop into something that can be pmap/lax.map-ed, and it constructs the differentiable initial state from the scalar GA values that arrive batched through `DataAxis`.
+0. **Genetic pre-search (NSGA-II)** over $(G, a, \sigma)$. With time measured in milliseconds, the isolated-node relation $f_{\mathrm{Hz}}=1000\omega/(2\pi)$ provides a direct initialization for $\omega$. The genetic search therefore estimates only the global parameters, while $\omega$ remains optimisable in the gradient stage.
+1. **Parallel gradient optimization from each Pareto seed.** Every non-dominated solution initializes one gradient run. Axis `wrap=` callables construct and scale the differentiable parameters before the mapped optimization.
 
 At the end we compare how the different starting points performed: their starting GA metrics, their post-optimization metrics, and where each of them ended up on the FC vs. frequency-gradient trade-off.
 
@@ -54,6 +54,7 @@ except ImportError:
 #| code-summary: "Environment Setup and Imports"
 #| echo: true
 import os
+from functools import partial
 cpu = True
 if cpu:
     N = 8
@@ -70,7 +71,11 @@ import optax
 
 jax.config.update("jax_enable_x64", True)
 
-from tvboptim.types import Parameter, BoundedParameter, DataAxis
+from tvboptim.types import (
+    DataAxis,
+    RescaledParameter,
+    SigmoidBoundedParameter,
+)
 from tvboptim.types.spaces import Space
 from tvboptim.execution import ParallelExecution
 from tvboptim.utils import set_cache_path, cache
@@ -124,6 +129,27 @@ peak_freqs_target = f_max - (f_max - f_min) / (max_dist - min_dist) * (dist_from
 # GA and gradient stages so that every region already starts from the right
 # natural frequency.
 omega_target = 2 * np.pi * peak_freqs_target / 1000.0
+
+# Bounds for omega during optimization. The interval is wider than the target
+# range of 7-11 Hz but excludes the zero-frequency limit. A sigmoid transform
+# provides a smooth bounded coordinate.
+OMEGA_HZ_LOW, OMEGA_HZ_HIGH = 1.0, 30.0
+omega_low  = 2 * np.pi * OMEGA_HZ_LOW / 1000.0
+omega_high = 2 * np.pi * OMEGA_HZ_HIGH / 1000.0
+
+# Adam updates the transformed parameter leaves. Under one learning rate, the
+# corresponding physical step depends on each parameter transformation.
+# Rescaling G and a makes their leaf coordinates comparable.
+#
+# G uses a characteristic magnitude of 0.15. The scale for a is 0.10, based on
+# the interval it must traverse to cross the Hopf bifurcation at zero.
+#
+# Omega uses a logit coordinate. Increasing the common learning rate moves this
+# coordinate farther; dividing the G and a scales by the same factor preserves
+# their approximate physical step sizes.
+OMEGA_STEP_BOOST = 3.0
+G_SCALE = 0.15 / OMEGA_STEP_BOOST
+A_SCALE = 0.10 / OMEGA_STEP_BOOST
 ```
 
 ## Building the Hopf Network
@@ -177,7 +203,7 @@ The loss adds the two competing objectives, each written as a negative correlati
 
 $$\mathcal{L} = -\,\rho_{\mathrm{FC}} \;-\; \rho_{\text{freq-grad}}$$
 
-The first term, `fc_loss`, rewards matching the empirical FC matrix; on its own it is minimized by global synchronization (large $G$). The second, `fgrad_corr`, rewards reproducing the spatial peak-frequency gradient — the Pearson $\rho$ between the soft-argmax peak frequencies and the target gradient; on its own it is minimized by decoupling ($G \to 0$). Carrying both terms is the regularization: neither can reach its degenerate optimum without paying in the other.
+The first term, `fc_loss`, rewards agreement with the empirical FC matrix. The second uses the Pearson correlation between soft peak-frequency estimates and the target gradient. In this example, the terms favor stronger and weaker coupling, respectively, so their sum penalizes either limiting solution.
 
 ```{python}
 #| echo: true
@@ -216,7 +242,7 @@ def loss(state):
 
 ## The Conflict, Demonstrated
 
-Before building the full workflow, we test the intro's claim directly. From one moderate starting point we run three short optimizations of 50 Adam steps each: one on the FC term alone, one on the frequency-gradient term alone, one on the combined loss. Then we see where each lands.
+We first run three 200-step optimizations from one moderate starting point: one for each individual term and one for their sum.
 
 The starting point is a hand-picked moderate-coupling state, with $G$, $a$, and $\sigma$ close to a mid-front Pareto solution from Stage 0 but hardcoded here so the demonstration does not depend on the GA. All three runs free the same parameters as the main workflow: $G$ and per-region $a$ and $\omega$. Because $\omega$ is free, the gradient-only run can retune per-region frequencies without lowering $G$, so its pull may come out weaker than the FC-only run's.
 
@@ -225,8 +251,8 @@ The starting point is a hand-picked moderate-coupling state, with $G$, $a$, and 
 #| output: false
 #| code-fold: true
 #| code-summary: "Show ablation setup"
-LR               = 0.001
-N_ABLATION_STEPS = 50
+LR               = 0.005 * OMEGA_STEP_BOOST   # leaf units; see the rescaling note
+N_ABLATION_STEPS = 200
 
 def loss_fc_only(state):
     _, _, fc, _ = simulate(state)
@@ -262,10 +288,14 @@ def _ablation_metrics(eval_state):
 def run_one_ablation(opt):
     """Optimize the motivation seed under `opt` for N_ABLATION_STEPS, omega free."""
     abl_state = copy.deepcopy(state)
-    abl_state.coupling.instant.G = Parameter(jnp.asarray(motivation_seed["G"]))
-    abl_state.dynamics.a         = Parameter(motivation_seed["a"] * jnp.ones(n_nodes))
-    abl_state.dynamics.omega     = BoundedParameter(jnp.asarray(omega_target),
-                                                    0.0, jnp.inf)
+    abl_state.coupling.instant.G = RescaledParameter(
+        jnp.asarray(motivation_seed["G"]), G_SCALE
+    )
+    abl_state.dynamics.a = RescaledParameter(
+        motivation_seed["a"] * jnp.ones(n_nodes), A_SCALE
+    )
+    abl_state.dynamics.omega     = SigmoidBoundedParameter(jnp.asarray(omega_target),
+                                                           omega_low, omega_high)
     abl_state.noise.sigma        = jnp.asarray(motivation_seed["sigma"])
     final_state, _ = opt.run(abl_state, max_steps=N_ABLATION_STEPS,
                              chunk_size=N_ABLATION_STEPS)
@@ -301,7 +331,7 @@ for k in ["start", "fc_only", "grad_only", "combined"]:
 
 ```{python}
 #| label: fig-ablation-fan
-#| fig-cap: "**Each loss pulls the fit a different way.** Three 50-step Adam optimizations from one moderate-coupling seed (black circle), each minimizing a different loss; stars mark the endpoints. Lower-left is good on both objectives. All three free $G$ and per-region $a$ and $\\omega$."
+#| fig-cap: "**Each loss pulls the fit a different way.** Three 200-step Adam optimizations from one moderate-coupling seed (black circle), each minimizing a different loss; stars mark the endpoints. Lower-left is good on both objectives. All three free $G$ and per-region $a$ and $\\omega$."
 #| echo: true
 #| code-fold: true
 #| code-summary: "Show plotting code"
@@ -332,7 +362,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-The rest of the workflow handles this trade-off systematically — Stage 0 maps the whole front, Stage 1 optimizes from every point on it.
+Stage 0 estimates the Pareto front, and Stage 1 optimizes from every point on it.
 
 ## Stage 0: Genetic Pre-Search (NSGA-II)
 
@@ -509,44 +539,33 @@ plt.show()
 
 ## Stage 1: Parallel Gradient Optimization From Every Pareto Seed
 
-Instead of selecting one Pareto solution and pretuning per-region $\omega/a$ on a short simulation, we treat **every** Pareto front entry as an independent starting point for the full multimodal optimization, and run them all in parallel via `ParallelExecution`.
+Each Pareto-front entry initializes an independent multimodal optimization, executed in parallel with `ParallelExecution`.
 
-Inside the wrapper we wrap the three optimization targets in `Parameter` via direct attribute assignment — the same pattern Stage 0 used for `DataAxis`. The optimizer is built once at module scope (`OptaxOptimizer.run` is pure: it re-partitions the state and re-inits optimizer state on every call). Per-seed we return just the optimized parameter values plus the scalar metrics; reconstructing the best-seed state for diagnostics is a one-liner downstream.
+Each target declares its parameter wrapper when the `Space` is constructed, leaving the mapped function to optimize and evaluate the state. Each run reinitializes its optimizer state. The result stores fitted parameters and scalar metrics for each seed.
 
 ```{python}
 #| echo: true
-N_OPT_STEPS = 200   # gradient steps per seed; one fused jax.lax.scan
+N_OPT_STEPS = 200   # gradient steps per seed
 
 # `optimizer` (combined loss, adam at LR) was built in the motivation section.
 
 def optimize_from_seed(seed_state):
     """Run one full gradient optimization seeded by a single GA Pareto solution.
 
-    `seed_state` arrives with DataAxis already sliced: G, a, sigma are
-    scalars (one per Pareto row), and omega is the (n_nodes,) target
-    frequency carried unchanged from `state`. We wrap the three
-    optimization targets in Parameter, hand the state to OptaxOptimizer.run
-    (chunk_size == max_steps fuses the entire run into one lax.scan), then
-    re-simulate to score it.
+    `seed_state` arrives ready to optimize: G, a and omega are already
+    Parameters because the axes carrying them declared a `wrap=`. Omega has no
+    axis and is wrapped once before constructing the Space. During traced
+    execution, `run` represents its step loop with `lax.scan`.
     """
-    G_val     = jnp.asarray(seed_state.coupling.instant.G)
-    a_val     = jnp.asarray(seed_state.dynamics.a)
-    omega_per = jnp.asarray(seed_state.dynamics.omega)
-
-    seed_state.coupling.instant.G = Parameter(G_val)
-    seed_state.dynamics.a         = Parameter(a_val * jnp.ones(n_nodes))
-    seed_state.dynamics.omega     = BoundedParameter(omega_per, 0.0, jnp.inf)
-
-    final_state, _ = optimizer.run(
-        seed_state, max_steps=N_OPT_STEPS, chunk_size=N_OPT_STEPS,
-    )
+    final_state, _ = optimizer.run(seed_state, max_steps=N_OPT_STEPS)
 
     _, _, fc_f, psd_f = simulate(final_state)
     final_peaks     = soft_peak_freqs(psd_f)
     final_fc_corr   = fc_corr(fc_f, fc_target)
     final_freq_corr = jnp.corrcoef(final_peaks, peak_freqs_target)[0, 1]
-    # jnp.asarray on a BoundedParameter triggers __jax_array__, so
-    # omega comes out already in its constrained physical-radians form.
+    # jnp.asarray on a SigmoidBoundedParameter triggers __jax_array__, so omega
+    # comes out already in its constrained physical-radians form rather than the
+    # unconstrained logit-space leaf the optimizer actually updates.
     return {
         "final_loss":      -final_fc_corr - final_freq_corr,
         "final_fc_corr":   final_fc_corr,
@@ -560,7 +579,7 @@ def optimize_from_seed(seed_state):
 
 ### Running the parallel sweep
 
-We feed every Pareto seed as a row of a zip-mode `Space` over `DataAxis`-wrapped batches, exactly the same pattern Stage 0 used to evaluate populations.
+Each Pareto seed is one row of a zip-mode `Space`. The `G` and `a` axes use `wrap=` because their values initialize gradient variables. The `sigma` axis remains a raw array because it is not optimized.
 
 ```{python}
 #| echo: true
@@ -568,10 +587,19 @@ We feed every Pareto seed as a row of a zip-mode `Space` over `DataAxis`-wrapped
 @cache("parallel_pareto_opt", redo=False)
 def run_parallel_pareto_opt():
     seed_state = copy.deepcopy(state)
-    seed_state.coupling.instant.G = DataAxis(jnp.asarray(pareto_df["G"].to_numpy()))
-    seed_state.dynamics.a         = DataAxis(jnp.asarray(pareto_df["a"].to_numpy()))
-    seed_state.noise.sigma        = DataAxis(jnp.asarray(pareto_df["sigma"].to_numpy()))
-    # omega stays as the per-region target frequency from `state` — not batched.
+    seed_state.coupling.instant.G = DataAxis(
+        jnp.asarray(pareto_df["G"].to_numpy()),
+        wrap=partial(RescaledParameter, scale=G_SCALE),
+    )
+    seed_state.dynamics.a = DataAxis(
+        jnp.asarray(pareto_df["a"].to_numpy()),
+        wrap=lambda v: RescaledParameter(v * jnp.ones(n_nodes), A_SCALE),
+    )
+    seed_state.noise.sigma = DataAxis(jnp.asarray(pareto_df["sigma"].to_numpy()))
+    # Omega is not batched, so it is wrapped before constructing the Space.
+    seed_state.dynamics.omega = SigmoidBoundedParameter(
+        jnp.asarray(state.dynamics.omega), omega_low, omega_high,
+    )
 
     space = Space(seed_state, mode="zip")
     execution = ParallelExecution(optimize_from_seed, space, n_pmap=N)
@@ -633,7 +661,7 @@ print(summary_df[display_cols].round(4).to_string(index=False))
 
 ```{python}
 #| label: fig-pareto-trajectories
-#| fig-cap: "**Where each seed landed after gradient optimization.** Circles: GA Pareto front (starting objectives: PSD MAE to 9 Hz vs $1 - \\rho_{FC}$). Stars: post-optimization objectives. Arrows connect each seed's start to its end. Color encodes the coupling strength $G$ on a shared scale — circles show the GA seed value, stars the gradient-optimized value. The color scale is capped so the gradient across the GA seeds stays visible; $G$ values above the cap clip to the top color (arrow on the colorbar)."
+#| fig-cap: "**Where each seed landed after gradient optimization.** Circles show the GA Pareto front, stars show post-optimization objectives, and arrows connect each seed to its result. Color denotes coupling strength $G$. Values above the displayed range use the highest color."
 #| echo: true
 #| code-fold: true
 #| code-summary: "Show plotting code"
@@ -714,7 +742,7 @@ mask_best = peak_freqs_best > 0
 
 ```{python}
 #| label: fig-best-summary
-#| fig-cap: "**Diagnostics for the best seed.** **a:** Spectrogram of the highlighted region — note that the instantaneous peak frequency drifts and jumps over time, a coupling-driven network effect rather than a fixed single-region rhythm. **b:** Fitted vs. target peak frequency per region; the dashed line is identity, $\\rho_P$ / $\\rho_S$ are the Pearson / Spearman correlations. Because each fitted value is a soft-argmax collapsed over the whole recording, this time-averaging masks the wandering seen in panel a — the apparent tight clustering along the identity line is therefore weaker than it looks. **c:** BOLD time courses, highlighted region in blue. **d:** Target FC (lower triangle) vs. estimated FC (upper triangle)."
+#| fig-cap: "**Diagnostics for the best seed.** **a:** Spectrogram of one region, showing temporal variation in peak frequency. **b:** Fitted and target peak frequencies by region; the dashed line is identity and $\\rho_P$ / $\\rho_S$ are Pearson and Spearman correlations. The fitted values summarize the full recording and do not represent the temporal variation in panel a. **c:** BOLD time courses, with the selected region in blue. **d:** Target FC below the diagonal and estimated FC above it."
 #| echo: true
 #| code-fold: true
 #| code-summary: "Show plotting code"

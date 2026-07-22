@@ -14,7 +14,7 @@ execute:
 
 # Introduction & Overview
 
-The Axes and Spaces system is a generic parameter exploration framework for JAX-based models. It operates on [JAX pytrees](https://jax.readthedocs.io/en/latest/pytrees.html) — any nested container JAX can traverse: plain dicts, lists, dataclasses, NamedTuples, or the config objects returned by `prepare`. Replace any leaf with an axis, pass the container to `Space`, and you get a sequence of fully-resolved parameter combinations ready to run.
+The Axes and Spaces system is a generic parameter exploration framework for JAX-based models. It operates on [JAX pytrees](https://jax.readthedocs.io/en/latest/pytrees.html), including plain dicts, lists, dataclasses, NamedTuples, and the config objects returned by `prepare`. Replace any leaf with an axis and pass the container to `Space` to obtain fully resolved parameter combinations.
 
 The examples in this section use plain dicts to keep the mechanics visible. The execution section applies the same system to a real brain network model config.
 
@@ -27,7 +27,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tvboptim.types.spaces import Space, GridAxis, UniformAxis, DataAxis, NumPyroAxis
 
-# Any pytree works — here a plain dict with two axes and one fixed value
+# Any pytree works; here a plain dict has two axes and one fixed value
 preview_state = {
     'coupling_strength': GridAxis(0.0, 2.0, 4),
     'noise_level': UniformAxis(0.01, 0.1, 3),
@@ -66,7 +66,7 @@ Each axis type uses a different sampling strategy; the interface is always the s
 
 ## GridAxis - Deterministic Sampling
 
-GridAxis samples a deterministic grid across a parameter range — identical values every run, no randomness.
+GridAxis samples a deterministic grid across a parameter range. It returns the same values on every run.
 
 ```{python}
 # Basic grid sampling
@@ -118,7 +118,7 @@ plt.show()
 
 ### Shape Broadcasting
 
-GridAxis (and UniformAxis) support a `shape` parameter. Each sample becomes a constant array of that shape — useful for parameters that are shared uniformly across brain regions:
+GridAxis and UniformAxis support a `shape` parameter. Each sample becomes a constant array of that shape, which is useful for parameters shared across brain regions:
 
 ```{python}
 # Example: Regional coupling strengths (68 brain regions)
@@ -429,7 +429,7 @@ plt.show()
 
 ## Basic Space Creation
 
-Space takes a state tree — axes where you want variation, plain values where you don't — and generates all parameter combinations from it.
+Space takes a state tree with axes at varying leaves and plain values at fixed leaves, then generates the requested parameter combinations.
 
 ```{python}
 # Create a realistic brain simulation parameter space
@@ -655,7 +655,7 @@ Nested state structures produce dot-separated column names (e.g. `model.G`, `noi
 
 # Execution: Running Functions Over Spaces
 
-The axis and space system works with any pure JAX function — not just TVB network models. The examples here use a real brain network, which is the typical use case.
+The axis and space system works with any pure JAX function. The examples use a brain network model, a common application in TVB-Optim.
 
 ```{python}
 import copy
@@ -678,7 +678,7 @@ solve_fn, base_cfg = prepare(network, Heun(), t0=0.0, t1=5.0, dt=0.1)
 print(f"Prepared: {n_nodes}-node RWW network, {int(5.0/0.1)} time steps")
 ```
 
-`prepare` returns a compiled solve function and a config object. Axes attach directly to config leaves — `solve_fn` stays constant across the whole sweep.
+`prepare` returns a compiled solve function and a config object. Axes attach directly to config leaves, while `solve_fn` remains constant across the sweep.
 
 ```{python}
 def observe(cfg):
@@ -768,9 +768,65 @@ plt.tight_layout()
 plt.show()
 ```
 
+## Optimising Inside a Sweep
+
+An axis varies a state slot across lanes, while a `Parameter` marks a slot as differentiable. Multi-start optimisation needs both: each lane selects an initial value and then optimises it.
+
+`wrap=` bridges the two. It is applied to the axis' value for each combination as it is substituted back into the state, so the model receives a `Parameter` and can optimise it directly:
+
+```{python}
+from functools import partial
+
+from tvboptim.optim import OptaxOptimizer
+from tvboptim.types import SigmoidBoundedParameter
+import optax
+
+# Eight starting points for the same parameter, optimised in parallel
+starts = jnp.linspace(0.15, 0.9, 8)
+
+multistart = {
+    'G': DataAxis(starts, wrap=partial(SigmoidBoundedParameter, low=0.05, high=1.0)),
+    'target': 0.6,
+}
+
+def fit(state):
+    def loss(s):
+        return (s['G'].constrained_value - s['target']) ** 2
+
+    opt = OptaxOptimizer(loss=loss, optimizer=optax.adam(0.05))
+    final, _ = opt.run(state, max_steps=100)
+    return final['G'].constrained_value
+
+space = Space(multistart, mode='zip')
+fitted = ParallelExecution(fit, space, n_vmap=4, n_pmap=1).run()
+print(f"Recovered from {len(starts)} starts: {jnp.ravel(jnp.asarray(fitted.results))}")
+```
+
+`fit` contains no parameter construction. The axis defines the wrapper and its arguments once.
+
+Axis sampling bounds and parameter constraints are independent concepts, even when they happen to use the same interval. Bounded wrappers therefore require explicit values through `functools.partial`. A misconfigured wrapper raises when its first selected value is materialised.
+
+Axes without `wrap` substitute raw arrays. Wrapping occurs per combination, so it does not affect `size`, `Space.N`, grouping, or `to_dataframe`.
+
+Wrapping is a per-combination operation. A vector-valued `Parameter` is not
+generally equivalent to a batch of scalar parameters, particularly when its
+transform depends on the initial value. Therefore,
+`Space.collect(combine=True)` rejects wrapped axes. Use `ParallelExecution` or
+iteration for materialised states, and `collect(combine=False)` for raw batched
+axis arrays.
+
+Custom wrappers must be pure, trace-compatible callables that accept one
+selected value and return the same JAX pytree structure for every value.
+Built-in parameter types with strict input domains validate generated axis
+values before mapped execution begins.
+
+::: {.callout-tip}
+`OptaxOptimizer.run` detects tracing and represents its step loop with `lax.scan`, avoiding graph unrolling with `max_steps` inside `ParallelExecution`. Per-step callbacks are unavailable under tracing; see [Parameters and Optimization](parameters_and_optimization.qmd).
+:::
+
 ## Performance Comparison
 
-For trivial models the JIT and dispatch overhead of parallel execution outweighs the speedup — sequential wins at small scale. The crossover depends on model complexity and problem size.
+For inexpensive models, JIT compilation and dispatch can cost more than parallel execution saves. The crossover depends on model complexity and problem size.
 
 ```{python}
 import time
@@ -839,10 +895,10 @@ print(result.to_dataframe())
 
 # Scanning Noise Seeds for Stochastic Simulations
 
-When the model is stochastic (a `Network` with an `AbstractNoise` attached, integrated with a native solver), the PRNG key that drives the per-step noise increments lives at `config.noise.key`. Because the key is a regular leaf on the prepared config, you can place an axis on it the same way you place axes on any other parameter — no wrapper function, no per-point key swapping. The axis system substitutes the leaf with the per-point value before each call.
+For a stochastic `Network` integrated with a native solver, `config.noise.key` controls the per-step noise increments. Because the key is a regular leaf in the prepared config, an axis can replace it directly. The axis system substitutes the per-point key before each call.
 
 ```{python}
-# Attach axes directly to the config — the leaves they target are
+# Attach axes directly to the config; the leaves they target are
 # substituted with per-point values at execution time.
 grid_state = copy.deepcopy(base_cfg)
 grid_state.coupling.instant.G = GridAxis(0.3, 1.5, 8)                       # Coupling sweep
@@ -859,6 +915,6 @@ observations = ParallelExecution(observation, space, n_vmap=8, n_pmap=1).run()
 Two things to know:
 
 - **No re-`prepare` per seed.** The PRNG key is a config leaf, so the axis system substitutes it like any other parameter. `jax.vmap` over the resulting key batch dimension batches the single `jax.random.normal(config.noise.key, ...)` call inside the solve function, with no compile churn beyond the initial JIT.
-- **Common random numbers across parameter sweeps.** Place the `DataAxis` of keys on its own (so it shares one key across all `G` values), or use `mode='zip'` to pair them — every `G` point then sees the same realised noise trajectory. This is the classic variance-reduction trick for finite-difference sensitivity estimates.
+- **Common random numbers across parameter sweeps.** Place the `DataAxis` of keys on its own to share one key across all `G` values, or use `mode='zip'` to pair keys and parameter values. Reusing noise trajectories can reduce variance in comparisons between parameter settings.
 
-For workflows that need the increments materialised as an addressable tensor (NumPyro inference over Brownian increments, deterministic replay of a recorded trajectory), populate `config._internal.noise_samples` with an array of shape `[n_steps, n_noise_states, n_nodes]`. The scan branches on this field at trace time and uses it in place of in-scan sampling. Flipping between `None` and an array triggers a one-time JIT retrace. The injection slot is native-only — the Diffrax dispatch supports the same `config.noise.key` swap pattern shown above, but its `VirtualBrownianTree` cannot consume a pre-sampled array.
+For workflows that require addressable increments, such as inference over Brownian increments or deterministic replay, set `config._internal.noise_samples` to an array with shape `[n_steps, n_noise_states, n_nodes]`. The scan selects this field at trace time instead of sampling internally. Changing between `None` and an array triggers JIT retracing. This input is supported only by native solvers. Diffrax supports changing `config.noise.key`, but its `VirtualBrownianTree` does not consume pre-sampled arrays.

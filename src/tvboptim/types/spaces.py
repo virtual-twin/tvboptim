@@ -10,7 +10,8 @@ The system consists of:
 - **Centralized key management**: Single random key for all stochastic operations
 - **JAX-native integration**: Full support for vmap/pmap parallel execution
 
-Axes generate raw JAX arrays only. Parameter creation is handled separately by user code.
+Axes generate raw JAX arrays. An optional ``wrap`` is applied only when a
+selected axis value is materialized into a state.
 
 Examples
 --------
@@ -33,6 +34,8 @@ Examples
 >>> subset = space[10:20]
 """
 
+import functools
+import inspect
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -42,6 +45,8 @@ import jax.numpy as jnp
 import numpy as np
 import pandas as pd
 
+from tvboptim.types.parameter import Parameter
+from tvboptim.types.stateutils import combine_state
 from tvboptim.utils import safe_reshape
 
 
@@ -76,6 +81,67 @@ try:
     NUMPYRO_AVAILABLE = True
 except ImportError:
     NUMPYRO_AVAILABLE = False
+
+# =============================================================================
+# Wrap materialization
+# =============================================================================
+
+def _validate_wrap_values(wrap, values):
+    """Run optional concrete-domain validation exposed by a wrap callable.
+
+    Signature validation can establish that a wrapper accepts one value, but
+    cannot safely execute arbitrary user callables ahead of tracing. Built-in
+    parameter factories with strict input domains may instead expose
+    ``validate_initial_value``. ``functools.partial`` keyword arguments are
+    forwarded to that hook.
+    """
+    if wrap is None:
+        return
+
+    keywords = {}
+    factory = wrap
+    while isinstance(factory, functools.partial):
+        # Outer partial keywords take precedence over inner ones, matching
+        # functools.partial's call semantics.
+        keywords = {**(factory.keywords or {}), **keywords}
+        factory = factory.func
+
+    validator = getattr(factory, "validate_initial_value", None)
+    if validator is None:
+        return
+
+    try:
+        accepted = inspect.signature(validator).parameters
+    except (TypeError, ValueError):
+        accepted = {}
+    validator_kwargs = {
+        key: value for key, value in keywords.items() if key in accepted
+    }
+    validator(values, **validator_kwargs)
+
+
+def _substitute_axis_values(axis_state, axis_values_tree):
+    """Replace each axis in `axis_state` with its value, applying any wrap.
+
+    The wrap runs here, on the value for a single combination, rather than in
+    `Space._generate_axis_values`. Wrapping earlier would put Parameter
+    objects in front of `_get_effective_sizes`, `_calculate_total_size` and
+    the meshgrid in `_generate_all_combinations`, all of which assume plain
+    broadcastable arrays whose leading dimension is the axis dimension.
+    """
+
+    def replace_axis_with_value(axis, value):
+        if isinstance(axis, AbstractAxis):
+            return value if axis.wrap is None else axis.wrap(value)
+        return axis
+
+    return jax.tree.map(
+        replace_axis_with_value,
+        axis_state,
+        axis_values_tree,
+        is_leaf=lambda x: isinstance(x, AbstractAxis),
+    )
+
 
 # =============================================================================
 # Abstract Base Classes
@@ -121,7 +187,7 @@ class AbstractAxis(ABC):
     >>> print(f"Normal samples: {values}")
     """
 
-    def __init__(self, group=None):
+    def __init__(self, group=None, wrap=None):
         """Initialize axis.
 
         Parameters
@@ -130,8 +196,25 @@ class AbstractAxis(ABC):
             Group label. Axes sharing the same group are zipped together
             into a single composite axis before the Space's combination
             mode is applied. Default is None (ungrouped).
+        wrap : callable, optional
+            Applied to this axis' value for each combination as it is
+            substituted back into the state, so a swept slot can also be an
+            optimisable `Parameter`. Default is None (substitute the raw
+            array, the previous behaviour).
+
+            Use `functools.partial` to bind any additional arguments explicitly.
+            Axis sampling bounds and Parameter constraints are independent.
+
+            The wrap runs on the per-combination value, not on the stacked
+            array, so it does not affect `size`, `Space.N`, grouping, or
+            `to_dataframe`.
         """
         self.group = group
+        self.wrap = wrap
+
+    def validate_wrap_values(self, values):
+        """Validate generated values when the wrap provides a hook."""
+        _validate_wrap_values(self.wrap, values)
 
     @abstractmethod
     def generate_values(self, key: Optional[jax.random.PRNGKey] = None) -> jnp.ndarray:
@@ -201,6 +284,7 @@ class GridAxis(AbstractAxis):
         n: int,
         shape: Optional[Tuple[int, ...]] = None,
         group=None,
+        wrap=None,
     ):
         """Initialize grid axis.
 
@@ -217,8 +301,11 @@ class GridAxis(AbstractAxis):
             Default is None.
         group : hashable, optional
             Group label for axis grouping. See AbstractAxis. Default is None.
+        wrap : callable, optional
+            Wrapper applied to each substituted value. See AbstractAxis.
+            Default is None.
         """
-        super().__init__(group=group)
+        super().__init__(group=group, wrap=wrap)
         self.low = low
         self.high = high
         self.n = n
@@ -301,6 +388,7 @@ class LogGridAxis(AbstractAxis):
         n: int,
         shape: Optional[Tuple[int, ...]] = None,
         group=None,
+        wrap=None,
     ):
         """Initialize log grid axis.
 
@@ -317,8 +405,11 @@ class LogGridAxis(AbstractAxis):
             Default is None.
         group : hashable, optional
             Group label for axis grouping. See AbstractAxis. Default is None.
+        wrap : callable, optional
+            Wrapper applied to each substituted value. See AbstractAxis.
+            Default is None.
         """
-        super().__init__(group=group)
+        super().__init__(group=group, wrap=wrap)
         self.low = low
         self.high = high
         self.n = n
@@ -405,6 +496,7 @@ class UniformAxis(AbstractAxis):
         n: int,
         shape: Optional[Tuple[int, ...]] = None,
         group=None,
+        wrap=None,
     ):
         """Initialize uniform axis.
 
@@ -421,8 +513,11 @@ class UniformAxis(AbstractAxis):
             Default is None.
         group : hashable, optional
             Group label for axis grouping. See AbstractAxis. Default is None.
+        wrap : callable, optional
+            Wrapper applied to each substituted value. See AbstractAxis.
+            Default is None.
         """
-        super().__init__(group=group)
+        super().__init__(group=group, wrap=wrap)
         self.low = low
         self.high = high
         self.n = n
@@ -501,7 +596,7 @@ class DataAxis(AbstractAxis):
     >>> print(data_jax.size)  # 5
     """
 
-    def __init__(self, values: Union[List, jnp.ndarray], group=None):
+    def __init__(self, values: Union[List, jnp.ndarray], group=None, wrap=None):
         """Initialize data axis.
 
         Parameters
@@ -510,8 +605,13 @@ class DataAxis(AbstractAxis):
             Predefined values to sample from.
         group : hashable, optional
             Group label for axis grouping. See AbstractAxis. Default is None.
+        wrap : callable, optional
+            Wrapper applied to each substituted value. See AbstractAxis. A
+            bounded parameter type must have its bounds bound explicitly, e.g.
+            `wrap=partial(SigmoidBoundedParameter, low=..., high=...)`.
+            Default is None.
         """
-        super().__init__(group=group)
+        super().__init__(group=group, wrap=wrap)
         self.values = jnp.asarray(values)
 
         if self.values.size == 0:
@@ -605,6 +705,7 @@ class NumPyroAxis(AbstractAxis):
         sample_shape: Optional[Tuple[int, ...]] = None,
         broadcast_mode: bool = False,
         group=None,
+        wrap=None,
     ):
         """Initialize NumPyro distribution axis.
 
@@ -621,8 +722,12 @@ class NumPyroAxis(AbstractAxis):
             If False, sample independently for each element. Default is False.
         group : hashable, optional
             Group label for axis grouping. See AbstractAxis. Default is None.
+        wrap : callable, optional
+            Wrapper applied to each substituted value. See AbstractAxis. A
+            bounded parameter type must have its bounds bound explicitly via
+            `functools.partial`. Default is None.
         """
-        super().__init__(group=group)
+        super().__init__(group=group, wrap=wrap)
 
         if not NUMPYRO_AVAILABLE:
             raise ImportError(
@@ -826,9 +931,16 @@ class Space:
 
         _reject_topology_axes(state)
 
-        # Use equinox.partition to separate axes from static values
+        # Use equinox.partition to separate axes from static values.
+        # Parameter must be a leaf here: without it, partition descends into a
+        # Parameter that is not on an axis and splits it, leaving a hollow copy
+        # (value=None) in axis_state that then wins the recombine. Treating it
+        # as a leaf sends it whole to static_state, so a state can mix swept
+        # slots with slots that are already optimisable Parameters.
         self.axis_state, self.static_state = eqx.partition(
-            state, lambda x: isinstance(x, AbstractAxis)
+            state,
+            lambda x: isinstance(x, AbstractAxis),
+            is_leaf=lambda x: isinstance(x, (AbstractAxis, Parameter)),
         )
         axes = jax.tree.leaves(
             self.axis_state, is_leaf=lambda x: isinstance(x, AbstractAxis)
@@ -914,7 +1026,13 @@ class Space:
             if isinstance(axis, AbstractAxis):
                 # Always pass a key, even if not needed (to avoid correlations)
                 axis_key = next(key_iter)
-                return axis.generate_values(axis_key)
+                values = axis.generate_values(axis_key)
+                # This runs before mapped execution starts tracing. It keeps
+                # strict built-in parameter domains consistent between indexed,
+                # sequential, and parallel materialization without attempting
+                # to execute arbitrary user wrappers eagerly.
+                axis.validate_wrap_values(values)
+                return values
             return axis  # Not an axis, return as-is
 
         return jax.tree.map(
@@ -1028,23 +1146,28 @@ class Space:
         # Index into each flattened array to get values for this combination
         indexed_values = [arr[index] for arr in flattened_arrays]
 
-        # Reconstruct axis tree with indexed values
-        axis_values_tree = jax.tree.unflatten(axis_tree_def, indexed_values)
+        return self._materialize_flat_values(axis_tree_def, indexed_values)
 
-        # Replace axes with their values using tree_map
-        def replace_axis_with_value(axis, value):
-            if isinstance(axis, AbstractAxis):
-                return value
-            return axis
+    def _materialize_flat_values(self, axis_tree_def, flat_values):
+        """Materialize one lane of raw axis values into a complete state.
 
-        processed_axis_tree = jax.tree.map(
-            replace_axis_with_value,
-            self.axis_state,
-            axis_values_tree,
-            is_leaf=lambda x: isinstance(x, AbstractAxis),
+        This is the single substitution path used by indexing, iteration, and
+        mapped execution. In particular, execution backends must not apply
+        axis wrappers independently.
+        """
+        axis_values_tree = jax.tree.unflatten(axis_tree_def, flat_values)
+        processed_axis_tree = _substitute_axis_values(self.axis_state, axis_values_tree)
+        # combine_state, not eqx.combine: a wrap may have put a Parameter in
+        # this slot, which must stay a leaf rather than being descended into.
+        return combine_state(processed_axis_tree, self.static_state)
+
+    @property
+    def has_wraps(self) -> bool:
+        """Whether any axis materializes its selected value through a wrapper."""
+        axes = jax.tree.leaves(
+            self.axis_state, is_leaf=lambda x: isinstance(x, AbstractAxis)
         )
-
-        return eqx.combine(processed_axis_tree, self.static_state)
+        return any(axis.wrap is not None for axis in axes)
 
     # Iterator protocol for sequential execution
     def __iter__(self):
@@ -1063,24 +1186,9 @@ class Space:
             else:
                 # Index directly into pre-generated arrays
                 indexed_values = [arr[self.i] for arr in self.flattened_arrays]
-                axis_values_tree = jax.tree.unflatten(
+                state = self._materialize_flat_values(
                     self.axis_tree_def, indexed_values
                 )
-
-                # Replace axes with values
-                def replace_axis_with_value(axis, value):
-                    if isinstance(axis, AbstractAxis):
-                        return value
-                    return axis
-
-                processed_axis_tree = jax.tree.map(
-                    replace_axis_with_value,
-                    self.axis_state,
-                    axis_values_tree,
-                    is_leaf=lambda x: isinstance(x, AbstractAxis),
-                )
-
-                state = eqx.combine(processed_axis_tree, self.static_state)
 
             self.i += 1
             return state
@@ -1131,8 +1239,9 @@ class Space:
             axes_flat = jax.tree.leaves(
                 self.axis_state, is_leaf=lambda x: isinstance(x, AbstractAxis)
             )
+            # Forward the wrapper because the sliced values are still raw.
             data_axes = [
-                DataAxis(values, group=axis.group)
+                DataAxis(values, group=axis.group, wrap=axis.wrap)
                 for values, axis in zip(sliced_arrays, axes_flat)
             ]
             new_axis_state = jax.tree.unflatten(axis_tree_def, data_axes)
@@ -1173,8 +1282,10 @@ class Space:
             Default is jnp.nan.
         combine : bool, optional
             Whether to combine the static state with the parameter combinations
-            into a complete state. If False, returns (axis_tree, static_state) tuple.
-            Default is True.
+            into a complete state. This is supported only for spaces without
+            wrapped axes, because wrapping is a per-combination operation. If
+            False, returns the raw ``(axis_tree, static_state)`` tuple. Default
+            is True.
 
         Returns
         -------
@@ -1188,6 +1299,12 @@ class Space:
         If the total requested size (n_pmap * n_vmap * n_map) exceeds the number
         of combinations N, padding with fill_value will be used.
 
+        Raises
+        ------
+        ValueError
+            If ``combine=True`` and an axis has a wrapper. Use per-combination
+            materialization or ``combine=False`` instead.
+
         Examples
         --------
         >>> # Create space with 100 combinations
@@ -1200,6 +1317,14 @@ class Space:
         >>> # Use with JAX transformations
         >>> results = jax.pmap(jax.vmap(simulation_fn))(batched_states)
         """
+        if combine and self.has_wraps:
+            raise ValueError(
+                "Space.collect(combine=True) cannot materialize wrapped axes "
+                "as one batched state: wrappers are applied to one combination "
+                "at a time. Use ParallelExecution, iterate over the Space, or "
+                "call collect(combine=False) for raw mapping inputs."
+            )
+
         # Calculate batch dimensions
         shape = tuple()
         if n_vmap is None:

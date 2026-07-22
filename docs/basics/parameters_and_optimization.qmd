@@ -112,8 +112,24 @@ def loss_wrapper(diff_state, static_state):
     state = combine_state(diff_state, static_state) # Recombine parameters with static values
     return loss(state)
 
-jax.grad(loss_wrapper)(diff_state, static_state) # grad by default acts only on the first argument    
+jax.grad(loss_wrapper)(diff_state, static_state) # grad by default acts only on the first argument
 ```
+
+Because the optimizer acts on this partition, a state without `Parameter` leaves has no optimisation variables. `run` raises instead of performing ineffective updates.
+
+## Optimizing Under a Trace
+
+Outside JAX tracing, `run` uses a Python loop and can invoke a callback after each step. During tracing, for example inside `ParallelExecution`, a Python loop would be unrolled into the compiled graph.
+
+`run` detects this case and uses `jax.lax.scan`. The scan representation avoids linear growth of the compiled graph with `max_steps`.
+
+When traced, an unset `chunk_size` defaults to `max_steps` and produces one scan. An explicit smaller value produces approximately `max_steps / chunk_size` sequential scans and may increase graph size and compilation time. It does not change the update sequence.
+
+::: {.callout-warning}
+A Python callback cannot observe individual values during tracing. `run` therefore rejects callbacks in traced execution. Run the optimizer outside the trace when per-step monitoring is required.
+:::
+
+Within a `Space` sweep, `n_vmap` controls batch width while the scan controls optimisation steps. See [Axes and Spaces](axes_and_spaces.qmd) for making swept values optimisable with `wrap=`.
 
 ## Enforcing Constraints
 
@@ -142,11 +158,14 @@ We provide several predefined parameter types. Recall the [two views](#two-views
 | `Parameter` | none | the value itself |
 | `BoundedParameter` | clipped to `[low, high]` on read | unclipped, may sit outside bounds |
 | `SigmoidBoundedParameter` | smoothly mapped into `[low, high]` | logit space, may be negative |
-| `NormalizedParameter` | none; rescales for balanced gradients | normalized to ones |
+| `NormalizedParameter` | none; rescales by the initial value | normalized to ones |
+| `RescaledParameter` | none; rescales by a scale you choose | `value / scale` |
 | `MaskedParameter` | freezes masked entries | unconstrained entries only |
 | `TransformedParameter` | custom forward/inverse transform | unconstrained pre-image |
 
-Custom constraints can be implemented as well, for that either `Parameter` can be subclassed directly or we use `TransformedParameter` and define our constraint as forward and reverse transforms. The example below builds a sigmoid bounded parameter from scratch, which is exactly how the built-in `SigmoidBoundedParameter` is defined. It has the advantage over `BoundedParameter` that we always get a gradient, while the `BoundedParameter` returns 0 when the constraint is violated and it then stays at the lower or upper bound indefinitely.
+`NormalizedParameter` uses its initial value as the scale. Use `RescaledParameter` when the expected parameter change provides a more appropriate scale. This is especially relevant near zero, where initial-value scaling can require a large displacement in the transformed coordinate to cross zero.
+
+Custom constraints can subclass `Parameter` or use `TransformedParameter` with forward and inverse transformations. The following example implements a sigmoid-bounded parameter. Unlike hard clipping, the sigmoid transformation remains differentiable outside the physical interval, although its gradient approaches zero near the bounds.
 
 ```{python}
 from tvboptim.types import TransformedParameter, SigmoidBoundedParameter

@@ -144,6 +144,9 @@ class OptaxOptimizer:
             program (no intermediate callbacks).
             Default is ``None`` (original per-step Python loop).
 
+            ``chunk_size`` also bounds graph size, and therefore memory, when
+            this call is traced -- see Notes.
+
         Returns
         -------
         tuple
@@ -161,8 +164,52 @@ class OptaxOptimizer:
         The method automatically selects appropriate gradient computation based
         on the mode parameter and loss function characteristics. Reverse-mode
         is typically preferred for parameter optimization scenarios.
+
+        **Running under a trace (e.g. inside ParallelExecution):**
+
+        The per-step Python loop unrolls into the graph when this call is
+        traced, so graph size and peak memory would grow with ``max_steps``.
+        When tracing is detected and no callback is registered, ``chunk_size``
+        therefore defaults to ``max_steps``, giving a single ``lax.scan`` whose
+        cost is independent of ``max_steps``. An explicitly passed
+        ``chunk_size`` is respected; peak memory is flat either way, because
+        XLA reuses buffers across sequential scans, but compile time still
+        grows with ``max_steps / chunk_size``.
+
+        A callback cannot work under a trace -- it would fire once, at trace
+        time, on tracers rather than per step on values -- so registering one
+        and tracing this call raises.
         """
+        if chunk_size is not None and chunk_size < 1:
+            raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")
+
         diff_state, static_state = partition_state(state)
+
+        if not jax.tree.leaves(diff_state):
+            raise ValueError(
+                "No Parameter leaves to optimize: partitioning the state found "
+                "nothing differentiable, so every step would be a no-op. Wrap "
+                "the values you want optimized in a Parameter; if this state "
+                "came from a Space, the axis substituted a raw array and the "
+                "axis needs a wrap= (e.g. wrap=Parameter or an explicitly "
+                "configured functools.partial)"
+            )
+
+        # A Python step loop unrolls under trace, making graph size scale with
+        # max_steps. One scan of the full length is O(1) in max_steps instead.
+        traced = any(
+            isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(diff_state)
+        )
+        if traced:
+            if self.callback is not None:
+                raise ValueError(
+                    "A callback cannot run under a trace: it would fire once at "
+                    "trace time on tracers, not per step on values. Remove the "
+                    "callback to optimize inside a traced call such as "
+                    "ParallelExecution, or run the optimizer outside the trace"
+                )
+            if chunk_size is None:
+                chunk_size = max(max_steps, 1)
 
         def __loss(diff_state, static_state):
             state = combine_state(diff_state, static_state)
