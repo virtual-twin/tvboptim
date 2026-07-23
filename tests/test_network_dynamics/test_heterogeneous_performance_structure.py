@@ -61,23 +61,49 @@ def _network(n_nodes, n_groups, sparse=False):
     )
 
 
-def _nested_jaxprs(value):
-    if isinstance(value, jax_core.ClosedJaxpr):
-        yield value.jaxpr
-        yield from _nested_jaxprs(value.jaxpr)
-    elif isinstance(value, jax_core.Jaxpr):
-        for equation in value.eqns:
-            yield from _nested_jaxprs(equation.params)
-    elif isinstance(value, Mapping):
-        for child in value.values():
-            yield from _nested_jaxprs(child)
-    elif isinstance(value, (tuple, list)):
-        for child in value:
-            yield from _nested_jaxprs(child)
+def _nested_jaxprs(value, active=None):
+    """Yield encountered Jaxprs without following representation cycles.
+
+    JAX versions differ in how nested and closed Jaxprs are exposed. In
+    particular, their runtime type checks can overlap, and wrapper references
+    may be cyclic. Check the concrete Jaxpr case first and guard only the
+    active traversal path so a Jaxpr used at two genuine call sites is still
+    counted twice.
+    """
+    if active is None:
+        active = set()
+    value_id = id(value)
+    if value_id in active:
+        return
+
+    traversable = isinstance(
+        value, (jax_core.Jaxpr, jax_core.ClosedJaxpr, Mapping, tuple, list)
+    )
+    if not traversable:
+        return
+
+    active.add(value_id)
+    try:
+        # This order matters on JAX versions where the two runtime type checks
+        # overlap: treating a Jaxpr as a ClosedJaxpr can follow .jaxpr to self.
+        if isinstance(value, jax_core.Jaxpr):
+            yield value
+            for equation in value.eqns:
+                yield from _nested_jaxprs(equation.params, active)
+        elif isinstance(value, jax_core.ClosedJaxpr):
+            yield from _nested_jaxprs(value.jaxpr, active)
+        elif isinstance(value, Mapping):
+            for child in value.values():
+                yield from _nested_jaxprs(child, active)
+        else:
+            for child in value:
+                yield from _nested_jaxprs(child, active)
+    finally:
+        active.remove(value_id)
 
 
 def _all_jaxprs(closed):
-    return (closed.jaxpr, *_nested_jaxprs(closed.jaxpr))
+    return tuple(_nested_jaxprs(closed))
 
 
 def _primitive_count(closed, primitive_name):
