@@ -146,6 +146,10 @@ quartodoc:
       package: tvboptim.experimental.network_dynamics
       contents:
         - Network
+        - DynamicsGroup
+        - SignalRoute
+        - HeterogeneousNetwork
+        - HeterogeneousSolution
         - Bunch
         - solve
         - prepare

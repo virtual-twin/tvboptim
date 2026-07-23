@@ -4,6 +4,7 @@ import jax.numpy as jnp
 import pytest
 
 from tvboptim.experimental.network_dynamics import (
+    Bunch,
     DynamicsGroup,
     HeterogeneousNetwork,
     Network,
@@ -29,11 +30,41 @@ def _groups():
 
 
 def test_interleaved_partition_is_normalized_and_order_is_canonical():
-    network = HeterogeneousNetwork(graph=_graph(), groups=_groups())
+    network = HeterogeneousNetwork(graph=_graph(), groups=Bunch(_groups()))
     assert network.group_names == ("a", "b")
     assert network.group_nodes == {"a": (0, 2, 5), "b": (1, 3, 4)}
     assert network.initial_state_for("a").shape == (1, 3)
     assert network.initial_state_for("b").shape == (6, 3)
+
+
+def test_public_representations_summarize_static_structure():
+    groups = _groups()
+    route = SignalRoute(
+        source={"a": "x"},
+        coupling=LinearCoupling(G=0.5),
+        target={"a": "instant"},
+    )
+    network = HeterogeneousNetwork(
+        graph=_graph(), groups=groups, routes={"activity": route}
+    )
+
+    assert "dynamics=Linear" in repr(groups["a"])
+    assert "sources=['a']" in repr(route)
+    assert "coupling=LinearCoupling" in repr(route)
+    assert "n_nodes=6" in repr(network)
+    assert "a:Linear" in repr(network)
+    assert "routes=['activity']" in repr(network)
+
+
+def test_public_mapping_arguments_fail_with_specific_errors():
+    with pytest.raises(TypeError, match="external_input must be a mapping"):
+        DynamicsGroup(Linear(), [0], external_input=[])
+    with pytest.raises(TypeError, match=r"SignalRoute\.source must be a mapping"):
+        SignalRoute(source=[], coupling=LinearCoupling(), target={})
+    with pytest.raises(TypeError, match="groups must be a mapping"):
+        HeterogeneousNetwork(graph=_graph(), groups=[])
+    with pytest.raises(TypeError, match="routes must be a mapping"):
+        HeterogeneousNetwork(graph=_graph(), groups=_groups(), routes=[])
 
 
 def test_boolean_mask_and_custom_initial_state():

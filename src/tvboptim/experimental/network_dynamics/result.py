@@ -5,6 +5,7 @@ ensuring consistent API across solver types.
 """
 
 import warnings
+from collections.abc import Mapping
 from typing import Optional, Sequence, Tuple, Union
 
 import jax.numpy as jnp
@@ -312,7 +313,30 @@ class NativeSolution:
 
 @tree_util.register_pytree_with_keys_class
 class HeterogeneousSolution:
-    """One shared time grid and naturally shaped trajectories per group."""
+    """Trajectories for named dynamics groups on one shared time grid.
+
+    Args:
+        ts: Shared time points with shape ``[n_time]``.
+        ys: Mapping from group names to natural trajectory arrays with shape
+            ``[n_time, n_variables, n_group_nodes]``.
+        dt: Optional integration time step, stored as static PyTree metadata.
+        variable_names: Optional mapping from group names to variable names in
+            trajectory-axis order.
+        group_nodes: Optional mapping from group names to their graph-node order.
+            Required, together with ``n_nodes``, for ``to_graph()``.
+        n_nodes: Optional size of the shared graph.
+
+    Attributes:
+        ts: Shared time points.
+        ys: Raw arrays in a ``Bunch`` keyed by group name.
+        dt: Optional integration time step.
+        variable_names: Variable-name tuples keyed by group.
+        n_nodes: Optional shared graph size.
+
+    Notes:
+        ``groups`` constructs lightweight ``NativeSolution`` views for named
+        selection and plotting. Use ``ys`` when direct array access is preferred.
+    """
 
     def __init__(
         self,
@@ -324,30 +348,47 @@ class HeterogeneousSolution:
         group_nodes=None,
         n_nodes=None,
     ):
+        if not isinstance(ys, Mapping):
+            raise TypeError("ys must be a mapping from group names to trajectories")
         self.ts = ts
         self.ys = Bunch(ys)
         self.dt = dt
         names = variable_names or {}
         nodes = group_nodes or {}
+        if not isinstance(names, Mapping):
+            raise TypeError("variable_names must be a mapping or None")
+        if not isinstance(nodes, Mapping):
+            raise TypeError("group_nodes must be a mapping or None")
+        unknown_names = set(names) - set(self.ys)
+        unknown_nodes = set(nodes) - set(self.ys)
+        if unknown_names or unknown_nodes:
+            raise ValueError(
+                "solution metadata must refer to trajectory groups; "
+                f"unknown variable_names={sorted(unknown_names)}, "
+                f"group_nodes={sorted(unknown_nodes)}"
+            )
         self.variable_names = {
             name: tuple(names[name]) if names.get(name) is not None else None
             for name in sorted(self.ys)
         }
         self._group_nodes = {
-            name: tuple(int(node) for node in nodes[name]) for name in sorted(self.ys)
+            name: tuple(int(node) for node in nodes[name]) for name in sorted(nodes)
         }
         self.n_nodes = int(n_nodes) if n_nodes is not None else None
 
     @property
     def time(self):
+        """Alias for ``ts``."""
         return self.ts
 
     @property
     def data(self):
+        """Alias for the raw group-array ``ys`` mapping."""
         return self.ys
 
     @property
     def groups(self):
+        """Construct ``NativeSolution`` views keyed by group name."""
         return Bunch(
             {
                 name: NativeSolution(
@@ -362,6 +403,7 @@ class HeterogeneousSolution:
 
     @property
     def group_nodes(self):
+        """Graph-node indices for groups with available projection metadata."""
         return Bunch(
             {
                 name: jnp.asarray(nodes, dtype=jnp.int32)
@@ -370,7 +412,21 @@ class HeterogeneousSolution:
         )
 
     def to_graph(self, variable, groups=None, fill_value=jnp.nan):
-        """Project one named variable from selected groups to graph-node order."""
+        """Project one named variable from selected groups to graph-node order.
+
+        Args:
+            variable: Variable name to select from each chosen group.
+            groups: Optional group names. With ``None``, groups lacking the
+                variable are skipped; explicitly selected groups must provide it.
+            fill_value: Value for graph nodes not represented by the selection.
+
+        Returns:
+            Array with shape ``[n_time, n_nodes]``.
+
+        Raises:
+            ValueError: If graph metadata, selected groups, or the requested
+                variable are unavailable.
+        """
         if self.n_nodes is None:
             raise ValueError("n_nodes metadata is required for graph projection")
         selected_groups = list(self.ys) if groups is None else list(groups)
@@ -379,6 +435,12 @@ class HeterogeneousSolution:
         unknown = set(selected_groups) - set(self.ys)
         if unknown:
             raise ValueError(f"Unknown solution groups: {sorted(unknown)}")
+        missing_nodes = set(selected_groups) - set(self._group_nodes)
+        if missing_nodes:
+            raise ValueError(
+                "group_nodes metadata is required for graph projection; "
+                f"missing {sorted(missing_nodes)}"
+            )
 
         dtype = jnp.result_type(
             *[self.ys[name].dtype for name in selected_groups],

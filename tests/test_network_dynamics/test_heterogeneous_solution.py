@@ -66,3 +66,40 @@ def test_heterogeneous_solution_is_a_jittable_pytree():
     assert jnp.array_equal(scaled.ys.a, 2.0 * result.ys.a)
     assert scaled.variable_names == result.variable_names
     assert scaled._group_nodes == result._group_nodes
+
+
+def test_projection_metadata_is_optional_until_projection_is_requested():
+    result = HeterogeneousSolution(
+        jnp.array([0.1, 0.2]),
+        {"a": jnp.ones((2, 1, 3))},
+        variable_names={"a": ("x",)},
+    )
+    assert result.groups.a.sel("x").shape == (2, 3)
+    assert result.group_nodes == {}
+    with pytest.raises(ValueError, match="n_nodes metadata"):
+        result.to_graph("x")
+
+    with_graph_size = HeterogeneousSolution(
+        result.ts,
+        result.ys,
+        variable_names=result.variable_names,
+        n_nodes=3,
+    )
+    with pytest.raises(ValueError, match="group_nodes metadata"):
+        with_graph_size.to_graph("x")
+
+
+def test_solution_public_errors_and_representation_are_specific():
+    with pytest.raises(TypeError, match="ys must be a mapping"):
+        HeterogeneousSolution(jnp.array([0.1]), [])
+    with pytest.raises(ValueError, match="unknown variable_names"):
+        HeterogeneousSolution(
+            jnp.array([0.1]),
+            {"a": jnp.ones((1, 1, 1))},
+            variable_names={"missing": ("x",)},
+        )
+
+    text = repr(_solution())
+    assert text.startswith("HeterogeneousSolution(")
+    assert "'a': (3, 2, 3)" in text
+    assert "dt=0.1" in text

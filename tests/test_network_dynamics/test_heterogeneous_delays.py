@@ -146,7 +146,9 @@ def test_one_group_delayed_route_matches_ordinary_network(
     assert jnp.array_equal(grouped.groups.all.ys, ordinary.ys)
 
 
-@pytest.mark.parametrize("coupling_type", [DelayedLinearCoupling, DelayedDifferenceCoupling])
+@pytest.mark.parametrize(
+    "coupling_type", [DelayedLinearCoupling, DelayedDifferenceCoupling]
+)
 def test_split_group_dense_and_sparse_delayed_routes_match(coupling_type):
     kwargs = dict(G=0.2, history_interpolation="linear", buffer_strategy="circular")
     dense_fn, dense_config = prepare(
@@ -193,9 +195,7 @@ def test_zero_delay_route_matches_instantaneous_route():
             )
         },
     )
-    instant_fn, instant_config = prepare(
-        instantaneous, Heun(), t0=0.0, t1=0.6, dt=0.1
-    )
+    instant_fn, instant_config = prepare(instantaneous, Heun(), t0=0.0, t1=0.6, dt=0.1)
 
     delayed = delayed_fn(delayed_config)
     instant = instant_fn(instant_config)
@@ -231,9 +231,12 @@ def test_live_warm_history_matches_ordinary_path_and_is_differentiable():
         dt=0.1,
     )
     shape = grouped_config.routes.delayed.history.shape
-    warm_history = jnp.arange(
-        np.prod(shape), dtype=grouped_config.routes.delayed.history.dtype
-    ).reshape(shape) / 20
+    warm_history = (
+        jnp.arange(
+            np.prod(shape), dtype=grouped_config.routes.delayed.history.dtype
+        ).reshape(shape)
+        / 20
+    )
     grouped_config.routes.delayed.history = warm_history
     ordinary_config.initial_state.coupling.delayed.history = warm_history
 
@@ -261,9 +264,7 @@ def test_update_history_continues_a_grouped_delayed_simulation():
             G=0.2, history_interpolation="linear", buffer_strategy="circular"
         ),
     )
-    first_fn, first_config = prepare(
-        network, Euler(), t0=0.0, t1=0.7, dt=0.1
-    )
+    first_fn, first_config = prepare(network, Euler(), t0=0.0, t1=0.7, dt=0.1)
     first = first_fn(first_config)
 
     network.update_history(first)
@@ -324,9 +325,7 @@ def test_warm_start_recomputes_callable_route_history():
         )
 
     network = make_network()
-    first_fn, first_config = prepare(
-        network, Euler(), t0=0.0, t1=0.75, dt=0.125
-    )
+    first_fn, first_config = prepare(network, Euler(), t0=0.0, t1=0.75, dt=0.125)
     first = first_fn(first_config)
     network.update_history(first)
     continuation_fn, continuation_config = prepare(
@@ -394,9 +393,7 @@ def test_delayed_route_supports_checkpointing_vmap_and_reverse_mode():
             G=0.2, history_interpolation="linear", buffer_strategy="circular"
         ),
     )
-    plain_fn, plain_config = prepare(
-        network, Heun(), t0=0.0, t1=0.6, dt=0.1
-    )
+    plain_fn, plain_config = prepare(network, Heun(), t0=0.0, t1=0.6, dt=0.1)
     blocked_fn, blocked_config = prepare(
         network,
         Heun(block_size=2, grad_horizon=4),
@@ -421,9 +418,7 @@ def test_delayed_route_supports_checkpointing_vmap_and_reverse_mode():
     assert jnp.allclose(forward, reverse, rtol=2e-5, atol=2e-7)
 
     def with_gain(gain, base):
-        return eqx.tree_at(
-            lambda config: config.routes.delayed.coupling.G, base, gain
-        )
+        return eqx.tree_at(lambda config: config.routes.delayed.coupling.G, base, gain)
 
     configs = jax.vmap(with_gain, in_axes=(0, None))(
         jnp.array([0.1, 0.2, 0.3]), plain_config
@@ -439,9 +434,7 @@ def test_delays_noise_and_external_inputs_share_one_grouped_scan_carry():
             "left": DynamicsGroup(
                 Generic2dOscillator(),
                 [0, 2],
-                noise=AdditiveNoise(
-                    sigma=0.01, apply_to="V", key=jax.random.key(3)
-                ),
+                noise=AdditiveNoise(sigma=0.01, apply_to="V", key=jax.random.key(3)),
                 external_input={"stimulus": ConstantInput(amplitude=0.2)},
             ),
             "right": DynamicsGroup(Generic2dOscillator(), [1, 3]),
@@ -458,9 +451,7 @@ def test_delays_noise_and_external_inputs_share_one_grouped_scan_carry():
             )
         },
     )
-    simulate, config = prepare(
-        network, Heun(block_size=2), t0=0.0, t1=0.6, dt=0.1
-    )
+    simulate, config = prepare(network, Heun(block_size=2), t0=0.0, t1=0.6, dt=0.1)
     first = jax.jit(simulate)(config)
     replay = jax.jit(simulate)(config)
     assert jnp.array_equal(first.groups.left.ys, replay.groups.left.ys)
@@ -492,11 +483,7 @@ def test_multichannel_jansen_rit_route_history_stores_only_source_channels():
     ordinary_fn, ordinary_config = prepare(
         Network(
             JansenRit(),
-            {
-                "delayed": DelayedSigmoidalJansenRit(
-                    incoming_states=("y1", "y2"), G=0.4
-                )
-            },
+            {"delayed": DelayedSigmoidalJansenRit(incoming_states=("y1", "y2"), G=0.4)},
             graph,
         ),
         Euler(),

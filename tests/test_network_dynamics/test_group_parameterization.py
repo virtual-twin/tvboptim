@@ -37,9 +37,7 @@ def test_group_scalars_match_equivalent_node_local_parameter_and_gradient(
         ordinary_coupling = DelayedLinearCoupling(
             incoming_states="x", G=0.2, history_interpolation="linear"
         )
-        grouped_coupling = DelayedLinearCoupling(
-            G=0.2, history_interpolation="linear"
-        )
+        grouped_coupling = DelayedLinearCoupling(G=0.2, history_interpolation="linear")
     else:
         graph = DenseGraph(weights)
         coupling_name = "instant"

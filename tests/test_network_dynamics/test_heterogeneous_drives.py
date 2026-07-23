@@ -202,9 +202,7 @@ def test_group_noise_key_injection_vmap_and_grad_are_live():
 def test_differently_shaped_group_noise_trees_match_independent_solves():
     generic_initial = jnp.array([[0.2, -0.1], [0.05, 0.3]])
     linear_initial = jnp.array([[0.4, -0.2]])
-    generic_noise = AdditiveNoise(
-        sigma=0.03, apply_to=["V"], key=jax.random.key(5)
-    )
+    generic_noise = AdditiveNoise(sigma=0.03, apply_to=["V"], key=jax.random.key(5))
     linear_noise = AdditiveNoise(sigma=0.02, key=jax.random.key(8))
     network = HeterogeneousNetwork(
         graph=_graph(),
@@ -259,9 +257,7 @@ def test_blocked_group_noise_streams_deterministically():
         ConstantInput(amplitude=0.2),
         noise=AdditiveNoise(sigma=0.03, key=jax.random.key(3)),
     )
-    simulate, config = prepare(
-        network, Heun(block_size=2), t0=0.0, t1=0.5, dt=0.1
-    )
+    simulate, config = prepare(network, Heun(block_size=2), t0=0.0, t1=0.5, dt=0.1)
     first = jax.jit(simulate)(config)
     replay = jax.jit(simulate)(config)
     varied = config.copy()

@@ -104,11 +104,20 @@ def test_product_space_sweeps_group_and_route_parameters():
     actual, execution = _run_parallel(observe, Space(swept, mode="product"), n_vmap=2)
     assert actual.shape == (4, 4)
     assert len(jax.tree.leaves(execution.diff_state)) == 2
-    assert set(map(tuple, actual[:, :2])) == {
-        (np.float32(decay), np.float32(gain))
-        for decay in (0.1, 0.3)
-        for gain in (0.2, 0.6)
-    }
+    expected_pairs = np.asarray(
+        [(decay, gain) for decay in (0.1, 0.3) for gain in (0.2, 0.6)],
+        dtype=actual.dtype,
+    )
+
+    def sort_pairs(values):
+        return values[np.lexsort((values[:, 1], values[:, 0]))]
+
+    np.testing.assert_allclose(
+        sort_pairs(actual[:, :2]),
+        sort_pairs(expected_pairs),
+        rtol=0.0,
+        atol=0.0,
+    )
 
     for decay, gain, *observed in actual:
         manual = config.copy()

@@ -35,7 +35,25 @@ def _normalize_readout(value: Any, role: str):
 
 
 class DynamicsGroup:
-    """One dynamics implementation assigned to a static graph-node subset."""
+    """Assign one dynamics implementation to a static graph-node subset.
+
+    Args:
+        dynamics: Dynamics evaluated for this group's nodes.
+        nodes: One-dimensional graph-node indices or a graph-sized boolean mask.
+            Group nodes may be interleaved in graph order.
+        noise: Optional group-local noise process.
+        external_input: Mapping from names declared by
+            ``dynamics.EXTERNAL_INPUTS`` to group-local external inputs.
+        initial_state: Optional ``[n_states, n_group_nodes]`` initial state.
+
+    Attributes:
+        dynamics: The group's dynamics instance.
+        nodes: Original node selector. ``HeterogeneousNetwork.group_nodes``
+            contains its normalized immutable indices.
+        noise: Optional group-local noise process.
+        externals: Normalized external-input dictionary.
+        initial_state: Optional group-local initial state.
+    """
 
     def __init__(
         self,
@@ -48,6 +66,10 @@ class DynamicsGroup:
     ):
         if not isinstance(dynamics, AbstractDynamics):
             raise TypeError("dynamics must be an AbstractDynamics instance")
+        if external_input is not None and not isinstance(external_input, Mapping):
+            raise TypeError(
+                "external_input must be a mapping from input names to drives"
+            )
         self.dynamics = dynamics
         self.nodes = nodes
         self.noise = noise
@@ -70,7 +92,29 @@ class DynamicsGroup:
 
 
 class SignalRoute:
-    """A canonical source schema, route-compatible coupling, and destinations."""
+    """Describe one explicitly named signal transport over the shared graph.
+
+    One route packs a canonical ``[Q, n_nodes]`` signal and performs one graph
+    traversal. Every source readout must emit the same channel count ``Q``.
+
+    Args:
+        source: Mapping from source group names to a state name, tuple of state
+            names, or ``readout(state, params) -> [Q, n_group_nodes]`` callable.
+        coupling: Selector-free ``PrePostCoupling`` used for this route. The
+            route, rather than the coupling, owns source and local readouts.
+        target: Mapping from target group names to a coupling-input name or
+            ``(input_name, conversion)``. A conversion is called as
+            ``conversion(signal, params)`` on the target-local transported slice.
+        local: Optional target-local readouts required by coupling families such
+            as ``DifferenceCoupling``.
+        source_params: Optional per-group parameters for source/local readouts.
+        target_params: Optional per-group parameters for target conversions.
+
+    Notes:
+        Source, local, and target group names are validated when the route is
+        attached to a ``HeterogeneousNetwork``. Numerical parameters remain live
+        after ``prepare()``; route structure and callables remain static.
+    """
 
     def __init__(
         self,
@@ -82,6 +126,17 @@ class SignalRoute:
         source_params: Mapping[str, Any] | None = None,
         target_params: Mapping[str, Any] | None = None,
     ):
+        if not isinstance(source, Mapping):
+            raise TypeError("SignalRoute.source must be a mapping")
+        if not isinstance(target, Mapping):
+            raise TypeError("SignalRoute.target must be a mapping")
+        for role, value in (
+            ("local", local),
+            ("source_params", source_params),
+            ("target_params", target_params),
+        ):
+            if value is not None and not isinstance(value, Mapping):
+                raise TypeError(f"SignalRoute.{role} must be a mapping")
         if not isinstance(coupling, PrePostCoupling):
             raise TypeError(
                 "SignalRoute currently supports PrePostCoupling instances only"
@@ -157,7 +212,31 @@ class SignalRoute:
 
 
 class HeterogeneousNetwork:
-    """Different dynamics groups on one shared square graph."""
+    """Compose different dynamics groups on one shared square graph.
+
+    Args:
+        graph: Shared dense or sparse graph. Its node order is canonical for all
+            group assignments and signal routes.
+        groups: Mapping from unique names to ``DynamicsGroup`` instances. Groups
+            must form an exhaustive, non-overlapping partition of graph nodes.
+        routes: Optional mapping from unique names to ``SignalRoute`` instances.
+        history: Optional ``HeterogeneousSolution`` used to warm-start every
+            group's integrated state and delayed route signal history.
+
+    Attributes:
+        graph: Shared graph instance.
+        groups: Normalized group dictionary.
+        routes: Normalized route dictionary.
+        group_names: Canonically sorted group names.
+        route_names: Canonically sorted route names.
+        group_nodes: Normalized node-index tuples by group.
+        n_nodes: Number of nodes in the shared graph.
+
+    Notes:
+        Group membership and sparse topology are static after ``prepare()``.
+        Group/route parameters, graph values, delays within prepared capacity,
+        noise, external inputs, initial states, and route histories remain live.
+    """
 
     def __init__(
         self,
@@ -169,6 +248,10 @@ class HeterogeneousNetwork:
     ):
         if not isinstance(graph, AbstractGraph):
             raise TypeError("graph must be an AbstractGraph instance")
+        if not isinstance(groups, Mapping):
+            raise TypeError("groups must be a mapping from names to DynamicsGroup")
+        if routes is not None and not isinstance(routes, Mapping):
+            raise TypeError("routes must be a mapping from names to SignalRoute")
         if tuple(graph.weights.shape)[0] != tuple(graph.weights.shape)[1]:
             raise ValueError("HeterogeneousNetwork requires one square shared graph")
         if not groups:
@@ -312,6 +395,7 @@ class HeterogeneousNetwork:
                 )
 
     def initial_state_for(self, name: str):
+        """Return the group-local initial state, including an active warm start."""
         if self._history is not None:
             return self._history.groups[name][-1]
         group = self.groups[name]
@@ -320,7 +404,7 @@ class HeterogeneousNetwork:
         return group.dynamics.get_default_initial_state(len(self.group_nodes[name]))
 
     def update_history(self, solution) -> None:
-        """Use a grouped result to warm-start state and delayed route history.
+        """Use a heterogeneous result to warm-start state and route history.
 
         All integrated state variables must be present. This mirrors
         ``Network.update_history``: variables-of-interest may be reordered, but

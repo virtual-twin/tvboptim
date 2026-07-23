@@ -342,17 +342,118 @@ operation.
 
 ## Performance model and current boundaries
 
-- State is segmented by group; it is never padded to the largest model.
-- Each route packs one canonical `[Q, N]` signal and traverses the graph once.
-- Delayed history has shape `[capacity, Q_source, N]`, independent of model
-  state width.
-- Group loops are static and unrolled during tracing. A small number of
-  scientifically meaningful groups performs well, but many same-model groups
-  are not a free parameter-management mechanism—especially for GPU AD.
-- Native Euler, Heun, and Runge–Kutta solvers are supported. Heterogeneous
-  Diffrax, multiple clocks, changing group membership, and networks on
-  different node spaces are intentionally later milestones.
+Heterogeneity does not create one padded state tensor. If group `k` has `S_k`
+state variables and `N_k` nodes, its dynamics operate on `[S_k, N_k]`. The
+cost of the local vector fields therefore follows the actual group state sizes,
+not `max(S_k) * N`.
 
-Use heterogeneous groups when the node subsets genuinely have different
-dynamics or signal semantics. For one model with merely regional parameter
-values, a node-local parameter vector remains the efficient representation.
+Routing has a different cost model. A route packs one graph-ordered signal with
+`Q` channels and performs one transport, irrespective of how many source and
+target groups participate:
+
+| Graph representation | Approximate transport work per route evaluation |
+|---|---:|
+| Dense | `O(Q * N²)` |
+| Sparse with `E` stored edges | `O(Q * E)` |
+
+Dense matrix multiplication can still outperform sparse message passing for a
+small or moderately dense graph, especially on a GPU. Choose the graph
+representation from measurement and memory requirements, not density alone.
+Sparse indices and representation are static after `prepare()`; edge weights
+and delays remain live numerical leaves.
+
+### Merge signals that share transport semantics
+
+Put signals in one route when they have the same coupling family, delay policy,
+and scientific interpretation. Adding a compatible source or target group to
+an existing route does not add another graph traversal. Multiple source groups
+must emit the same `Q`-channel schema, but each may use its own named-state or
+callable readout.
+
+Use separate routes when signals require different coupling equations, gains,
+delays, instantaneous versus delayed timing, or target conversions. Each
+additional route adds another transport. Reusing the same readout in two routes
+also evaluates and packs it twice; route separation should therefore represent
+a real scientific distinction.
+
+A route with only a subset of source groups still packs a full `[Q, N]` signal.
+Unselected nodes emit zero, but a dense graph still performs its dense
+`N x N` transport. Source selection is a semantic mask, not an induced-subgraph
+optimization. Large sparse problems should use a sparse shared graph rather
+than expecting a subset route to prune dense work.
+
+### Delays scale with transmitted signals
+
+A delayed route stores approximately:
+
+```text
+[history capacity, Q_source, N]
+```
+
+The capacity is determined by the prepared maximum delay, `dt`, interpolation,
+and buffer strategy. It does not grow with simulation duration or with the
+source models' complete state widths. Two delayed routes maintain two histories,
+so signals with genuinely identical delay and coupling semantics should share a
+route. Changing delay values within prepared capacity does not require another
+preparation; increasing capacity does.
+
+### Keep the number of groups scientifically meaningful
+
+Group loops are static Python structure and are unrolled while JAX traces the
+group-local vector fields. More groups therefore mean more separately lowered
+dynamics calls and a more fragmented forward and reverse program. This is
+appropriate for a small number of distinct neural populations, but splitting
+one model into many groups solely for parameter management is not free,
+particularly for GPU differentiation.
+
+Prefer, in order:
+
+1. a global scalar when every node shares a parameter;
+2. a node-local parameter vector when values vary by node; and
+3. separate groups when nodes truly need different dynamics, state layouts,
+   noise/external-input definitions, or signal semantics.
+
+### Solver stages multiply route work
+
+With `recompute_coupling_per_stage=False`, routes are evaluated once at the
+start of a step and held through the native solver stages. With
+`recompute_coupling_per_stage=True`, routes are evaluated from every stage
+state, so transport work grows with the solver's stage count. The latter can be
+important for instantaneous-coupling accuracy; it should be selected as a
+numerical policy rather than enabled without measuring forward and reverse
+cost. Delayed interpolation and stage timing have their own accuracy trade-offs,
+described in [Coupling Freezing](../advanced/coupling_freezing.qmd).
+
+### Keep local drives local
+
+Noise and `external_input` belong to a `DynamicsGroup` because they are
+evaluated directly in that group's node space and do not traverse the graph.
+Do not express a local stimulus as a route merely to reuse route syntax. Use a
+route only when a signal is transmitted between graph nodes. Conversely, a
+stimulus that should propagate through connectivity can drive one group
+locally, whose resulting state is then emitted by an ordinary route.
+
+Readout and conversion callables should be pure, fixed-shape JAX functions.
+Avoid data-dependent Python control flow and avoid reconstructing large dense
+arrays inside a callable. Source readouts run before transport; target
+conversions run only on the target group's transported slice.
+
+### Forward and reverse mode
+
+Reverse-mode work follows the operations actually executed: group kernels,
+readouts, route transports, conversions, and solver stages. Delayed history and
+retained trajectories can dominate memory in long simulations. Use block
+checkpointing and return only scientifically required variables when memory is
+the constraint; benchmark the differentiated loss, not only the forward solve.
+
+The heterogeneous path does not yet support the streaming `reduce=` contract.
+That contract currently assumes one shared variable axis and one node array;
+implicitly applying it per group would make cross-group observations ambiguous.
+For now, reduce `solution.groups.<name>` post-hoc. `block_size` can still bound
+noise generation and reverse rematerialization, but it does not remove the
+stacked heterogeneous output trajectory.
+
+Native Euler, Heun, and Runge–Kutta solvers are currently supported.
+Heterogeneous Diffrax, multiple clocks, changing group membership, partial
+graph partitions, and networks on different node spaces are intentionally
+later milestones.
