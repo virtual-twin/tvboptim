@@ -4,6 +4,8 @@ from collections.abc import Mapping
 
 import jax
 import jax.numpy as jnp
+import pytest
+from jax.experimental.sparse import BCOO
 from jax.extend import core as jax_core
 
 from tvboptim.experimental.network_dynamics import (
@@ -114,8 +116,34 @@ def _primitive_count(closed, primitive_name):
     )
 
 
+def _primitive_count_in(jaxprs, primitive_name):
+    return sum(
+        equation.primitive.name == primitive_name
+        for jaxpr in jaxprs
+        for equation in jaxpr.eqns
+    )
+
+
 def _equation_count(closed):
     return sum(len(jaxpr.eqns) for jaxpr in _all_jaxprs(closed))
+
+
+def _scan_body_jaxprs(closed):
+    root = _all_jaxprs(closed)[0]
+    scans = [equation for equation in root.eqns if equation.primitive.name == "scan"]
+    assert len(scans) == 1, "expected one solver scan in the traced solve"
+    nested = tuple(_nested_jaxprs(scans[0].params))
+    assert nested, "Jaxpr traversal did not reach the solver scan body"
+    return nested
+
+
+def _jaxpr_variables(jaxpr):
+    yield from jaxpr.constvars
+    yield from jaxpr.invars
+    yield from jaxpr.outvars
+    for equation in jaxpr.eqns:
+        yield from equation.invars
+        yield from equation.outvars
 
 
 def _trace(n_nodes, n_groups, *, sparse=False, per_stage=False):
@@ -133,6 +161,8 @@ def test_one_route_lowers_to_one_transport_not_group_pair_transports():
     per_stage = _trace(16, 4, per_stage=True)
     assert _primitive_count(frozen, "dot_general") == 1
     assert _primitive_count(per_stage, "dot_general") == 2
+    assert _primitive_count_in(_scan_body_jaxprs(frozen), "dot_general") == 1
+    assert _primitive_count_in(_scan_body_jaxprs(per_stage), "dot_general") == 2
 
 
 def test_compile_structure_does_not_grow_with_nodes_per_group():
@@ -148,6 +178,30 @@ def test_sparse_route_has_no_square_node_intermediate():
     n_nodes = 31
     closed = _trace(n_nodes, 4, sparse=True)
     for jaxpr in _all_jaxprs(closed):
-        for variable in (*jaxpr.invars, *jaxpr.outvars):
+        for variable in _jaxpr_variables(jaxpr):
             shape = getattr(getattr(variable, "aval", None), "shape", ())
             assert shape != (n_nodes, n_nodes)
+
+
+def test_sparse_topology_validation_is_outside_solver_scan():
+    closed = _trace(31, 4, sparse=True)
+    scan_body = _scan_body_jaxprs(closed)
+    for primitive_name in ("ne", "reduce_or"):
+        assert _primitive_count(closed, primitive_name) == 1
+        assert _primitive_count_in(scan_body, primitive_name) == 0
+
+
+def test_hoisted_sparse_topology_validation_still_rejects_reordering():
+    solve_fn, config = prepare(_network(16, 4, sparse=True), Heun(), t1=0.2, dt=0.1)
+    bad = config.copy()
+    weights = config.graph.weights
+    bad.graph.weights = BCOO(
+        (weights.data[::-1], weights.indices[::-1]),
+        shape=weights.shape,
+        unique_indices=True,
+    )
+
+    compiled = jax.jit(lambda cfg: solve_fn(cfg).ys.g0)
+    jax.block_until_ready(compiled(config))
+    with pytest.raises(Exception, match="Graph topology changed after prepare"):
+        jax.block_until_ready(compiled(bad))

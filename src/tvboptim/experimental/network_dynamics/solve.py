@@ -867,7 +867,7 @@ def prepare(
     route_specs = []
     route_history_shapes = {}
 
-    def pack_readouts(grouped_state, specs, width, dtype, params, graph):
+    def pack_readouts(grouped_state, specs, width, dtype, params):
         signal = jnp.zeros((width, network.n_nodes), dtype=dtype)
         for group_name, nodes, readout, indices in specs:
             values = (
@@ -876,9 +876,9 @@ def prepare(
                 else readout(grouped_state[group_name], params[group_name])
             )
             signal = signal.at[:, nodes].set(values)
-        return validate_graph_topology(prepared_topology, graph, signal)
+        return signal
 
-    def pack_history_readouts(history, specs, width, dtype, params, graph):
+    def pack_history_readouts(history, specs, width, dtype, params):
         n_times = history.ts.shape[0]
         signal = jnp.zeros((n_times, width, network.n_nodes), dtype=dtype)
         for group_name, nodes, readout, indices in specs:
@@ -891,7 +891,7 @@ def prepare(
                 )
             )
             signal = signal.at[:, :, nodes].set(values)
-        return validate_graph_topology(prepared_topology, graph, signal)
+        return signal
 
     for route_name in network.route_names:
         route = network.routes[route_name]
@@ -990,7 +990,6 @@ def prepare(
                     source_width,
                     signal_dtype,
                     source_params,
-                    network.graph,
                 )
                 history_rows = delay_steps_bound(max_delay, dt) + 1
                 initial_history = jnp.broadcast_to(
@@ -1004,7 +1003,6 @@ def prepare(
                     source_width,
                     signal_dtype,
                     source_params,
-                    network.graph,
                 )
                 initial_history = extract_history_window(
                     network._history.ts,
@@ -1142,7 +1140,6 @@ def prepare(
                     local_width,
                     signal_dtype,
                     route_params.source_params,
-                    config.graph,
                 )
 
             if is_delayed:
@@ -1160,7 +1157,6 @@ def prepare(
                     source_width,
                     signal_dtype,
                     route_params.source_params,
-                    config.graph,
                 )
                 transported = coupling._compute_from_signals(
                     source_signal,
@@ -1219,7 +1215,6 @@ def prepare(
                 source_width,
                 signal_dtype,
                 route_params.source_params,
-                config.graph,
             )
             updated[route_name] = coupling._update_history_from_signal(
                 enriched[route_name], route_states[route_name], transmitted
@@ -1228,6 +1223,12 @@ def prepare(
 
     def _f(config):
         grouped_state0 = config.initial_state.copy()
+        topology_anchor_group = network.group_names[0]
+        grouped_state0[topology_anchor_group] = validate_graph_topology(
+            prepared_topology,
+            config.graph,
+            grouped_state0[topology_anchor_group],
+        )
         enriched = precompute_routes(config)
         dynamics_params = Bunch(
             {name: config.groups[name].dynamics for name in network.group_names}
