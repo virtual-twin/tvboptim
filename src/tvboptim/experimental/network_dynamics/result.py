@@ -10,6 +10,8 @@ from typing import Optional, Sequence, Tuple, Union
 import jax.numpy as jnp
 from jax import tree_util
 
+from .core.bunch import Bunch
+
 
 @tree_util.register_pytree_with_keys_class
 class NativeSolution:
@@ -56,6 +58,21 @@ class NativeSolution:
     @property
     def data(self):
         return self.ys
+
+    def sel(self, variables, nodes=None):
+        """Select trajectory variables by name/index and optional local nodes.
+
+        A scalar variable selector returns ``[time, node]``; a sequence keeps
+        the variable axis and returns ``[time, variable, node]``.
+        """
+        scalar = isinstance(variables, (str, int))
+        requested = [variables] if scalar else list(variables)
+        indices, _ = self._resolve_variables(requested)
+        selected = self.ys[:, indices, :]
+        if nodes is not None:
+            node_indices = [nodes] if isinstance(nodes, int) else list(nodes)
+            selected = selected[:, :, node_indices]
+        return selected[:, 0, :] if scalar else selected
 
     def tree_flatten(self):
         """JAX PyTree flatten for transformations."""
@@ -291,6 +308,137 @@ class NativeSolution:
         axes[-1].set_xlabel("time")
         fig.tight_layout()
         return fig, axes
+
+
+@tree_util.register_pytree_with_keys_class
+class GroupedSolution:
+    """One shared time grid and naturally shaped trajectories per group."""
+
+    def __init__(
+        self,
+        ts,
+        ys,
+        *,
+        dt=None,
+        variable_names=None,
+        group_nodes=None,
+        n_nodes=None,
+    ):
+        self.ts = ts
+        self.ys = Bunch(ys)
+        self.dt = dt
+        names = variable_names or {}
+        nodes = group_nodes or {}
+        self.variable_names = {
+            name: tuple(names[name]) if names.get(name) is not None else None
+            for name in sorted(self.ys)
+        }
+        self._group_nodes = {
+            name: tuple(int(node) for node in nodes[name]) for name in sorted(self.ys)
+        }
+        self.n_nodes = int(n_nodes) if n_nodes is not None else None
+
+    @property
+    def time(self):
+        return self.ts
+
+    @property
+    def data(self):
+        return self.ys
+
+    @property
+    def groups(self):
+        return Bunch(
+            {
+                name: NativeSolution(
+                    self.ts,
+                    self.ys[name],
+                    dt=self.dt,
+                    variable_names=self.variable_names[name],
+                )
+                for name in sorted(self.ys)
+            }
+        )
+
+    @property
+    def group_nodes(self):
+        return Bunch(
+            {
+                name: jnp.asarray(nodes, dtype=jnp.int32)
+                for name, nodes in self._group_nodes.items()
+            }
+        )
+
+    def to_graph(self, variable, groups=None, fill_value=jnp.nan):
+        """Project one named variable from selected groups to graph-node order."""
+        if self.n_nodes is None:
+            raise ValueError("n_nodes metadata is required for graph projection")
+        selected_groups = list(self.ys) if groups is None else list(groups)
+        if not selected_groups:
+            raise ValueError("groups must select at least one group")
+        unknown = set(selected_groups) - set(self.ys)
+        if unknown:
+            raise ValueError(f"Unknown solution groups: {sorted(unknown)}")
+
+        dtype = jnp.result_type(
+            *[self.ys[name].dtype for name in selected_groups],
+            jnp.asarray(fill_value).dtype,
+        )
+        projected = jnp.full((self.ts.shape[0], self.n_nodes), fill_value, dtype=dtype)
+        used = False
+        for name in selected_groups:
+            names = self.variable_names[name]
+            if names is None or variable not in names:
+                if groups is not None:
+                    raise ValueError(
+                        f"Variable {variable!r} is not available in group {name!r}"
+                    )
+                continue
+            local = self.ys[name][:, names.index(variable), :]
+            projected = projected.at[:, self._group_nodes[name]].set(local)
+            used = True
+        if not used:
+            raise ValueError(f"Variable {variable!r} is not available in any group")
+        return projected
+
+    def tree_flatten(self):
+        children = (self.ts, self.ys)
+        aux = {
+            "dt": self.dt,
+            "variable_names": self.variable_names,
+            "group_nodes": self._group_nodes,
+            "n_nodes": self.n_nodes,
+        }
+        return children, aux
+
+    def tree_flatten_with_keys(self):
+        children = (
+            (tree_util.GetAttrKey("ts"), self.ts),
+            (tree_util.GetAttrKey("ys"), self.ys),
+        )
+        aux = {
+            "dt": self.dt,
+            "variable_names": self.variable_names,
+            "group_nodes": self._group_nodes,
+            "n_nodes": self.n_nodes,
+        }
+        return children, aux
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        ts, ys = children
+        return cls(
+            ts,
+            ys,
+            dt=aux["dt"],
+            variable_names=aux["variable_names"],
+            group_nodes=aux["group_nodes"],
+            n_nodes=aux["n_nodes"],
+        )
+
+    def __repr__(self):
+        shapes = {name: tuple(value.shape) for name, value in self.ys.items()}
+        return f"GroupedSolution(groups={shapes}, dt={self.dt})"
 
 
 @tree_util.register_pytree_with_keys_class
