@@ -1,0 +1,330 @@
+---
+title: "Heterogeneous Networks on One Connectome"
+subtitle: "Mixed delayed and instantaneous coupling, parameter sweeps, and fitting"
+format:
+  html:
+    code-fold: false
+    toc: true
+    toc-depth: 3
+jupyter: python3
+execute:
+  cache: true
+---
+
+::: {.callout-warning title="Experimental feature"}
+The heterogeneous-network API is experimental. It currently supports a fixed
+partition of one square graph, one time step, and the native Euler, Heun, and
+Runge–Kutta solvers.
+:::
+
+`HeterogeneousNetwork` assigns different neural-mass models to named subsets
+of one connectome. Each model keeps its natural state variables and parameters,
+while explicit signal routes describe what the groups exchange.
+
+This example combines:
+
+- a cortical Reduced Wong–Wang population with one state per node;
+- a Jansen–Rit relay population with six states per node;
+- delayed bidirectional long-range activity; and
+- an additional instantaneous relay-to-cortex signal.
+
+The same prepared simulation is then used directly, swept with `Space`, and
+differentiated inside an optimizer.
+
+## Imports and shared graph
+
+```{python}
+import copy
+
+import jax
+import jax.numpy as jnp
+import optax
+
+from tvboptim.execution import ParallelExecution
+from tvboptim.experimental.network_dynamics import (
+    Bunch,
+    DynamicsGroup,
+    HeterogeneousNetwork,
+    SignalRoute,
+    prepare,
+)
+from tvboptim.experimental.network_dynamics.coupling import (
+    DelayedLinearCoupling,
+    LinearCoupling,
+)
+from tvboptim.experimental.network_dynamics.dynamics.tvb import (
+    JansenRit,
+    ReducedWongWang,
+)
+from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph
+from tvboptim.experimental.network_dynamics.solvers import Heun
+from tvboptim.optim import OptaxOptimizer
+from tvboptim.types import GridAxis, Parameter, Space
+```
+
+For clarity we use a small synthetic directed connectome. The first six nodes
+are cortical regions and the final two form the relay group. Both groups still
+occupy the same graph and may be interleaved just as easily.
+
+```{python}
+n_nodes = 8
+cortical_nodes = tuple(range(6))
+relay_nodes = (6, 7)
+
+key_weights, key_delays = jax.random.split(jax.random.key(7))
+weights = jax.random.uniform(
+    key_weights, (n_nodes, n_nodes), maxval=0.015
+)
+weights = weights.at[jnp.diag_indices(n_nodes)].set(0.0)
+
+# Millisecond transmission delays. Capacity is fixed by max_delay_bound;
+# the numerical delay values remain live after prepare().
+delays = jax.random.uniform(
+    key_delays, (n_nodes, n_nodes), minval=0.5, maxval=2.0
+)
+delays = delays.at[jnp.diag_indices(n_nodes)].set(0.0)
+
+graph = DenseDelayGraph(
+    weights,
+    delays,
+    max_delay_bound=2.0,
+)
+```
+
+## Make the exchanged signal explicit
+
+Reduced Wong–Wang can transmit its synaptic gating state `S` directly.
+Jansen–Rit instead transmits a normalized pyramidal firing activity derived
+from the difference `y1 - y2`. A small pure JAX callable states that scientific
+choice explicitly:
+
+```{python}
+def pyramidal_activity(state, params):
+    voltage = state[1] - state[2]
+    activity = 2.0 / (
+        1.0 + jnp.exp(params.r * (params.v0 - voltage))
+    )
+    return activity[None, :]  # [signal channels, nodes in this group]
+
+
+rate_params = Bunch(v0=5.52, r=0.56)
+```
+
+The callable and its output shape are static. Its numerical parameters live at
+`config.routes.<route>.source_params` and can therefore be changed, swept, or
+differentiated after preparation.
+
+## Construct a mixed-coupling network
+
+Each route performs one graph traversal, irrespective of how many groups
+participate. The delayed route packs cortical `S` and relay firing activity
+into one graph-ordered signal and stores only that signal in its history. The
+instantaneous route has only the relay as a source, so other graph nodes emit
+zero on that route.
+
+```{python}
+network = HeterogeneousNetwork(
+    graph=graph,
+    groups={
+        "cortex": DynamicsGroup(
+            dynamics=ReducedWongWang(w=0.6),
+            nodes=cortical_nodes,
+        ),
+        "relay": DynamicsGroup(
+            dynamics=JansenRit(mu=0.22),
+            nodes=relay_nodes,
+        ),
+    },
+    routes={
+        "long_range": SignalRoute(
+            source={
+                "cortex": "S",
+                "relay": pyramidal_activity,
+            },
+            source_params={"relay": rate_params},
+            coupling=DelayedLinearCoupling(
+                G=0.08,
+                history_interpolation="linear",
+                buffer_strategy="circular",
+            ),
+            target={
+                "cortex": "delayed",
+                "relay": "delayed",
+            },
+        ),
+        "fast_relay": SignalRoute(
+            source={"relay": pyramidal_activity},
+            source_params={"relay": rate_params},
+            coupling=LinearCoupling(G=0.02),
+            target={"cortex": "instant"},
+        ),
+    },
+)
+
+network
+```
+
+There is no padded six-state global array. The cortex remains `[1, 6]`, the
+relay remains `[6, 2]`, and routing temporarily packs only a `[1, 8]` signal.
+
+## Prepare once, simulate many times
+
+```{python}
+simulate, config = prepare(
+    network,
+    Heun(block_size=25),
+    t0=0.0,
+    t1=10.0,
+    dt=0.1,
+)
+
+solution = jax.jit(simulate)(config)
+solution
+```
+
+Results retain group-local shapes and variable names:
+
+```{python}
+cortical_S = solution.groups.cortex.sel("S")
+relay_voltage = (
+    solution.groups.relay.sel("y1")
+    - solution.groups.relay.sel("y2")
+)
+
+print("cortex:", solution.groups.cortex.ys.shape)
+print("relay: ", solution.groups.relay.ys.shape)
+print("graph projection:", solution.to_graph("S", groups=["cortex"]).shape)
+print("delayed history:", config.routes.long_range.history.shape)
+```
+
+The prepared config contains all live numerical values. For example:
+
+```{python}
+changed = copy.deepcopy(config)
+changed.routes.long_range.coupling.G = 0.10
+changed.groups.cortex.dynamics.w = 0.65
+changed.graph.delays = jnp.minimum(changed.graph.delays * 1.1, 2.0)
+
+changed_solution = jax.jit(simulate)(changed)
+```
+
+Changing array shapes, group membership, sparse indices, or the maximum delay
+capacity requires `prepare()` again. Changing values within those shapes and
+bounds does not.
+
+## Sweep prepared leaves with `Space`
+
+Axes can be placed directly at heterogeneous config paths. Here `Space`
+constructs the Cartesian product of three delayed gains and two cortical
+recurrence values. `ParallelExecution` vectorizes the already prepared solve.
+
+```{python}
+def observe(cfg):
+    result = simulate(cfg)
+    relay_v = result.groups.relay.sel("y1") - result.groups.relay.sel("y2")
+    return {
+        "mean_cortical_S": result.groups.cortex.sel("S")[-20:].mean(),
+        "mean_relay_voltage": relay_v[-20:].mean(),
+    }
+
+
+sweep_config = copy.deepcopy(config)
+sweep_config.routes.long_range.coupling.G = GridAxis(0.04, 0.12, 3)
+sweep_config.groups.cortex.dynamics.w = GridAxis(0.5, 0.7, 2)
+
+space = Space(sweep_config, mode="product")
+sweep_result = ParallelExecution(
+    observe,
+    space,
+    n_vmap=3,
+    n_pmap=1,
+).run()
+
+sweep_result.to_dataframe()
+```
+
+Static structure—including group indices, route callables, and delay-buffer
+capacity—is shared by all six simulations. Only the selected numerical leaves
+are batched.
+
+## Fit a route parameter
+
+The same config is also an optimization state. To keep the example
+self-contained, we generate a synthetic target at a known delayed gain and fit
+that gain from a different starting point.
+
+```{python}
+def cortical_summary(cfg):
+    result = simulate(cfg)
+    return result.groups.cortex.sel("S")[-20:].mean()
+
+
+target_config = copy.deepcopy(config)
+target_config.routes.long_range.coupling.G = 0.10
+target = jax.lax.stop_gradient(cortical_summary(target_config))
+
+fit_config = copy.deepcopy(config)
+fit_config.routes.long_range.coupling.G = Parameter(jnp.array(0.04))
+
+def loss(cfg):
+    # Scaling only improves conditioning of this small synthetic example.
+    error = cortical_summary(cfg) - target
+    return 1e8 * error**2
+
+
+optimizer = OptaxOptimizer(loss, optax.adam(5e-3))
+fitted_config, _ = optimizer.run(
+    fit_config,
+    max_steps=40,
+    chunk_size=40,
+)
+
+print("target gain: 0.10")
+print(
+    "fitted gain:",
+    float(fitted_config.routes.long_range.coupling.G.constrained_value),
+)
+print("final loss:", float(loss(fitted_config)))
+```
+
+Only leaves wrapped in `Parameter` are optimized. The graph, group assignment,
+other route, initial state, and delay history stay fixed, while gradients pass
+through both mixed routes and the delayed circular history.
+
+## Continue a delayed simulation
+
+`update_history()` stores the final group states and reconstructs every delayed
+route's canonical signal history from the saved trajectory:
+
+```{python}
+network.update_history(solution)
+continue_simulation, continue_config = prepare(
+    network,
+    Heun(block_size=25),
+    t0=10.0,
+    t1=12.0,
+    dt=0.1,
+)
+continued = continue_simulation(continue_config)
+```
+
+The continuation uses the previous solution rather than repeating a constant
+initial history. All integrated state variables must be retained for this
+operation.
+
+## Performance model and current boundaries
+
+- State is segmented by group; it is never padded to the largest model.
+- Each route packs one canonical `[Q, N]` signal and traverses the graph once.
+- Delayed history has shape `[capacity, Q_source, N]`, independent of model
+  state width.
+- Group loops are static and unrolled during tracing. A small number of
+  scientifically meaningful groups performs well, but many same-model groups
+  are not a free parameter-management mechanism—especially for GPU AD.
+- Native Euler, Heun, and Runge–Kutta solvers are supported. Heterogeneous
+  Diffrax, multiple clocks, changing group membership, and networks on
+  different node spaces are intentionally later milestones.
+
+Use heterogeneous groups when the node subsets genuinely have different
+dynamics or signal semantics. For one model with merely regional parameter
+values, a node-local parameter vector remains the efficient representation.
