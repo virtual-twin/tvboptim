@@ -1,15 +1,15 @@
-"""Grouped heterogeneous result shape and projection contracts."""
+"""Heterogeneous result shape and projection contracts."""
 
 import jax
 import jax.numpy as jnp
 import pytest
 
-from tvboptim.experimental.network_dynamics import GroupedSolution
+from tvboptim.experimental.network_dynamics import HeterogeneousSolution
 
 
 def _solution():
     ts = jnp.array([0.1, 0.2, 0.3])
-    return GroupedSolution(
+    return HeterogeneousSolution(
         ts,
         {
             "a": jnp.arange(18.0).reshape(3, 2, 3),
@@ -54,7 +54,7 @@ def test_projection_rejects_unknown_group_or_variable():
         result.to_graph("a_only", groups=["b"])
 
 
-def test_grouped_solution_is_a_jittable_pytree():
+def test_heterogeneous_solution_is_a_jittable_pytree():
     result = _solution()
 
     @jax.jit
@@ -62,7 +62,7 @@ def test_grouped_solution_is_a_jittable_pytree():
         return jax.tree.map(lambda leaf: 2.0 * leaf, value)
 
     scaled = scale(result)
-    assert isinstance(scaled, GroupedSolution)
+    assert isinstance(scaled, HeterogeneousSolution)
     assert jnp.array_equal(scaled.ys.a, 2.0 * result.ys.a)
     assert scaled.variable_names == result.variable_names
     assert scaled._group_nodes == result._group_nodes

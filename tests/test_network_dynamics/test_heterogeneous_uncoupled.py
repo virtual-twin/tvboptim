@@ -7,8 +7,8 @@ import pytest
 
 from tvboptim.experimental.network_dynamics import (
     DynamicsGroup,
-    GroupedSolution,
     HeterogeneousNetwork,
+    HeterogeneousSolution,
     Network,
     prepare,
     solve,
@@ -71,7 +71,7 @@ def test_grouped_trajectories_match_independent_bare_dynamics(solver):
         n_nodes=3,
     )
 
-    assert isinstance(result, GroupedSolution)
+    assert isinstance(result, HeterogeneousSolution)
     assert jnp.allclose(result.groups.a.ys, expected_a.ys, rtol=1e-6, atol=1e-7)
     assert jnp.allclose(result.groups.b.ys, expected_b.ys, rtol=1e-6, atol=1e-7)
 

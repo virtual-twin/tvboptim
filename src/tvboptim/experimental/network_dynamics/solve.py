@@ -21,7 +21,7 @@ from .coupling.base import DelayedCoupling, InstantaneousCoupling
 from .dynamics.base import AbstractDynamics
 from .graph.base import delay_steps_bound, effective_max_delay
 from .graph.topology import prepare_graph_topology, validate_graph_topology
-from .result import DiffraxSolution, GroupedSolution, wrap_native_result
+from .result import DiffraxSolution, HeterogeneousSolution, wrap_native_result
 from .solvers.diffrax import DiffraxSolver
 from .solvers.native import BoundedSolver, NativeSolver
 from .utils.history import extract_history_window
@@ -1487,7 +1487,7 @@ def prepare(
             noise_gen=noise_gen,
         )
         ts = t0 + (jnp.arange(n_steps) + 1) * dt
-        return GroupedSolution(
+        return HeterogeneousSolution(
             ts,
             trajectories,
             dt=dt,

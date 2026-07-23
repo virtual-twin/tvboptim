@@ -13,14 +13,14 @@ from .graph import (
     SparseDelayGraph,
     SparseGraph,
 )
-from .result import GroupedSolution
+from .result import HeterogeneousSolution
 from .solve import prepare, solve
 
 __all__ = [
     "Bunch",
     "DynamicsGroup",
     "Graph",
-    "GroupedSolution",
+    "HeterogeneousSolution",
     "DelayGraph",
     "SparseGraph",
     "SparseDelayGraph",

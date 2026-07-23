@@ -311,7 +311,7 @@ class NativeSolution:
 
 
 @tree_util.register_pytree_with_keys_class
-class GroupedSolution:
+class HeterogeneousSolution:
     """One shared time grid and naturally shaped trajectories per group."""
 
     def __init__(
@@ -438,7 +438,7 @@ class GroupedSolution:
 
     def __repr__(self):
         shapes = {name: tuple(value.shape) for name, value in self.ys.items()}
-        return f"GroupedSolution(groups={shapes}, dt={self.dt})"
+        return f"HeterogeneousSolution(groups={shapes}, dt={self.dt})"
 
 
 @tree_util.register_pytree_with_keys_class

@@ -330,10 +330,10 @@ class HeterogeneousNetwork:
             self._history = None
             return
 
-        from ..result import GroupedSolution
+        from ..result import HeterogeneousSolution
 
-        if not isinstance(solution, GroupedSolution):
-            raise TypeError("history must be a GroupedSolution or None")
+        if not isinstance(solution, HeterogeneousSolution):
+            raise TypeError("history must be a HeterogeneousSolution or None")
         if set(solution.ys) != set(self.group_names):
             raise ValueError(
                 "history groups must exactly match the heterogeneous network; "

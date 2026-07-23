@@ -25,6 +25,7 @@ This example combines:
 
 - a cortical Reduced Wong–Wang population with one state per node;
 - a Jansen–Rit relay population with six states per node;
+- a driven two-state oscillator receiving a group-local stimulus;
 - delayed bidirectional long-range activity; and
 - an additional instantaneous relay-to-cortex signal.
 
@@ -53,23 +54,28 @@ from tvboptim.experimental.network_dynamics.coupling import (
     LinearCoupling,
 )
 from tvboptim.experimental.network_dynamics.dynamics.tvb import (
+    Generic2dOscillator,
     JansenRit,
     ReducedWongWang,
 )
+from tvboptim.experimental.network_dynamics.external_input import ConstantInput
 from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph
+from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
 from tvboptim.experimental.network_dynamics.solvers import Heun
 from tvboptim.optim import OptaxOptimizer
 from tvboptim.types import GridAxis, Parameter, Space
 ```
 
 For clarity we use a small synthetic directed connectome. The first six nodes
-are cortical regions and the final two form the relay group. Both groups still
-occupy the same graph and may be interleaved just as easily.
+are cortical regions, the next two form the relay group, and the final node is
+a driven oscillator. All groups occupy the same graph and may be interleaved
+just as easily.
 
 ```{python}
-n_nodes = 8
+n_nodes = 9
 cortical_nodes = tuple(range(6))
 relay_nodes = (6, 7)
+driven_nodes = (8,)
 
 key_weights, key_delays = jax.random.split(jax.random.key(7))
 weights = jax.random.uniform(
@@ -118,9 +124,9 @@ differentiated after preparation.
 
 Each route performs one graph traversal, irrespective of how many groups
 participate. The delayed route packs cortical `S` and relay firing activity
-into one graph-ordered signal and stores only that signal in its history. The
-instantaneous route has only the relay as a source, so other graph nodes emit
-zero on that route.
+and driven voltage into one graph-ordered signal and stores only that signal in
+its history. The instantaneous route has only the relay as a source, so other
+graph nodes emit zero on that route.
 
 ```{python}
 network = HeterogeneousNetwork(
@@ -129,10 +135,22 @@ network = HeterogeneousNetwork(
         "cortex": DynamicsGroup(
             dynamics=ReducedWongWang(w=0.6),
             nodes=cortical_nodes,
+            noise=AdditiveNoise(
+                sigma=0.002,
+                apply_to="S",
+                key=jax.random.key(11),
+            ),
         ),
         "relay": DynamicsGroup(
             dynamics=JansenRit(mu=0.22),
             nodes=relay_nodes,
+        ),
+        "driven": DynamicsGroup(
+            dynamics=Generic2dOscillator(),
+            nodes=driven_nodes,
+            external_input={
+                "stimulus": ConstantInput(amplitude=0.1),
+            },
         ),
     },
     routes={
@@ -140,6 +158,7 @@ network = HeterogeneousNetwork(
             source={
                 "cortex": "S",
                 "relay": pyramidal_activity,
+                "driven": "V",
             },
             source_params={"relay": rate_params},
             coupling=DelayedLinearCoupling(
@@ -150,13 +169,17 @@ network = HeterogeneousNetwork(
             target={
                 "cortex": "delayed",
                 "relay": "delayed",
+                "driven": "delayed",
             },
         ),
         "fast_relay": SignalRoute(
             source={"relay": pyramidal_activity},
             source_params={"relay": rate_params},
             coupling=LinearCoupling(G=0.02),
-            target={"cortex": "instant"},
+            target={
+                "cortex": "instant",
+                "driven": "instant",
+            },
         ),
     },
 )
@@ -165,7 +188,9 @@ network
 ```
 
 There is no padded six-state global array. The cortex remains `[1, 6]`, the
-relay remains `[6, 2]`, and routing temporarily packs only a `[1, 8]` signal.
+relay remains `[6, 2]`, the driven group remains `[2, 1]`, and routing
+temporarily packs only a `[1, 9]` signal. Noise and external input are evaluated
+in their respective group-local node spaces.
 
 ## Prepare once, simulate many times
 
@@ -193,6 +218,7 @@ relay_voltage = (
 
 print("cortex:", solution.groups.cortex.ys.shape)
 print("relay: ", solution.groups.relay.ys.shape)
+print("driven:", solution.groups.driven.ys.shape)
 print("graph projection:", solution.to_graph("S", groups=["cortex"]).shape)
 print("delayed history:", config.routes.long_range.history.shape)
 ```
@@ -203,6 +229,8 @@ The prepared config contains all live numerical values. For example:
 changed = copy.deepcopy(config)
 changed.routes.long_range.coupling.G = 0.10
 changed.groups.cortex.dynamics.w = 0.65
+changed.groups.cortex.noise.sigma = 0.003
+changed.groups.driven.external.stimulus.amplitude = 0.15
 changed.graph.delays = jnp.minimum(changed.graph.delays * 1.1, 2.0)
 
 changed_solution = jax.jit(simulate)(changed)
