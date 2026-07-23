@@ -420,6 +420,7 @@ class BoundedSolver(NativeSolver):
     - Scalar: same bound for all states/nodes
     - [n_states]: different bounds per state variable
     - [n_states, n_nodes]: different bounds per state per node
+    - State-matching PyTree: different broadcastable bounds for each state leaf
 
     Use -jnp.inf or jnp.inf to disable clipping for specific states/nodes.
 
@@ -438,23 +439,48 @@ class BoundedSolver(NativeSolver):
             low=jnp.array([0.0, -5.0]),  # state 0: ≥0, state 1: ≥-5
             high=jnp.array([1.0, 5.0])   # state 0: ≤1, state 1: ≤5
         )
+
+        # Different bounds for heterogeneous state groups
+        solver = BoundedSolver(
+            Heun(),
+            low=Bunch(cortex=jnp.array([[0.0]]), relay=-jnp.inf),
+            high=Bunch(cortex=jnp.array([[1.0]]), relay=jnp.inf),
+        )
     """
 
     def __init__(
         self,
         base_solver: NativeSolver,
-        low: float | jnp.ndarray = -jnp.inf,
-        high: float | jnp.ndarray = jnp.inf,
+        low: Any = -jnp.inf,
+        high: Any = jnp.inf,
     ):
         # Deliberately skip NativeSolver.__init__: block_size,
         # recompute_coupling_per_stage and grad_horizon are delegated to
         # base_solver via the properties below so that wrapping a solver does
         # not silently lose those settings.
         self.base_solver = base_solver
-        low = jnp.asarray(low)
-        high = jnp.asarray(high)
-        self.low = low[:, None] if low.ndim == 1 else low
-        self.high = high[:, None] if high.ndim == 1 else high
+        self.low = jax.tree.map(self._normalize_bound_leaf, low)
+        self.high = jax.tree.map(self._normalize_bound_leaf, high)
+
+    @staticmethod
+    def _normalize_bound_leaf(bound):
+        """Convert a bound leaf to an array and preserve state-axis broadcasting."""
+        bound = jnp.asarray(bound)
+        return bound[:, None] if bound.ndim == 1 else bound
+
+    @staticmethod
+    def _match_bound_tree(bound, state, name):
+        """Broadcast one bound leaf or require an exact state PyTree structure."""
+        bound_structure = jax.tree.structure(bound)
+        state_structure = jax.tree.structure(state)
+        if bound_structure == state_structure:
+            return bound
+        if bound_structure == jax.tree.structure(jnp.asarray(0.0)):
+            return jax.tree.map(lambda _state: bound, state)
+        raise ValueError(
+            f"BoundedSolver {name} must be a scalar/array or match the state "
+            f"PyTree; got {bound_structure} for state {state_structure}"
+        )
 
     @property
     def block_size(self):
@@ -476,11 +502,11 @@ class BoundedSolver(NativeSolver):
         self,
         dynamics_fn: Callable,
         t: float,
-        state: jnp.ndarray,
+        state: Any,
         dt: float,
         params: Bunch,
-        noise_sample: jnp.ndarray = 0.0,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        noise_sample: Any = 0.0,
+    ) -> tuple[Any, Any]:
         """Integration step with state clipping.
 
         Delegates to base solver, then clips output state to bounds.
@@ -489,22 +515,23 @@ class BoundedSolver(NativeSolver):
         Args:
             dynamics_fn: Dynamics function (t, state, params) -> (derivatives, auxiliaries)
             t: Current time
-            state: Current state [n_states, n_nodes]
+            state: Current state array or PyTree of state arrays
             dt: Time step
             params: Parameters
-            noise_sample: Pre-scaled noise increment
+            noise_sample: Pre-scaled scalar, array, or matching PyTree increment
 
         Returns:
             Tuple of (next_state, auxiliaries):
-                - next_state: Clipped next state [n_states, n_nodes]
-                - auxiliaries: Auxiliary variables [n_auxiliaries, n_nodes]
+                - next_state: Clipped state array or PyTree
+                - auxiliaries: Auxiliary-variable array or PyTree
         """
         # Delegate to wrapped solver
         next_state, auxiliaries = self.base_solver.step(
             dynamics_fn, t, state, dt, params, noise_sample
         )
 
-        # Clip output to bounds
-        next_state = jnp.clip(next_state, self.low, self.high)
+        low = self._match_bound_tree(self.low, next_state, "low")
+        high = self._match_bound_tree(self.high, next_state, "high")
+        next_state = jax.tree.map(jnp.clip, next_state, low, high)
 
         return next_state, auxiliaries

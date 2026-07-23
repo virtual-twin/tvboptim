@@ -23,7 +23,7 @@ from .graph.base import delay_steps_bound, effective_max_delay
 from .graph.topology import prepare_graph_topology, validate_graph_topology
 from .result import DiffraxSolution, HeterogeneousSolution, wrap_native_result
 from .solvers.diffrax import DiffraxSolver
-from .solvers.native import BoundedSolver, NativeSolver
+from .solvers.native import NativeSolver
 from .utils.history import extract_history_window
 
 
@@ -776,11 +776,6 @@ def prepare(
             "template is ambiguous. Reduce result.groups.<name> post-hoc, or "
             "omit reduce until an explicit grouped-observation contract exists."
         )
-    if isinstance(solver, BoundedSolver):
-        raise NotImplementedError(
-            "BoundedSolver needs explicit per-group bounds for heterogeneous state"
-        )
-
     time_steps = jnp.arange(t0, t1, dt)
     prepared_topology = prepare_graph_topology(network.graph)
     group_specs = []

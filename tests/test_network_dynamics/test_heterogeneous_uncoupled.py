@@ -6,6 +6,7 @@ import jax.numpy as jnp
 import pytest
 
 from tvboptim.experimental.network_dynamics import (
+    Bunch,
     DynamicsGroup,
     HeterogeneousNetwork,
     HeterogeneousSolution,
@@ -133,15 +134,63 @@ def test_one_group_matches_zero_coupling_network():
     assert jnp.allclose(grouped.ys["all"], flat.ys, rtol=1e-6, atol=1e-7)
 
 
+def test_bounded_solver_supports_scalar_bounds_for_grouped_state():
+    simulate, config = prepare(
+        _network(),
+        BoundedSolver(Euler(), low=-0.05, high=0.1),
+        t0=0.0,
+        t1=0.3,
+        dt=0.1,
+    )
+    result = jax.jit(simulate)(config)
+
+    for trajectory in result.ys.values():
+        assert jnp.all(trajectory >= -0.05)
+        assert jnp.all(trajectory <= 0.1)
+
+
+def test_bounded_solver_supports_group_structured_bounds():
+    network = _network()
+    baseline = solve(network, Euler(), t0=0.0, t1=0.3, dt=0.1)
+    simulate, config = prepare(
+        network,
+        BoundedSolver(
+            Euler(),
+            low=Bunch(a=jnp.array([[0.0]]), b=-jnp.inf),
+            high=Bunch(a=jnp.array([[0.25]]), b=jnp.inf),
+        ),
+        t0=0.0,
+        t1=0.3,
+        dt=0.1,
+    )
+    bounded = simulate(config)
+
+    assert jnp.all(bounded.ys.a >= 0.0)
+    assert jnp.all(bounded.ys.a <= 0.25)
+    assert jnp.array_equal(bounded.ys.b, baseline.ys.b)
+
+    def loss(gamma):
+        varied = config.copy()
+        varied.groups.a.dynamics.gamma = gamma
+        return jnp.mean(simulate(varied).ys.a)
+
+    value, gradient = jax.jit(jax.value_and_grad(loss))(jnp.asarray(-0.3))
+    assert jnp.isfinite(value)
+    assert jnp.isfinite(gradient)
+
+
+def test_bounded_solver_rejects_bounds_with_wrong_group_structure():
+    solver = BoundedSolver(
+        Euler(),
+        low=Bunch(a=0.0),
+        high=Bunch(a=1.0),
+    )
+    with pytest.raises(ValueError, match="must be a scalar/array or match"):
+        solve(_network(), solver, t0=0.0, t1=0.1, dt=0.1)
+
+
 def test_remaining_unimplemented_execution_features_fail_explicitly():
     with pytest.raises(NotImplementedError, match="native fixed-step"):
         prepare(_network(), DiffraxSolver(diffrax.Euler()), t1=0.2, dt=0.1)
-    with pytest.raises(NotImplementedError, match="per-group bounds"):
-        prepare(
-            _network(),
-            BoundedSolver(Euler(), low=0.0, high=1.0),
-            t1=0.2,
-            dt=0.1,
-        )
     with pytest.raises(NotImplementedError, match="does not support reduce yet"):
         prepare(_network(), Euler(), t1=0.2, dt=0.1, reduce=object())
