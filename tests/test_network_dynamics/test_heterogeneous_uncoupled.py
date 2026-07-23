@@ -143,3 +143,5 @@ def test_remaining_unimplemented_execution_features_fail_explicitly():
             t1=0.2,
             dt=0.1,
         )
+    with pytest.raises(NotImplementedError, match="does not support reduce yet"):
+        prepare(_network(), Euler(), t1=0.2, dt=0.1, reduce=object())

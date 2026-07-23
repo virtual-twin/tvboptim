@@ -770,7 +770,12 @@ def prepare(
             f"PrePostCoupling implementation: {unsupported_routes}"
         )
     if reduce is not None:
-        raise NotImplementedError("Grouped online reductions are not implemented yet")
+        raise NotImplementedError(
+            "HeterogeneousNetwork does not support reduce yet: groups have "
+            "different variable and node axes, so the homogeneous reducer "
+            "template is ambiguous. Reduce result.groups.<name> post-hoc, or "
+            "omit reduce until an explicit grouped-observation contract exists."
+        )
     if isinstance(solver, BoundedSolver):
         raise NotImplementedError(
             "BoundedSolver needs explicit per-group bounds for heterogeneous state"
@@ -852,15 +857,11 @@ def prepare(
                     prepared_externals.append((input_name, None, None, Bunch()))
                     continue
                 data, state = external.prepare(context, dt)
-                runtime_params, static_params = _partition_jax_params(
-                    external.params
-                )
+                runtime_params, static_params = _partition_jax_params(external.params)
                 external_data[name][input_name] = data
                 external_state_init[name][input_name] = state
                 group_config[name].external[input_name] = _snapshot(runtime_params)
-                prepared_externals.append(
-                    (input_name, external, data, static_params)
-                )
+                prepared_externals.append((input_name, external, data, static_params))
             external_specs[name] = tuple(prepared_externals)
 
     route_config = Bunch()
@@ -886,9 +887,7 @@ def prepare(
             values = (
                 states[:, indices, :]
                 if readout is None
-                else jax.vmap(readout, in_axes=(0, None))(
-                    states, params[group_name]
-                )
+                else jax.vmap(readout, in_axes=(0, None))(states, params[group_name])
             )
             signal = signal.at[:, :, nodes].set(values)
         return signal
@@ -1027,9 +1026,7 @@ def prepare(
             coupling_data = Bunch()
         coupling_data._prepared_topology = prepared_topology
         coupling_data.stage_time_centroid = solver.stage_time_centroid
-        coupling_data.recompute_coupling_per_stage = (
-            solver.recompute_coupling_per_stage
-        )
+        coupling_data.recompute_coupling_per_stage = solver.recompute_coupling_per_stage
         source_node_count = sum(nodes.shape[0] for _, nodes, _, _ in source_specs)
         if source_node_count != network.n_nodes:
             source_mask = jnp.zeros((network.n_nodes,), dtype=signal_dtype)
@@ -1238,8 +1235,7 @@ def prepare(
             has_noise
             and solver.block_size is not None
             and all(
-                config._internal.noise_samples[name] is None
-                for name, *_ in noise_specs
+                config._internal.noise_samples[name] is None for name, *_ in noise_specs
             )
         )
         noise_gen = None
@@ -1249,7 +1245,9 @@ def prepare(
                 return Bunch(
                     {
                         name: jax.random.normal(
-                            jax.random.fold_in(config.groups[name].noise.key, block_idx),
+                            jax.random.fold_in(
+                                config.groups[name].noise.key, block_idx
+                            ),
                             (block_len, n_noise_states, n_group_nodes),
                         )
                         for (
@@ -1410,12 +1408,10 @@ def prepare(
                         diffusion_values = jnp.broadcast_to(
                             raw_diffusion, (n_noise_states, n_group_nodes)
                         )
-                    scaled_noise = (
-                        diffusion_values * jnp.sqrt(dt) * noise_raw[name]
+                    scaled_noise = diffusion_values * jnp.sqrt(dt) * noise_raw[name]
+                    noise_sample[name] = (
+                        noise_sample[name].at[state_indices_noise].set(scaled_noise)
                     )
-                    noise_sample[name] = noise_sample[name].at[
-                        state_indices_noise
-                    ].set(scaled_noise)
 
             next_state, auxiliaries = solver.step(
                 wrapped_dynamics,
@@ -1465,9 +1461,7 @@ def prepare(
             Bunch(
                 dynamics=grouped_state0,
                 external=(
-                    config._internal.external_state.copy()
-                    if has_externals
-                    else Bunch()
+                    config._internal.external_state.copy() if has_externals else Bunch()
                 ),
                 routes=initial_route_states(config) if has_delays else Bunch(),
             )
