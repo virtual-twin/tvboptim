@@ -5,12 +5,54 @@ multi-coupling architecture. These solvers work with wrapped dynamics
 functions that already include coupling computation.
 """
 
-from typing import Callable
+from typing import Any, Callable
 
+import jax
 import jax.numpy as jnp
 
 from ..core.bunch import Bunch
 from .base import AbstractSolver
+
+
+def _tree_add_scaled(state, derivative, scale, noise_sample=0.0):
+    """Return ``state + scale * derivative + noise`` for array or PyTree state.
+
+    The deterministic public default is the scalar ``0.0``.  It cannot be
+    passed as a third tree to ``jax.tree.map`` when ``state`` is segmented, so
+    keep it as a broadcasted closed-over value in that case.  A supplied noise
+    PyTree must have exactly the state structure.
+    """
+    state_structure = jax.tree.structure(state)
+    if jax.tree.structure(noise_sample) == state_structure:
+        return jax.tree.map(
+            lambda y, dy, noise: y + scale * dy + noise,
+            state,
+            derivative,
+            noise_sample,
+        )
+    noise_leaves = jax.tree.leaves(noise_sample)
+    if len(noise_leaves) != 1 or jnp.ndim(noise_leaves[0]) != 0:
+        raise ValueError("noise_sample must be scalar or match the state PyTree")
+    scalar_noise = noise_leaves[0]
+    return jax.tree.map(
+        lambda y, dy: y + scale * dy + scalar_noise,
+        state,
+        derivative,
+    )
+
+
+def _tree_step(step_leaf, state, derivatives, noise_sample=0.0):
+    """Apply an exact leaf-level solver expression over a state PyTree."""
+    state_structure = jax.tree.structure(state)
+    if jax.tree.structure(noise_sample) == state_structure:
+        return jax.tree.map(step_leaf, state, *derivatives, noise_sample)
+    noise_leaves = jax.tree.leaves(noise_sample)
+    if len(noise_leaves) != 1 or jnp.ndim(noise_leaves[0]) != 0:
+        raise ValueError("noise_sample must be scalar or match the state PyTree")
+    scalar_noise = noise_leaves[0]
+    return jax.tree.map(
+        lambda y, *ds: step_leaf(y, *ds, scalar_noise), state, *derivatives
+    )
 
 
 class NativeSolver(AbstractSolver):
@@ -141,11 +183,11 @@ class NativeSolver(AbstractSolver):
         self,
         dynamics_fn: Callable,
         t: float,
-        state: jnp.ndarray,
+        state: Any,
         dt: float,
         params: Bunch,
-        noise_sample: jnp.ndarray = 0.0,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        noise_sample: Any = 0.0,
+    ) -> tuple[Any, Any]:
         """Single integration step for dynamics state.
 
         Args:
@@ -180,11 +222,11 @@ class Euler(NativeSolver):
         self,
         dynamics_fn: Callable,
         t: float,
-        state: jnp.ndarray,
+        state: Any,
         dt: float,
         params: Bunch,
-        noise_sample: jnp.ndarray = 0.0,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        noise_sample: Any = 0.0,
+    ) -> tuple[Any, Any]:
         """Euler integration step: y_{n+1} = y_n + dt * f(t, y_n) + noise.
 
         Args:
@@ -211,7 +253,7 @@ class Euler(NativeSolver):
             auxiliaries = jnp.array([])  # Empty array for no auxiliaries
 
         # Euler step for state integration
-        next_state = state + dt * derivatives + noise_sample
+        next_state = _tree_add_scaled(state, derivatives, dt, noise_sample)
 
         return next_state, auxiliaries
 
@@ -235,11 +277,11 @@ class Heun(NativeSolver):
         self,
         dynamics_fn: Callable,
         t: float,
-        state: jnp.ndarray,
+        state: Any,
         dt: float,
         params: Bunch,
-        noise_sample: jnp.ndarray = 0.0,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        noise_sample: Any = 0.0,
+    ) -> tuple[Any, Any]:
         """Heun integration step with predictor-corrector.
 
         Args:
@@ -267,7 +309,7 @@ class Heun(NativeSolver):
             auxiliaries = jnp.array([])
 
         # Predictor step
-        y_pred = state + dt * k1 + noise_sample
+        y_pred = _tree_add_scaled(state, k1, dt, noise_sample)
 
         # Second evaluation: k2 = f(t + dt, y_pred)
         result2 = dynamics_fn(t + dt, y_pred, params)
@@ -279,7 +321,12 @@ class Heun(NativeSolver):
             k2 = result2
 
         # Corrector: average drift, apply noise once
-        next_state = state + dt * 0.5 * (k1 + k2) + noise_sample
+        next_state = _tree_step(
+            lambda y, d1, d2, noise: y + dt * 0.5 * (d1 + d2) + noise,
+            state,
+            (k1, k2),
+            noise_sample,
+        )
 
         return next_state, auxiliaries
 
@@ -303,11 +350,11 @@ class RungeKutta4(NativeSolver):
         self,
         dynamics_fn: Callable,
         t: float,
-        state: jnp.ndarray,
+        state: Any,
         dt: float,
         params: Bunch,
-        noise_sample: jnp.ndarray = 0.0,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        noise_sample: Any = 0.0,
+    ) -> tuple[Any, Any]:
         """RK4 integration step with four evaluations.
 
         Args:
@@ -335,19 +382,30 @@ class RungeKutta4(NativeSolver):
             auxiliaries = jnp.array([])
 
         # Second evaluation: k2 = f(t + dt/2, y_n + dt/2 * k1)
-        result2 = dynamics_fn(t + 0.5 * dt, state + 0.5 * dt * k1, params)
+        result2 = dynamics_fn(
+            t + 0.5 * dt, _tree_add_scaled(state, k1, 0.5 * dt), params
+        )
         k2 = result2[0] if isinstance(result2, tuple) else result2
 
         # Third evaluation: k3 = f(t + dt/2, y_n + dt/2 * k2)
-        result3 = dynamics_fn(t + 0.5 * dt, state + 0.5 * dt * k2, params)
+        result3 = dynamics_fn(
+            t + 0.5 * dt, _tree_add_scaled(state, k2, 0.5 * dt), params
+        )
         k3 = result3[0] if isinstance(result3, tuple) else result3
 
         # Fourth evaluation: k4 = f(t + dt, y_n + dt * k3)
-        result4 = dynamics_fn(t + dt, state + dt * k3, params)
+        result4 = dynamics_fn(t + dt, _tree_add_scaled(state, k3, dt), params)
         k4 = result4[0] if isinstance(result4, tuple) else result4
 
         # RK4 combination: y_{n+1} = y_n + dt/6 * (k1 + 2*k2 + 2*k3 + k4) + noise
-        next_state = state + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4) + noise_sample
+        next_state = _tree_step(
+            lambda y, d1, d2, d3, d4, noise: (
+                y + (dt / 6.0) * (d1 + 2.0 * d2 + 2.0 * d3 + d4) + noise
+            ),
+            state,
+            (k1, k2, k3, k4),
+            noise_sample,
+        )
 
         return next_state, auxiliaries
 
