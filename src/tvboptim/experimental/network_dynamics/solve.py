@@ -892,7 +892,13 @@ def prepare(
         source_params = Bunch(
             {
                 name: _snapshot(route.source_params.get(name, Bunch()))
-                for name in set(route.source) | set(route.local)
+                for name in route.source
+            }
+        )
+        local_params = Bunch(
+            {
+                name: _snapshot(route.local_params.get(name, Bunch()))
+                for name in route.local
             }
         )
         target_params = Bunch(
@@ -904,10 +910,11 @@ def prepare(
         route_config[route_name] = Bunch(
             coupling=_snapshot(route.coupling.params),
             source_params=source_params,
+            local_params=local_params,
             target_params=target_params,
         )
 
-        def prepare_readouts(readouts, params, role):
+        def prepare_readouts(readouts, params, role, params_name):
             prepared = []
             widths = set()
             dtypes = []
@@ -919,10 +926,18 @@ def prepare(
                     try:
                         shaped = jax.eval_shape(readout, state, params[group_name])
                     except Exception as exc:
+                        hint = (
+                            f" Its parameters {params_name}[{group_name!r}] are "
+                            "empty; if the readout reads parameters, pass them "
+                            "there on the route."
+                            if not params[group_name]
+                            else ""
+                        )
                         raise ValueError(
                             f"route {route_name!r} {role} readout for group "
                             f"{group_name!r} could not be evaluated as "
-                            "readout(state, params)"
+                            f"readout(state, params) ({type(exc).__name__}: "
+                            f"{exc})." + hint
                         ) from exc
                     if not hasattr(shaped, "shape"):
                         raise ValueError(
@@ -954,11 +969,11 @@ def prepare(
             return tuple(prepared), widths.pop(), tuple(dtypes)
 
         source_specs, source_width, source_dtypes = prepare_readouts(
-            route.source, source_params, "source"
+            route.source, source_params, "source", "source_params"
         )
         if route.local:
             local_specs, local_width, local_dtypes = prepare_readouts(
-                route.local, source_params, "local"
+                route.local, local_params, "local", "local_params"
             )
         else:
             local_specs, local_width, local_dtypes = (), 0, ()
@@ -1043,10 +1058,18 @@ def prepare(
                         conversion, signal, target_params[group_name]
                     )
                 except Exception as exc:
+                    hint = (
+                        f" Its parameters target_params[{group_name!r}] are "
+                        "empty; if the conversion reads parameters, pass them "
+                        "there on the route."
+                        if not target_params[group_name]
+                        else ""
+                    )
                     raise ValueError(
                         f"route {route_name!r} conversion for group "
                         f"{group_name!r} could not be evaluated as "
-                        "conversion(signal, params)"
+                        f"conversion(signal, params) ({type(exc).__name__}: "
+                        f"{exc})." + hint
                     ) from exc
                 expected = (
                     network.groups[group_name].dynamics.COUPLING_INPUTS[input_name],
@@ -1131,7 +1154,7 @@ def prepare(
                     local_specs,
                     local_width,
                     signal_dtype,
-                    route_params.source_params,
+                    route_params.local_params,
                 )
 
             if is_delayed:

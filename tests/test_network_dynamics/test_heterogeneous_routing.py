@@ -292,3 +292,112 @@ def test_routes_accumulate_after_live_target_conversion():
         return jnp.square(solve_fn(changed).ys.a).sum()
 
     assert jnp.isfinite(jax.jit(jax.grad(loss))(jnp.array(1.5)))
+
+
+def test_readout_missing_params_error_points_at_source_params():
+    # derived_b reads params.scale, but source_params is omitted, so the group's
+    # params bunch is empty and the readout probe fails at prepare().
+    network = HeterogeneousNetwork(
+        graph=DenseGraph(WEIGHTS),
+        groups={
+            "a": DynamicsGroup(OneState(), A_NODES, initial_state=A0),
+            "b": DynamicsGroup(TwoState(), B_NODES, initial_state=B0),
+        },
+        routes={
+            "activity": SignalRoute(
+                source={"a": "x", "b": derived_b},
+                coupling=LinearCoupling(G=0.6),
+                target={"a": "drive", "b": "drive"},
+            )
+        },
+    )
+    with pytest.raises(ValueError, match=r"source_params\['b'\] are empty"):
+        prepare(network, Euler(), t1=0.1, dt=0.1)
+
+
+def test_conversion_missing_params_error_points_at_target_params():
+    # scale_conversion reads params.gain, but target_params is omitted.
+    network = HeterogeneousNetwork(
+        graph=DenseGraph(WEIGHTS),
+        groups={
+            "a": DynamicsGroup(OneState(alpha=0.0), A_NODES, initial_state=A0),
+            "b": DynamicsGroup(OneState(alpha=0.0), B_NODES, initial_state=B0[0:1]),
+        },
+        routes={
+            "converted": SignalRoute(
+                source={"a": "x", "b": "x"},
+                coupling=LinearCoupling(G=0.2),
+                target={"a": ("drive", scale_conversion)},
+            )
+        },
+    )
+    with pytest.raises(ValueError, match=r"target_params\['a'\] are empty"):
+        prepare(network, Euler(), t1=0.1, dt=0.1)
+
+
+def scaled_local(state, params):
+    return params.scale * state[0:1]
+
+
+def test_local_params_feed_receive_only_callable_local_readout():
+    # "b" is a target (so DifferenceCoupling requires a local readout for it) but
+    # not a source. Its local readout is a callable needing params. Before
+    # local_params existed those params had nowhere legal to live: source_params
+    # rejects "b" (not a source). local_params is their home.
+    state_a = A0
+    state_b = B0[0:1]
+    scale = 0.5
+    network = HeterogeneousNetwork(
+        graph=DenseGraph(WEIGHTS),
+        groups={
+            "a": DynamicsGroup(OneState(alpha=0.0), A_NODES, initial_state=state_a),
+            "b": DynamicsGroup(OneState(alpha=0.0), B_NODES, initial_state=state_b),
+        },
+        routes={
+            "difference": SignalRoute(
+                source={"a": "x"},  # b does not send
+                local={"a": "x", "b": scaled_local},  # b still receives, needs local
+                coupling=DifferenceCoupling(G=0.4),
+                target={"a": "drive", "b": "drive"},
+                local_params={"b": Bunch(scale=scale)},
+            )
+        },
+    )
+    solve_fn, config = prepare(network, Euler(), t1=0.1, dt=0.1)
+    result = solve_fn(config)
+
+    # Only "a" contributes to the transported signal; source_mask zeroes b.
+    source = jnp.zeros((1, 6)).at[:, A_NODES].set(state_a)
+    mask = jnp.zeros((6,)).at[A_NODES].set(1.0)
+    local = (
+        jnp.zeros((1, 6)).at[:, A_NODES].set(state_a).at[:, B_NODES].set(scale * state_b)
+    )
+    difference = (source[:, None, :] - local[:, :, None]) * mask[None, None, :]
+    expected_route = 0.4 * jnp.sum(difference * WEIGHTS[None, :, :], axis=-1)
+    assert jnp.allclose(result.ys.a[0], state_a + 0.1 * expected_route[:, A_NODES])
+    assert jnp.allclose(result.ys.b[0], state_b + 0.1 * expected_route[:, B_NODES])
+
+    # local_params is a live, differentiable leaf.
+    def loss(scale_value):
+        changed = config.copy()
+        changed.routes.difference.local_params.b.scale = scale_value
+        return jnp.square(solve_fn(changed).ys.b).sum()
+
+    assert jnp.isfinite(jax.jit(jax.grad(loss))(jnp.array(scale)))
+
+
+def test_receive_only_local_params_rejected_from_source_params():
+    # A target-only group's local params belong in local_params; source_params
+    # rejects it because it is not a source.
+    common = dict(
+        source={"a": "x"},
+        local={"a": "x", "b": scaled_local},
+        coupling=DifferenceCoupling(G=0.4),
+        target={"a": "drive", "b": "drive"},
+    )
+    with pytest.raises(ValueError, match=r"source=\['b'\]"):
+        SignalRoute(**common, source_params={"b": Bunch(scale=0.5)})
+
+    # The same params are accepted under local_params.
+    route = SignalRoute(**common, local_params={"b": Bunch(scale=0.5)})
+    assert route.local_params == {"b": Bunch(scale=0.5)}

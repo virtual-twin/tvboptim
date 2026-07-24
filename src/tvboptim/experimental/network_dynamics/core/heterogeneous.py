@@ -107,7 +107,11 @@ class SignalRoute:
             ``conversion(signal, params)`` on the target-local transported slice.
         local: Optional target-local readouts required by coupling families such
             as ``DifferenceCoupling``.
-        source_params: Optional per-group parameters for source/local readouts.
+        source_params: Optional per-group parameters for source readouts.
+        local_params: Optional per-group parameters for local readouts. Kept
+            distinct from ``source_params`` so a target-only group can carry its
+            local-readout parameters and so source and local readouts on the
+            same group do not share one parameter namespace.
         target_params: Optional per-group parameters for target conversions.
 
     Notes:
@@ -124,6 +128,7 @@ class SignalRoute:
         target: Mapping[str, Any],
         local: Mapping[str, Any] | None = None,
         source_params: Mapping[str, Any] | None = None,
+        local_params: Mapping[str, Any] | None = None,
         target_params: Mapping[str, Any] | None = None,
     ):
         if not isinstance(source, Mapping):
@@ -133,6 +138,7 @@ class SignalRoute:
         for role, value in (
             ("local", local),
             ("source_params", source_params),
+            ("local_params", local_params),
             ("target_params", target_params),
         ):
             if value is not None and not isinstance(value, Mapping):
@@ -165,6 +171,7 @@ class SignalRoute:
             for name, value in target.items()
         }
         self.source_params = dict(source_params or {})
+        self.local_params = dict(local_params or {})
         self.target_params = dict(target_params or {})
 
         if coupling.PRE_USES_LOCAL:
@@ -180,11 +187,13 @@ class SignalRoute:
             )
 
         unknown_source_params = set(self.source_params) - set(self.source)
+        unknown_local_params = set(self.local_params) - set(self.local)
         unknown_target_params = set(self.target_params) - set(self.target)
-        if unknown_source_params or unknown_target_params:
+        if unknown_source_params or unknown_local_params or unknown_target_params:
             raise ValueError(
-                "Route parameter mappings must refer to matching source/target "
-                f"groups; unknown source={sorted(unknown_source_params)}, "
+                "Route parameter mappings must refer to matching source/local/"
+                f"target groups; unknown source={sorted(unknown_source_params)}, "
+                f"local={sorted(unknown_local_params)}, "
                 f"target={sorted(unknown_target_params)}"
             )
 
