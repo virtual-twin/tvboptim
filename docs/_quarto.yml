@@ -40,6 +40,7 @@ website:
       - text: "Network Dynamics"
         menu:
           - file: network_dynamics/network_dynamics.qmd
+          - file: network_dynamics/heterogeneous_networks.qmd
           - file: network_dynamics/dynamics.qmd
           - file: network_dynamics/coupling.qmd
           - file: network_dynamics/graph.qmd
@@ -145,6 +146,10 @@ quartodoc:
       package: tvboptim.experimental.network_dynamics
       contents:
         - Network
+        - DynamicsGroup
+        - SignalRoute
+        - HeterogeneousNetwork
+        - HeterogeneousSolution
         - Bunch
         - solve
         - prepare

@@ -34,6 +34,10 @@ website:
       section: Utilities
     - contents:
       - reference/Network.qmd
+      - reference/DynamicsGroup.qmd
+      - reference/SignalRoute.qmd
+      - reference/HeterogeneousNetwork.qmd
+      - reference/HeterogeneousSolution.qmd
       - reference/Bunch.qmd
       - reference/solve.qmd
       - reference/prepare.qmd

@@ -58,32 +58,44 @@ class AbstractCoupling(ABC):
     N_OUTPUT_STATES: int = 0
     DEFAULT_PARAMS: Bunch = Bunch()
 
-    def __init__(self, incoming_states=None, local_states=None, **kwargs):
+    def __init__(
+        self,
+        source=None,
+        local=None,
+        *,
+        incoming_states=None,
+        local_states=None,
+        **kwargs,
+    ):
         """Initialize coupling with state names and parameter overrides.
 
         Args:
-            incoming_states: State names from connected nodes (str, tuple, or list)
-                            Optional - what states to collect from incoming connections
-            local_states: State names from current node (str, tuple, or list)
-                         Optional - what states to use from local node
-            **kwargs: Parameter overrides for DEFAULT_PARAMS
+            source: State names read from the sending node and transported
+                across edges (str, tuple, or list). Formerly ``incoming_states``.
+            local: State names read from the receiving node itself, consumed by
+                ``pre``/``post`` for difference- and phase-style couplings
+                (str, tuple, or list). Formerly ``local_states``.
+            incoming_states: Deprecated alias for ``source``; removed in 1.0.
+            local_states: Deprecated alias for ``local``; removed in 1.0.
+            **kwargs: Parameter overrides for DEFAULT_PARAMS.
+
+        Both selectors may be omitted while constructing a coupling for a
+        heterogeneous ``SignalRoute``; the route supplies canonical arrays and
+        owns the ``source``/``local`` readouts. Ordinary ``Network``
+        construction validates that at least one selector is present.
 
         Raises:
-            ValueError: If neither incoming_states nor local_states is provided,
-                       or if unknown parameters given
+            ValueError: If a name and its deprecated alias are both given, or if
+                unknown parameters are given.
         """
-        # At least one state source must be specified
-        if incoming_states is None and local_states is None:
-            raise ValueError(
-                f"{self.__class__.__name__} requires at least one of 'incoming_states' "
-                f"or 'local_states'. A coupling must couple something!"
-            )
+        source = self._resolve_state_alias(
+            source, incoming_states, "source", "incoming_states"
+        )
+        local = self._resolve_state_alias(local, local_states, "local", "local_states")
 
         # Store state names as instance attributes
-        self.INCOMING_STATE_NAMES = (
-            incoming_states if incoming_states is not None else []
-        )
-        self.LOCAL_STATE_NAMES = local_states if local_states is not None else []
+        self.INCOMING_STATE_NAMES = source if source is not None else []
+        self.LOCAL_STATE_NAMES = local if local is not None else []
 
         # Create instance parameters by copying defaults and updating with kwargs
         self.params = self.DEFAULT_PARAMS.copy() if self.DEFAULT_PARAMS else Bunch()
@@ -94,6 +106,30 @@ class AbstractCoupling(ABC):
                     f"Available parameters: {list(self.DEFAULT_PARAMS.keys())}"
                 )
             self.params[key] = value
+
+    @staticmethod
+    def _resolve_state_alias(new_value, legacy_value, new_name, legacy_name):
+        """Map a deprecated selector spelling onto its replacement.
+
+        Returns the effective selector, warning once when the deprecated
+        spelling is used. ``stacklevel=3`` points at user construction for the
+        common case of a coupling that does not override ``__init__``; delayed
+        couplings, which forward through one extra frame, attribute the warning
+        one level shallower.
+        """
+        if legacy_value is None:
+            return new_value
+        if new_value is not None:
+            raise ValueError(
+                f"Pass {new_name}= or the deprecated {legacy_name}=, not both."
+            )
+        warnings.warn(
+            f"{legacy_name}= is deprecated and will be removed in tvboptim 1.0; "
+            f"use {new_name}= instead.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return legacy_value
 
     @abstractmethod
     def prepare(self, network, dt: float, t0: float, t1: float) -> Tuple[Bunch, Bunch]:
@@ -586,6 +622,74 @@ class InstantaneousCoupling(PrePostCoupling):
 
         return coupling_data, coupling_state
 
+    def _compute_from_signals(
+        self,
+        incoming_states: jnp.ndarray,
+        local_states: jnp.ndarray,
+        coupling_data: Bunch,
+        params: Bunch,
+        graph: AbstractGraph,
+    ) -> jnp.ndarray:
+        """Apply this prepared coupling to canonical node signal arrays.
+
+        This private seam contains the established pre/transport/post
+        implementation.  The homogeneous ``compute`` adapter below only
+        resolves dynamics-state names; heterogeneous routing can supply the
+        same ``[Q, N]`` arrays directly without fabricating model state.
+        """
+        from ..graph.sparse import SparseGraph
+        from .transport import _aggregate_nodes, _reduce_edges
+
+        uses_edge_messages = self.PRE_USES_LOCAL or bool(self.EDGE_PARAMS)
+        source_mask = coupling_data.get("_source_mask")
+        pre_params = (
+            self._build_pre_params(coupling_data, params)
+            if self.EDGE_PARAMS
+            else params
+        )
+
+        if isinstance(graph, SparseGraph):
+            topology = coupling_data.get("_prepared_topology")
+            if topology is None:
+                edge_indices = graph.edge_indices
+                target_e = edge_indices[:, 0]
+                source_e = edge_indices[:, 1]
+                n_target = graph.weights.shape[0]
+            else:
+                target_e = topology.target_e
+                source_e = topology.source_e
+                n_target = topology.n_target
+
+            source_messages = incoming_states[:, source_e]
+            target_messages = local_states[:, target_e] if self.PRE_USES_LOCAL else None
+            messages = self.pre(source_messages, target_messages, pre_params)
+            if source_mask is not None:
+                messages = messages * source_mask[source_e][None, :]
+            summed = _reduce_edges(
+                messages,
+                graph.weights.data,
+                target_e,
+                n_target,
+            )
+        elif uses_edge_messages:
+            n_target, n_source = graph.weights.shape
+            source_messages = jnp.broadcast_to(
+                incoming_states[:, None, :],
+                (incoming_states.shape[0], n_target, n_source),
+            )
+            target_messages = local_states[:, :, None] if self.PRE_USES_LOCAL else None
+            messages = self.pre(source_messages, target_messages, pre_params)
+            if source_mask is not None:
+                messages = messages * source_mask[None, None, :]
+            summed = jnp.sum(messages * graph.weights[None, :, :], axis=-1)
+        else:
+            messages = self.pre(incoming_states, None, pre_params)
+            if source_mask is not None:
+                messages = messages * source_mask[None, :]
+            summed = _aggregate_nodes(messages, graph.weights)
+
+        return self.post(summed, local_states, params)
+
     def compute(
         self,
         t: float,
@@ -612,55 +716,12 @@ class InstantaneousCoupling(PrePostCoupling):
         Returns:
             Coupling input [n_coupling_inputs, n_nodes]
         """
-        from ..graph.sparse import SparseGraph
-        from .transport import _aggregate_nodes, _reduce_edges
-
         del t, coupling_state
         local_states = state[coupling_data.local_indices]
         incoming_states = state[coupling_data.incoming_indices]
-        uses_edge_messages = self.PRE_USES_LOCAL or bool(self.EDGE_PARAMS)
-        pre_params = (
-            self._build_pre_params(coupling_data, params)
-            if self.EDGE_PARAMS
-            else params
+        return self._compute_from_signals(
+            incoming_states, local_states, coupling_data, params, graph
         )
-
-        if isinstance(graph, SparseGraph):
-            topology = coupling_data.get("_prepared_topology")
-            if topology is None:
-                edge_indices = graph.edge_indices
-                target_e = edge_indices[:, 0]
-                source_e = edge_indices[:, 1]
-                n_target = graph.weights.shape[0]
-            else:
-                target_e = topology.target_e
-                source_e = topology.source_e
-                n_target = topology.n_target
-
-            source_messages = incoming_states[:, source_e]
-            target_messages = local_states[:, target_e] if self.PRE_USES_LOCAL else None
-            messages = self.pre(source_messages, target_messages, pre_params)
-            summed = _reduce_edges(
-                messages,
-                graph.weights.data,
-                target_e,
-                n_target,
-            )
-        elif uses_edge_messages:
-            n_target, n_source = graph.weights.shape
-            source_messages = jnp.broadcast_to(
-                incoming_states[:, None, :],
-                (incoming_states.shape[0], n_target, n_source),
-            )
-            target_messages = local_states[:, :, None] if self.PRE_USES_LOCAL else None
-            messages = self.pre(source_messages, target_messages, pre_params)
-            summed = jnp.sum(messages * graph.weights[None, :, :], axis=-1)
-        else:
-            messages = self.pre(incoming_states, None, pre_params)
-            summed = _aggregate_nodes(messages, graph.weights)
-
-        # Apply post-transform
-        return self.post(summed, local_states, params)
 
     def update_state(
         self, coupling_data: Bunch, coupling_state: Bunch, new_state: jnp.ndarray
@@ -837,9 +898,6 @@ class DelayedCoupling(PrePostCoupling):
         # or max(delays) if none was declared -- see effective_max_delay().
         # precompute() recomputes the actual read indices from the live
         # delays every forward pass, clamped into this buffer.
-        max_delay_steps = delay_steps_bound(effective_max_delay(graph), dt)
-        base_history_length = max_delay_steps + 1
-
         # Initialize history buffer using network's get_history
         history_full = network.get_history(
             dt
@@ -847,6 +905,36 @@ class DelayedCoupling(PrePostCoupling):
         history_init = history_full[
             :, incoming_idx, :
         ]  # [base_history_length, n_incoming, n_nodes]
+
+        return self._prepare_history(
+            graph,
+            history_init,
+            dt,
+            t0,
+            t1,
+            incoming_indices=incoming_idx,
+            local_indices=local_idx,
+        )
+
+    def _prepare_history(
+        self,
+        graph: AbstractGraph,
+        history_init: jnp.ndarray,
+        dt: float,
+        t0: float,
+        t1: float,
+        *,
+        incoming_indices,
+        local_indices,
+    ) -> Tuple[Bunch, Bunch]:
+        """Prepare a delayed buffer from an already canonicalized history.
+
+        Homogeneous ``prepare`` resolves model state names before entering this
+        seam. A heterogeneous route supplies its packed ``[T, Q_source, N]``
+        signal directly, so both paths share buffer sizing and update timing.
+        """
+        max_delay_steps = delay_steps_bound(effective_max_delay(graph), dt)
+        base_history_length = max_delay_steps + 1
 
         # The read indices below are derived from max_delay_steps, while the
         # buffer's newest physical row is history_init.shape[0] - 1. If the two
@@ -880,8 +968,8 @@ class DelayedCoupling(PrePostCoupling):
             #   - history[0] = oldest state (max_delay in the past)
             #   - history[-1] = newest state (current)
             coupling_data = Bunch(
-                incoming_indices=incoming_idx,
-                local_indices=local_idx,
+                incoming_indices=incoming_indices,
+                local_indices=local_indices,
                 dt=dt,
                 max_delay_steps=max_delay_steps,
             )
@@ -892,8 +980,8 @@ class DelayedCoupling(PrePostCoupling):
             buffer_size = base_history_length
 
             coupling_data = Bunch(
-                incoming_indices=incoming_idx,
-                local_indices=local_idx,
+                incoming_indices=incoming_indices,
+                local_indices=local_indices,
                 dt=dt,
                 max_delay_steps=max_delay_steps,
                 buffer_size=jnp.int32(buffer_size),
@@ -918,8 +1006,8 @@ class DelayedCoupling(PrePostCoupling):
             history = history.at[:actual_history_length].set(history_init)
 
             coupling_data = Bunch(
-                incoming_indices=incoming_idx,
-                local_indices=local_idx,
+                incoming_indices=incoming_indices,
+                local_indices=local_indices,
                 dt=dt,
                 max_delay_steps=max_delay_steps,
                 buffer_size=jnp.int32(buffer_size),
@@ -1146,7 +1234,25 @@ class DelayedCoupling(PrePostCoupling):
         Returns:
             Coupling input [n_coupling_inputs, n_nodes]
         """
-        del t  # Unused
+        del t
+        local_states = state[coupling_data.local_indices]
+        return self._compute_from_history(
+            local_states,
+            coupling_data,
+            coupling_state,
+            params,
+            graph,
+        )
+
+    def _compute_from_history(
+        self,
+        local_states: jnp.ndarray,
+        coupling_data: Bunch,
+        coupling_state: Bunch,
+        params: Bunch,
+        graph: AbstractGraph,
+    ) -> jnp.ndarray:
+        """Transport delayed canonical signals from a prepared route history."""
         from ..graph.sparse import SparseGraph
         from .transport import (
             _gather_history,
@@ -1186,12 +1292,12 @@ class DelayedCoupling(PrePostCoupling):
             read_indices = newest_idx - coupling_data.delay_steps
             read_indices_hi = read_indices - 1 if self._interpolating else None
 
-        local_states = state[coupling_data.local_indices]
         pre_params = (
             self._build_pre_params(coupling_data, params)
             if self.EDGE_PARAMS
             else params
         )
+        source_mask = coupling_data.get("_source_mask")
 
         if isinstance(graph, SparseGraph):
             topology = coupling_data.get("_prepared_topology")
@@ -1221,6 +1327,8 @@ class DelayedCoupling(PrePostCoupling):
                 )
             target_states = local_states[:, target_e] if self.PRE_USES_LOCAL else None
             messages = self.pre(delayed_states, target_states, pre_params)
+            if source_mask is not None:
+                messages = messages * source_mask[source_e][None, :]
             summed = _reduce_edges(
                 messages,
                 graph.weights.data,
@@ -1245,6 +1353,8 @@ class DelayedCoupling(PrePostCoupling):
                 )
             target_states = local_states[:, :, None] if self.PRE_USES_LOCAL else None
             messages = self.pre(delayed_states, target_states, pre_params)
+            if source_mask is not None:
+                messages = messages * source_mask[None, None, :]
             summed = jnp.sum(messages * graph.weights[None, :, :], axis=-1)
 
         # Apply post-transform
@@ -1263,9 +1373,19 @@ class DelayedCoupling(PrePostCoupling):
         Returns:
             New Bunch with updated history buffer (and write_idx for non-roll)
         """
-        from .transport import _roll_history, _write_history
-
         new_incoming_states = new_state[coupling_data.incoming_indices]
+        return self._update_history_from_signal(
+            coupling_data, coupling_state, new_incoming_states
+        )
+
+    def _update_history_from_signal(
+        self,
+        coupling_data: Bunch,
+        coupling_state: Bunch,
+        transmitted: jnp.ndarray,
+    ) -> Bunch:
+        """Advance a delayed buffer with one accepted canonical signal."""
+        from .transport import _roll_history, _write_history
 
         if self.buffer_strategy == "roll":
             # Roll strategy: shift buffer and write at end
@@ -1274,7 +1394,7 @@ class DelayedCoupling(PrePostCoupling):
             # Then overwrite index -1 with new current state
             new_history = _roll_history(
                 coupling_state.history,
-                new_incoming_states,
+                transmitted,
             )
             return Bunch(history=new_history)
 
@@ -1283,7 +1403,7 @@ class DelayedCoupling(PrePostCoupling):
             new_history = _write_history(
                 coupling_state.history,
                 coupling_state.write_idx,
-                new_incoming_states,
+                transmitted,
             )
             new_write_idx = (coupling_state.write_idx + 1) % coupling_data.buffer_size
             return Bunch(history=new_history, write_idx=new_write_idx)
@@ -1293,7 +1413,7 @@ class DelayedCoupling(PrePostCoupling):
             new_history = _write_history(
                 coupling_state.history,
                 coupling_state.write_idx,
-                new_incoming_states,
+                transmitted,
             )
             new_write_idx = coupling_state.write_idx + 1
             return Bunch(history=new_history, write_idx=new_write_idx)
