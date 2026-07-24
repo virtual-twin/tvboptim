@@ -370,7 +370,11 @@ def test_local_params_feed_receive_only_callable_local_readout():
     source = jnp.zeros((1, 6)).at[:, A_NODES].set(state_a)
     mask = jnp.zeros((6,)).at[A_NODES].set(1.0)
     local = (
-        jnp.zeros((1, 6)).at[:, A_NODES].set(state_a).at[:, B_NODES].set(scale * state_b)
+        jnp.zeros((1, 6))
+        .at[:, A_NODES]
+        .set(state_a)
+        .at[:, B_NODES]
+        .set(scale * state_b)
     )
     difference = (source[:, None, :] - local[:, :, None]) * mask[None, None, :]
     expected_route = 0.4 * jnp.sum(difference * WEIGHTS[None, :, :], axis=-1)
