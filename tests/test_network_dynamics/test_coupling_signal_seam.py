@@ -55,7 +55,7 @@ class LocalDifference(InstantaneousCoupling):
 @pytest.mark.parametrize("graph_type", [DenseGraph, SparseGraph])
 def test_multichannel_state_adapter_matches_direct_signal_kernel(graph_type):
     graph = graph_type(WEIGHTS)
-    coupling = TwoChannelSigmoid(incoming_states=("x", "y"))
+    coupling = TwoChannelSigmoid(source=("x", "y"))
     data = Bunch(
         incoming_indices=jnp.array([0, 1]),
         local_indices=jnp.array([], dtype=jnp.int32),
@@ -75,7 +75,7 @@ def test_multichannel_state_adapter_matches_direct_signal_kernel(graph_type):
 @pytest.mark.parametrize("graph_type", [DenseGraph, SparseGraph])
 def test_local_state_adapter_matches_direct_signal_kernel(graph_type):
     graph = graph_type(WEIGHTS)
-    coupling = LocalDifference(incoming_states="x", local_states="y")
+    coupling = LocalDifference(source="x", local="y")
     data = Bunch(
         incoming_indices=jnp.array([0]),
         local_indices=jnp.array([1]),
@@ -95,7 +95,7 @@ def test_local_state_adapter_matches_direct_signal_kernel(graph_type):
 @pytest.mark.parametrize("graph_type", [DenseGraph, SparseGraph])
 def test_direct_signal_kernel_preserves_jit_and_gradients(graph_type):
     graph = graph_type(WEIGHTS)
-    coupling = TwoChannelSigmoid(incoming_states=("x", "y"))
+    coupling = TwoChannelSigmoid(source=("x", "y"))
     data = Bunch(
         incoming_indices=jnp.array([0, 1]),
         local_indices=jnp.array([], dtype=jnp.int32),
@@ -113,3 +113,49 @@ def test_direct_signal_kernel_preserves_jit_and_gradients(graph_type):
     assert jnp.isfinite(value)
     assert jnp.all(jnp.isfinite(gradients[0]))
     assert jnp.isfinite(gradients[1])
+
+
+# The canonical source/local spelling and its deprecated incoming_states/
+# local_states aliases must construct identically. Listed as (kwargs, legacy)
+# selector pairs so new coupling shapes extend one list.
+_ALIAS_CASES = [
+    ({"source": "x"}, {"incoming_states": "x"}),
+    ({"source": ("x", "y")}, {"incoming_states": ("x", "y")}),
+    ({"source": "x", "local": "y"}, {"incoming_states": "x", "local_states": "y"}),
+]
+
+
+@pytest.mark.parametrize("new_kwargs, legacy_kwargs", _ALIAS_CASES)
+def test_source_local_spelling_matches_deprecated_aliases(new_kwargs, legacy_kwargs):
+    with pytest.warns(DeprecationWarning, match=r"(incoming_states|local_states)="):
+        legacy = TwoChannelSigmoid(**legacy_kwargs)
+
+    import warnings as _warnings
+
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("error")  # the new spelling must not warn
+        current = TwoChannelSigmoid(**new_kwargs)
+
+    assert current.INCOMING_STATE_NAMES == legacy.INCOMING_STATE_NAMES
+    assert current.LOCAL_STATE_NAMES == legacy.LOCAL_STATE_NAMES
+
+
+@pytest.mark.parametrize("graph_type", [DenseGraph, SparseGraph])
+def test_deprecated_alias_produces_identical_results(graph_type):
+    graph = graph_type(WEIGHTS)
+    data = Bunch(
+        incoming_indices=jnp.array([0, 1]),
+        local_indices=jnp.array([], dtype=jnp.int32),
+    )
+    current = TwoChannelSigmoid(source=("x", "y"))
+    with pytest.warns(DeprecationWarning):
+        legacy = TwoChannelSigmoid(incoming_states=("x", "y"))
+
+    via_new = current.compute(0.0, STATE, data, Bunch(), current.params, graph)
+    via_legacy = legacy.compute(0.0, STATE, data, Bunch(), legacy.params, graph)
+    assert jnp.array_equal(via_new, via_legacy)
+
+
+def test_mixing_name_and_deprecated_alias_raises():
+    with pytest.raises(ValueError, match="not both"):
+        TwoChannelSigmoid(source="x", incoming_states="x")

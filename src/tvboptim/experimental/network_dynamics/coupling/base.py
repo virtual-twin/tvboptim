@@ -58,29 +58,44 @@ class AbstractCoupling(ABC):
     N_OUTPUT_STATES: int = 0
     DEFAULT_PARAMS: Bunch = Bunch()
 
-    def __init__(self, incoming_states=None, local_states=None, **kwargs):
+    def __init__(
+        self,
+        source=None,
+        local=None,
+        *,
+        incoming_states=None,
+        local_states=None,
+        **kwargs,
+    ):
         """Initialize coupling with state names and parameter overrides.
 
         Args:
-            incoming_states: State names from connected nodes (str, tuple, or list)
-                            Optional - what states to collect from incoming connections
-            local_states: State names from current node (str, tuple, or list)
-                         Optional - what states to use from local node
-            **kwargs: Parameter overrides for DEFAULT_PARAMS
+            source: State names read from the sending node and transported
+                across edges (str, tuple, or list). Formerly ``incoming_states``.
+            local: State names read from the receiving node itself, consumed by
+                ``pre``/``post`` for difference- and phase-style couplings
+                (str, tuple, or list). Formerly ``local_states``.
+            incoming_states: Deprecated alias for ``source``; removed in 1.0.
+            local_states: Deprecated alias for ``local``; removed in 1.0.
+            **kwargs: Parameter overrides for DEFAULT_PARAMS.
 
-        State selectors may both be omitted while constructing a coupling for
-        a heterogeneous ``SignalRoute``; the route supplies canonical arrays
-        instead. Ordinary ``Network`` construction validates that at least one
-        selector is present.
+        Both selectors may be omitted while constructing a coupling for a
+        heterogeneous ``SignalRoute``; the route supplies canonical arrays and
+        owns the ``source``/``local`` readouts. Ordinary ``Network``
+        construction validates that at least one selector is present.
 
         Raises:
-            ValueError: If unknown parameters are given.
+            ValueError: If a name and its deprecated alias are both given, or if
+                unknown parameters are given.
         """
-        # Store state names as instance attributes
-        self.INCOMING_STATE_NAMES = (
-            incoming_states if incoming_states is not None else []
+        source = self._resolve_state_alias(
+            source, incoming_states, "source", "incoming_states"
         )
-        self.LOCAL_STATE_NAMES = local_states if local_states is not None else []
+        local = self._resolve_state_alias(local, local_states, "local", "local_states")
+
+        # Store state names as instance attributes
+        self.INCOMING_STATE_NAMES = source if source is not None else []
+        self.LOCAL_STATE_NAMES = local if local is not None else []
 
         # Create instance parameters by copying defaults and updating with kwargs
         self.params = self.DEFAULT_PARAMS.copy() if self.DEFAULT_PARAMS else Bunch()
@@ -91,6 +106,30 @@ class AbstractCoupling(ABC):
                     f"Available parameters: {list(self.DEFAULT_PARAMS.keys())}"
                 )
             self.params[key] = value
+
+    @staticmethod
+    def _resolve_state_alias(new_value, legacy_value, new_name, legacy_name):
+        """Map a deprecated selector spelling onto its replacement.
+
+        Returns the effective selector, warning once when the deprecated
+        spelling is used. ``stacklevel=3`` points at user construction for the
+        common case of a coupling that does not override ``__init__``; delayed
+        couplings, which forward through one extra frame, attribute the warning
+        one level shallower.
+        """
+        if legacy_value is None:
+            return new_value
+        if new_value is not None:
+            raise ValueError(
+                f"Pass {new_name}= or the deprecated {legacy_name}=, not both."
+            )
+        warnings.warn(
+            f"{legacy_name}= is deprecated and will be removed in tvboptim 1.0; "
+            f"use {new_name}= instead.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return legacy_value
 
     @abstractmethod
     def prepare(self, network, dt: float, t0: float, t1: float) -> Tuple[Bunch, Bunch]:

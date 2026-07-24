@@ -106,7 +106,7 @@ class FastLinearCoupling(LinearCoupling):
         """Accept the historical ``local_states`` spelling as a source alias."""
         warnings.warn(
             "FastLinearCoupling is deprecated; use "
-            "LinearCoupling(incoming_states=...) instead.",
+            "LinearCoupling(source=...) instead.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -116,7 +116,7 @@ class FastLinearCoupling(LinearCoupling):
                 "historical local_states alias, not both"
             )
         source_states = incoming_states if incoming_states is not None else local_states
-        super().__init__(incoming_states=source_states, local_states=[], **kwargs)
+        super().__init__(source=source_states, local=[], **kwargs)
 
 
 class DifferenceCoupling(InstantaneousCoupling):
