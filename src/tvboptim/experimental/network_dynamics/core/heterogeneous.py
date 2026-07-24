@@ -99,7 +99,8 @@ class SignalRoute:
 
     Args:
         source: Mapping from source group names to a state name, tuple of state
-            names, or ``readout(state, params) -> [Q, n_group_nodes]`` callable.
+            names, or a ``readout(state, params) -> [Q, n_group_nodes]`` callable.
+            A readout may also take a trailing third argument, ``readout(state, params, inputs)``, to build its signal from what the node receives: ``inputs`` is the group's coupling-input ``Bunch`` (its ``COUPLING_INPUTS``), populated by routes declared earlier. Only supported on instantaneous routes.
         coupling: Selector-free ``PrePostCoupling`` used for this route. The
             route, rather than the coupling, owns source and local readouts.
         target: Mapping from target group names to a coupling-input name or
@@ -237,7 +238,8 @@ class HeterogeneousNetwork:
         groups: Normalized group dictionary.
         routes: Normalized route dictionary.
         group_names: Canonically sorted group names.
-        route_names: Canonically sorted route names.
+        route_names: Route names in declaration order (a source readout may read
+            coupling inputs produced by an earlier route).
         group_nodes: Normalized node-index tuples by group.
         n_nodes: Number of nodes in the shared graph.
 
@@ -280,7 +282,8 @@ class HeterogeneousNetwork:
             raise TypeError("routes must map names to SignalRoute instances")
 
         self.group_names = tuple(sorted(self.groups))
-        self.route_names = tuple(sorted(self.routes))
+        # Declaration order, not sorted: a source readout may read coupling inputs produced by an earlier route (e.g. a relay whose emitted signal depends on its incoming rate), so producers must precede consumers.
+        self.route_names = tuple(self.routes)
         self.n_nodes = int(graph.weights.shape[0])
         self.group_nodes = {
             name: self._normalize_nodes(name, self.groups[name].nodes)
