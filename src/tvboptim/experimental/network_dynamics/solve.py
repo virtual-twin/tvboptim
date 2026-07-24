@@ -58,6 +58,26 @@ def _partition_jax_params(params):
     return dynamic, static
 
 
+def _readout_wants_inputs(fn):
+    """Whether a source/local readout takes the node's coupling inputs.
+
+    A readout is either ``readout(state, params)`` or ``readout(state, params, inputs)``; the 3-arg form receives the group's coupling-input ``Bunch`` (its ``COUPLING_INPUTS``) as a trailing argument, so it can build a signal from what the node receives. This trailing order matches ``dynamics(t, state, params, coupling, external)``. Detect which by counting required positional parameters, defaulting to the 2-arg form when the signature cannot be introspected.
+    """
+    import inspect
+
+    try:
+        parameters = inspect.signature(fn).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    required = [
+        p
+        for p in parameters
+        if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+        and p.default is inspect.Parameter.empty
+    ]
+    return len(required) == 3
+
+
 def _blocked_scan(runner, state0, scan_inputs, n_steps, block_size):
     """Split the leading axis into ``(n_blocks, block_size)`` plus a tail, scan
     ``runner`` over the main blocks, run ``runner`` once on the tail, and stitch
@@ -862,15 +882,18 @@ def prepare(
     route_config = Bunch()
     route_specs = []
     route_history_shapes = {}
+    produced_groups = set()
 
-    def pack_readouts(grouped_state, specs, width, dtype, params):
+    def pack_readouts(grouped_state, specs, width, dtype, params, coupling_inputs=None):
         signal = jnp.zeros((width, network.n_nodes), dtype=dtype)
         for group_name, nodes, readout, indices in specs:
-            values = (
-                grouped_state[group_name][indices]
-                if readout is None
-                else readout(grouped_state[group_name], params[group_name])
-            )
+            if readout is None:
+                values = grouped_state[group_name][indices]
+            else:
+                args = (grouped_state[group_name], params[group_name])
+                if _readout_wants_inputs(readout):
+                    args += (coupling_inputs[group_name],)
+                values = readout(*args)
             signal = signal.at[:, nodes].set(values)
         return signal
 
@@ -918,13 +941,29 @@ def prepare(
             prepared = []
             widths = set()
             dtypes = []
+            input_groups = set()
             for group_name in sorted(readouts):
                 readout = readouts[group_name]
                 state = initial_state[group_name]
                 nodes = jnp.asarray(network.group_nodes[group_name], dtype=int)
                 if callable(readout):
+                    wants_inputs = _readout_wants_inputs(readout)
+                    eval_args = (state, params[group_name])
+                    if wants_inputs:
+                        input_groups.add(group_name)
+                        group_dyn = network.groups[group_name].dynamics
+                        zero_inputs = Bunch(
+                            {
+                                inp: jnp.zeros(
+                                    (n, len(network.group_nodes[group_name])),
+                                    dtype=state.dtype,
+                                )
+                                for inp, n in group_dyn.COUPLING_INPUTS.items()
+                            }
+                        )
+                        eval_args += (zero_inputs,)
                     try:
-                        shaped = jax.eval_shape(readout, state, params[group_name])
+                        shaped = jax.eval_shape(readout, *eval_args)
                     except Exception as exc:
                         hint = (
                             f" Its parameters {params_name}[{group_name!r}] are "
@@ -933,10 +972,15 @@ def prepare(
                             if not params[group_name]
                             else ""
                         )
+                        sig = (
+                            "readout(state, params, inputs)"
+                            if wants_inputs
+                            else "readout(state, params)"
+                        )
                         raise ValueError(
                             f"route {route_name!r} {role} readout for group "
                             f"{group_name!r} could not be evaluated as "
-                            f"readout(state, params) ({type(exc).__name__}: "
+                            f"{sig} ({type(exc).__name__}: "
                             f"{exc})." + hint
                         ) from exc
                     if not hasattr(shaped, "shape"):
@@ -966,17 +1010,17 @@ def prepare(
                     f"route {route_name!r} {role} readouts must share one "
                     f"channel width, got {sorted(widths)}"
                 )
-            return tuple(prepared), widths.pop(), tuple(dtypes)
+            return tuple(prepared), widths.pop(), tuple(dtypes), input_groups
 
-        source_specs, source_width, source_dtypes = prepare_readouts(
+        source_specs, source_width, source_dtypes, source_input_groups = prepare_readouts(
             route.source, source_params, "source", "source_params"
         )
         if route.local:
-            local_specs, local_width, local_dtypes = prepare_readouts(
+            local_specs, local_width, local_dtypes, local_input_groups = prepare_readouts(
                 route.local, local_params, "local", "local_params"
             )
         else:
-            local_specs, local_width, local_dtypes = (), 0, ()
+            local_specs, local_width, local_dtypes, local_input_groups = (), 0, (), set()
 
         signal_dtype = jnp.result_type(*(source_dtypes + local_dtypes))
         route.coupling._validate_pre_contract(
@@ -989,6 +1033,20 @@ def prepare(
         if is_delayed and not hasattr(network.graph, "delays"):
             raise ValueError(
                 f"delayed route {route_name!r} requires a graph with delays"
+            )
+        input_groups = source_input_groups | local_input_groups
+        if is_delayed and input_groups:
+            raise NotImplementedError(
+                f"route {route_name!r} is delayed and has an input-dependent "
+                "readout (readout(state, inputs, params)). Coupling inputs are "
+                "only available to readouts on instantaneous routes."
+            )
+        unfed = input_groups - produced_groups
+        if unfed:
+            raise ValueError(
+                f"route {route_name!r} has an input-dependent readout on group(s) "
+                f"{sorted(unfed)}, but no earlier route feeds their coupling "
+                "inputs. Declare the producing route(s) before this one."
             )
         if is_delayed:
             max_delay = effective_max_delay(network.graph)
@@ -1097,6 +1155,7 @@ def prepare(
                 is_delayed,
             )
         )
+        produced_groups |= set(route.target)
 
     config = Bunch(
         groups=group_config,
@@ -1155,6 +1214,7 @@ def prepare(
                     local_width,
                     signal_dtype,
                     route_params.local_params,
+                    coupling_inputs=coupling_inputs,
                 )
 
             if is_delayed:
@@ -1172,6 +1232,7 @@ def prepare(
                     source_width,
                     signal_dtype,
                     route_params.source_params,
+                    coupling_inputs=coupling_inputs,
                 )
                 transported = coupling._compute_from_signals(
                     source_signal,
