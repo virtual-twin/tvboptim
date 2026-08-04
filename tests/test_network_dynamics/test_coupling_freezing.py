@@ -44,7 +44,7 @@ def _delay_network(noise=None):
     graph = DenseDelayGraph.random(N, max_delay=40.0, key=jax.random.key(0))
     return Network(
         _oscillator(),
-        {"delayed": DelayedLinearCoupling(incoming_states="V", G=0.05)},
+        {"delayed": DelayedLinearCoupling(source="V", G=0.05)},
         graph,
         noise=noise,
     )
@@ -54,7 +54,7 @@ def _instant_network():
     graph = DenseGraph.random(N, key=jax.random.key(0))
     return Network(
         _oscillator(),
-        {"instant": LinearCoupling(incoming_states="V", G=0.1)},
+        {"instant": LinearCoupling(source="V", G=0.1)},
         graph,
     )
 

@@ -255,11 +255,11 @@ Now create a network with two coupling types:
 
 ```{python}
 # Local instantaneous coupling
-coupling_instant = LinearCoupling(incoming_states='S', G=0.2)
+coupling_instant = LinearCoupling(source='S', G=0.2)
 
 # Regional delayed coupling via subspace
 coupling_delayed = SubspaceCoupling(
-    inner_coupling=DelayedLinearCoupling(incoming_states='S', G=0.05),
+    inner_coupling=DelayedLinearCoupling(source='S', G=0.05),
     region_mapping=region_mapping,
     regional_graph=regional_graph,
 )

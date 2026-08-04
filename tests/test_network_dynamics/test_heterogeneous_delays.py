@@ -124,7 +124,7 @@ def test_one_group_delayed_route_matches_ordinary_network(
         history_interpolation=interpolation,
     )
     ordinary_coupling = DelayedLinearCoupling(
-        incoming_states="x",
+        source="x",
         G=0.3,
         buffer_strategy=buffer_strategy,
         history_interpolation=interpolation,
@@ -220,7 +220,7 @@ def test_live_warm_history_matches_ordinary_path_and_is_differentiable():
             Linear(gamma=-0.4),
             {
                 "delayed": DelayedLinearCoupling(
-                    incoming_states="x", G=0.3, history_interpolation="linear"
+                    source="x", G=0.3, history_interpolation="linear"
                 )
             },
             graph,
@@ -483,7 +483,7 @@ def test_multichannel_jansen_rit_route_history_stores_only_source_channels():
     ordinary_fn, ordinary_config = prepare(
         Network(
             JansenRit(),
-            {"delayed": DelayedSigmoidalJansenRit(incoming_states=("y1", "y2"), G=0.4)},
+            {"delayed": DelayedSigmoidalJansenRit(source=("y1", "y2"), G=0.4)},
             graph,
         ),
         Euler(),

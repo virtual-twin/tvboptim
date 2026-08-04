@@ -188,7 +188,7 @@ dynamics = ReducedWongWang(w=0.5, I_o=0.32, INITIAL_STATE=(0.3,))
 
 # Define coupling between nodes: Linear coupling
 # incoming_states: which state variable to couple, G: global coupling strength
-coup = LinearCoupling(incoming_states='S', G=0.75)
+coup = LinearCoupling(source='S', G=0.75)
 
 # Define the network structure: connectivity weights and delays
 graph = DenseDelayGraph(weights, delays)

@@ -35,13 +35,13 @@ def test_group_scalars_match_equivalent_node_local_parameter_and_gradient(
         graph = DenseDelayGraph(weights, delays, max_delay_bound=0.2)
         coupling_name = "delayed"
         ordinary_coupling = DelayedLinearCoupling(
-            incoming_states="x", G=0.2, history_interpolation="linear"
+            source="x", G=0.2, history_interpolation="linear"
         )
         grouped_coupling = DelayedLinearCoupling(G=0.2, history_interpolation="linear")
     else:
         graph = DenseGraph(weights)
         coupling_name = "instant"
-        ordinary_coupling = LinearCoupling(incoming_states="x", G=0.2)
+        ordinary_coupling = LinearCoupling(source="x", G=0.2)
         grouped_coupling = LinearCoupling(G=0.2)
     initial = jnp.linspace(0.01, 0.05, n_nodes)[None, :]
     owner = jnp.arange(n_nodes) % n_groups

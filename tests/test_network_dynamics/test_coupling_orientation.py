@@ -38,7 +38,7 @@ def test_fast_linear_uses_target_source_orientation_on_directed_graph():
     state = jnp.array([[5.0, 7.0, 11.0]])
     graph = DenseGraph(weights)
 
-    linear = _compute(LinearCoupling(incoming_states="x"), graph, state)
+    linear = _compute(LinearCoupling(source="x"), graph, state)
     with pytest.warns(DeprecationWarning, match="use LinearCoupling"):
         compatibility = FastLinearCoupling(local_states="x")
     assert isinstance(compatibility, LinearCoupling)

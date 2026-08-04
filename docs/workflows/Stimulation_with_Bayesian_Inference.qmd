@@ -265,7 +265,7 @@ def build_network(amplitude, excitability):
     """Deterministic forward model network."""
     return Network(
         dynamics=Generic2dOscillator(**DYNAMICS_PARAMS, I=excitability, VARIABLES_OF_INTEREST=("V",)),
-        coupling={"instant": LinearCoupling(incoming_states="V", G=0.0)},
+        coupling={"instant": LinearCoupling(source="V", G=0.0)},
         graph=DenseGraph(weights),
         external_input={"stimulus": PulseInput(onset=ONSET, duration=DURATION, amplitude=amplitude)},
     )

@@ -404,7 +404,7 @@ delays = lengths / speed
 # Create network components
 graph = DenseDelayGraph(weights, delays, region_labels=region_labels)
 dynamics = JansenRit(a = 0.065, b = 0.065, mu = 0.15)
-coupling = DelayedSigmoidalJansenRit(incoming_states=["y1", "y2"], G = 15.0)
+coupling = DelayedSigmoidalJansenRit(source=["y1", "y2"], G = 15.0)
 noise = AdditiveNoise(sigma = 1e-04)
 
 # Assemble the network

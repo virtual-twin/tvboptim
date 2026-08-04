@@ -150,7 +150,7 @@ def build_network(weights, region_labels, G=8.0):
     """Jansen-Rit whole-brain network with instantaneous sigmoidal coupling."""
     return Network(
         dynamics=JansenRit(a=A, mu=MU),
-        coupling={"instant": SigmoidalJansenRit(incoming_states=("y1", "y2"), G=G)},
+        coupling={"instant": SigmoidalJansenRit(source=("y1", "y2"), G=G)},
         graph=DenseGraph(weights, region_labels=region_labels),
         noise=AdditiveNoise(sigma=SIGMA, apply_to="y4"),
     )

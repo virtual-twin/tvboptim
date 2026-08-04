@@ -27,9 +27,9 @@ class LinearCoupling(InstantaneousCoupling):
 
     Parameters
     ----------
-    incoming_states : str or list of str
+    source : str or list of str
         State name(s) to collect from connected nodes (required)
-    local_states : str or list of str, optional
+    local : str or list of str, optional
         State name(s) from current node (default: ``[]``)
 
     Attributes
@@ -42,10 +42,10 @@ class LinearCoupling(InstantaneousCoupling):
     Examples
     --------
     >>> # Couple via 'x' state from connected nodes
-    >>> coupling = LinearCoupling(incoming_states='x', G=1.0)
+    >>> coupling = LinearCoupling(source='x', G=1.0)
     >>>
     >>> # With offset
-    >>> coupling = LinearCoupling(incoming_states='x', G=0.5, b=0.1)
+    >>> coupling = LinearCoupling(source='x', G=0.5, b=0.1)
     """
 
     N_OUTPUT_STATES = 1
@@ -94,7 +94,7 @@ class FastLinearCoupling(LinearCoupling):
 
     Notes
     -----
-    New code should construct ``LinearCoupling(incoming_states=...)`` directly.
+    New code should construct ``LinearCoupling(source=...)`` directly.
 
     Examples
     --------
@@ -132,9 +132,9 @@ class DifferenceCoupling(InstantaneousCoupling):
 
     Parameters
     ----------
-    incoming_states : str or list of str
+    source : str or list of str
         State name(s) to collect from connected nodes (required)
-    local_states : str or list of str
+    local : str or list of str
         State name(s) from current node (required for computing differences)
 
     Attributes
@@ -147,7 +147,7 @@ class DifferenceCoupling(InstantaneousCoupling):
     Examples
     --------
     >>> # Diffusive coupling via 'x' state
-    >>> coupling = DifferenceCoupling(incoming_states='x', local_states='x', G=1.0)
+    >>> coupling = DifferenceCoupling(source='x', local='x', G=1.0)
     """
 
     N_OUTPUT_STATES = 1
@@ -198,9 +198,9 @@ class SigmoidCoupling(InstantaneousCoupling):
 
     Parameters
     ----------
-    incoming_states : str or list of str
+    source : str or list of str
         State name(s) to collect from connected nodes (required)
-    local_states : str or list of str, optional
+    local : str or list of str, optional
         State name(s) from current node (default: ``[]``)
 
     Attributes
@@ -213,7 +213,7 @@ class SigmoidCoupling(InstantaneousCoupling):
 
     Examples
     --------
-    >>> coupling = SigmoidCoupling(incoming_states='x', G=1.0, slope=2.0, midpoint=0.0)
+    >>> coupling = SigmoidCoupling(source='x', G=1.0, slope=2.0, midpoint=0.0)
     """
 
     N_OUTPUT_STATES = 1
@@ -251,9 +251,9 @@ class TanhCoupling(InstantaneousCoupling):
 
     Parameters
     ----------
-    incoming_states : str or list of str
+    source : str or list of str
         State name(s) to collect from connected nodes (required)
-    local_states : str or list of str, optional
+    local : str or list of str, optional
         State name(s) from current node (default: ``[]``)
 
     Attributes
@@ -265,7 +265,7 @@ class TanhCoupling(InstantaneousCoupling):
 
     Examples
     --------
-    >>> coupling = TanhCoupling(incoming_states='x', G=0.5, scale=2.0)
+    >>> coupling = TanhCoupling(source='x', G=0.5, scale=2.0)
     """
 
     N_OUTPUT_STATES = 1
@@ -301,9 +301,9 @@ class DelayedLinearCoupling(DelayedCoupling):
 
     Parameters
     ----------
-    incoming_states : str or list of str
+    source : str or list of str
         State name(s) to collect from connected nodes (required)
-    local_states : str or list of str, optional
+    local : str or list of str, optional
         State name(s) from current node (default: ``[]``)
 
     Attributes
@@ -315,7 +315,7 @@ class DelayedLinearCoupling(DelayedCoupling):
 
     Examples
     --------
-    >>> coupling = DelayedLinearCoupling(incoming_states='S', G=1.0)
+    >>> coupling = DelayedLinearCoupling(source='S', G=1.0)
     """
 
     N_OUTPUT_STATES = 1
@@ -350,9 +350,9 @@ class DelayedDifferenceCoupling(DelayedCoupling):
 
     Parameters
     ----------
-    incoming_states : str or list of str
+    source : str or list of str
         State name(s) to collect from connected nodes (required)
-    local_states : str or list of str
+    local : str or list of str
         State name(s) from current node (required for computing differences)
 
     Attributes
@@ -364,7 +364,7 @@ class DelayedDifferenceCoupling(DelayedCoupling):
 
     Examples
     --------
-    >>> coupling = DelayedDifferenceCoupling(incoming_states='x', local_states='x', G=1.0)
+    >>> coupling = DelayedDifferenceCoupling(source='x', local='x', G=1.0)
     """
 
     N_OUTPUT_STATES = 1
@@ -415,7 +415,7 @@ class DelayedSigmoidCoupling(DelayedCoupling):
 
     Parameters
     ----------
-    incoming_states : str or list of str
+    source : str or list of str
         State name(s) to collect from connected nodes (required)
 
     Attributes
@@ -428,7 +428,7 @@ class DelayedSigmoidCoupling(DelayedCoupling):
 
     Examples
     --------
-    >>> coupling = DelayedSigmoidCoupling(incoming_states='x', G=1.0, slope=1.0, midpoint=0.0)
+    >>> coupling = DelayedSigmoidCoupling(source='x', G=1.0, slope=1.0, midpoint=0.0)
     """
 
     N_OUTPUT_STATES = 1

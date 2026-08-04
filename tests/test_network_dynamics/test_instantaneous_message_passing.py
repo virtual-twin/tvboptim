@@ -58,8 +58,8 @@ def _sparse_graph(edge_indices):
 
 def _compute(graph):
     coupling = ThreeChannelLocalCoupling(
-        incoming_states="x",
-        local_states="x",
+        source="x",
+        local="x",
     )
     network = Network(Linear(), {"instant": coupling}, graph)
     data, coupling_state = network.prepare(dt=0.1, t0=0.0, t1=0.2)
@@ -131,12 +131,12 @@ def test_q3_weight_and_state_gradients_sparse_match_dense_under_jit():
     dense_graph = DenseGraph(jnp.asarray(WEIGHTS))
     sparse_graph = _sparse_graph(edge_indices)
     dense_coupling = ThreeChannelLocalCoupling(
-        incoming_states="x",
-        local_states="x",
+        source="x",
+        local="x",
     )
     sparse_coupling = ThreeChannelLocalCoupling(
-        incoming_states="x",
-        local_states="x",
+        source="x",
+        local="x",
     )
     dense_network = Network(Linear(), {"instant": dense_coupling}, dense_graph)
     sparse_network = Network(Linear(), {"instant": sparse_coupling}, sparse_graph)

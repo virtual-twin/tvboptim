@@ -210,7 +210,7 @@ dynamics = ReducedWongWang(
 
 # Create coupling
 coupling = DelayedLinearCoupling(
-    incoming_states='S', G=0.5
+    source='S', G=0.5
 )
 
 # Create noise
@@ -343,7 +343,7 @@ Supports both dense and sparse representations, with optional transmission delay
 The **coupling** defines how nodes interact through the connectivity, this transforms states from connected nodes into input to the local dynamics.
 
 ```python
-coupling = DelayedLinearCoupling(incoming_states='S', G=0.5)  # G is part of θ^c
+coupling = DelayedLinearCoupling(source='S', G=0.5)  # G is part of θ^c
 ```
 
 The coupling pattern mirrors TVB's pre-sum-post architecture. You can use instantaneous or delayed coupling, linear or nonlinear transformations.

@@ -173,7 +173,7 @@ We combine the RWW dynamics with structural connectivity to create a whole-brain
 # Create network components
 graph = DenseGraph(weights, region_labels=region_labels)
 dynamics = ReducedWongWang(w=0.3, I_o=0.32, INITIAL_STATE=(0.3,))
-coupling = LinearCoupling(incoming_states=["S"], G=0.15)
+coupling = LinearCoupling(source=["S"], G=0.15)
 noise = AdditiveNoise(sigma=0.00283, apply_to="S")
 
 # Assemble the network

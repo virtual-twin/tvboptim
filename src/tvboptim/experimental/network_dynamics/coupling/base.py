@@ -93,8 +93,9 @@ class AbstractCoupling(ABC):
         )
         local = self._resolve_state_alias(local, local_states, "local", "local_states")
 
-        # Store state names as instance attributes
-        self.INCOMING_STATE_NAMES = source if source is not None else []
+        # Store selectors under the canonical public names.  Keep the old
+        # incoming-state spelling as a warning compatibility property below.
+        self.SOURCE_STATE_NAMES = source if source is not None else []
         self.LOCAL_STATE_NAMES = local if local is not None else []
 
         # Create instance parameters by copying defaults and updating with kwargs
@@ -130,6 +131,17 @@ class AbstractCoupling(ABC):
             stacklevel=3,
         )
         return legacy_value
+
+    @property
+    def INCOMING_STATE_NAMES(self):
+        """Deprecated alias for :attr:`SOURCE_STATE_NAMES` (removed in 1.0)."""
+        warnings.warn(
+            "INCOMING_STATE_NAMES is deprecated and will be removed in "
+            "tvboptim 1.0; use SOURCE_STATE_NAMES instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.SOURCE_STATE_NAMES
 
     @abstractmethod
     def prepare(self, network, dt: float, t0: float, t1: float) -> Tuple[Bunch, Bunch]:
@@ -509,7 +521,7 @@ class PrePostCoupling(AbstractCoupling):
         Returns:
             Dictionary with 'network_form', 'pre_form', 'post_form' keys
         """
-        incoming = self._format_state_list(self.INCOMING_STATE_NAMES)
+        incoming = self._format_state_list(self.SOURCE_STATE_NAMES)
         local = self._format_state_list(self.LOCAL_STATE_NAMES)
 
         pre_form = self._infer_pre_form(incoming, local)
@@ -604,7 +616,7 @@ class InstantaneousCoupling(PrePostCoupling):
         dynamics = network.dynamics
 
         # Resolve state indices
-        incoming_idx = dynamics.name_to_index(self.INCOMING_STATE_NAMES)
+        incoming_idx = dynamics.name_to_index(self.SOURCE_STATE_NAMES)
         local_idx = dynamics.name_to_index(self.LOCAL_STATE_NAMES)
 
         self._validate_pre_contract(
@@ -743,11 +755,11 @@ class InstantaneousCoupling(PrePostCoupling):
 
         Handles both incoming_states and local_states modes (for FastLinearCoupling).
         """
-        incoming = self._format_state_list(self.INCOMING_STATE_NAMES)
+        incoming = self._format_state_list(self.SOURCE_STATE_NAMES)
 
         # Determine which states to use: incoming if available, else local
         state_with_subscript = self._format_state_list(
-            self.INCOMING_STATE_NAMES if incoming else self.LOCAL_STATE_NAMES,
+            self.SOURCE_STATE_NAMES if incoming else self.LOCAL_STATE_NAMES,
             with_subscript=True,
         )
 
@@ -884,7 +896,7 @@ class DelayedCoupling(PrePostCoupling):
         dynamics = network.dynamics
 
         # Resolve state indices
-        incoming_idx = dynamics.name_to_index(self.INCOMING_STATE_NAMES)
+        incoming_idx = dynamics.name_to_index(self.SOURCE_STATE_NAMES)
         local_idx = dynamics.name_to_index(self.LOCAL_STATE_NAMES)
 
         self._validate_pre_contract(
@@ -1424,7 +1436,7 @@ class DelayedCoupling(PrePostCoupling):
         Always uses incoming states with delay notation (t - τᵢⱼ).
         """
         incoming_with_subscript = self._format_state_list(
-            self.INCOMING_STATE_NAMES, with_subscript=True
+            self.SOURCE_STATE_NAMES, with_subscript=True
         )
 
         state_expr = f"{incoming_with_subscript}(t - τᵢⱼ)"

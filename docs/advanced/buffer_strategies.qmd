@@ -120,7 +120,7 @@ The `buffer_strategy` parameter in `DelayedLinearCoupling` allows you to select 
 
 ```python
 coupling = DelayedLinearCoupling(
-    incoming_states="V",
+    source="V",
     G=1.0,
     buffer_strategy="circular"  # or "roll" (default), "preallocated"
 )
@@ -175,7 +175,7 @@ def create_network(graph, G, buffer_strategy):
         ),
         coupling={
             "delayed": DelayedLinearCoupling(
-                incoming_states="V",
+                source="V",
                 G=G,
                 buffer_strategy=buffer_strategy,
             )

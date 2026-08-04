@@ -197,7 +197,7 @@ class SubspaceCoupling(AbstractCoupling):
     >>> regional_graph = DenseDelayGraph.from_weights_delays(SC, delays)
     >>>
     >>> coupling = SubspaceCoupling(
-    ...     inner_coupling=DelayedLinearCoupling(incoming_states='S', G=0.5),
+    ...     inner_coupling=DelayedLinearCoupling(source='S', G=0.5),
     ...     region_mapping=region_mapping,
     ...     regional_graph=regional_graph
     ... )
@@ -219,7 +219,7 @@ class SubspaceCoupling(AbstractCoupling):
         """
         # Extract state names from inner coupling
         super().__init__(
-            source=inner_coupling.INCOMING_STATE_NAMES,
+            source=inner_coupling.SOURCE_STATE_NAMES,
             local=inner_coupling.LOCAL_STATE_NAMES,
             **kwargs,
         )

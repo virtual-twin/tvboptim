@@ -159,7 +159,7 @@ graph = DenseDelayGraph(
 )
 dynamics = ReducedWongWang(w=0.5, I_o=0.32, INITIAL_STATE=(0.3,))
 coupling = DelayedLinearCoupling(
-    incoming_states="S",
+    source="S",
     G=0.5,
     buffer_strategy="roll",
 )

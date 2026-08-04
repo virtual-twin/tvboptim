@@ -22,7 +22,7 @@ def _make_network(voi=None):
     dynamics = JansenRit()
     if voi is not None:
         dynamics.set_variables_of_interest(voi)
-    coupling = LinearCoupling(incoming_states="y1", G=0.05)
+    coupling = LinearCoupling(source="y1", G=0.05)
     return Network(
         dynamics=dynamics,
         coupling={"instant": coupling},

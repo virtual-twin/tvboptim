@@ -663,7 +663,7 @@ Network with native solver (all features):
 >>> from tvboptim.experimental.network_dynamics.graph import DenseGraph
 >>> import jax.numpy as jnp
 >>> network = Network(ReducedWongWang(),
-...                   LinearCoupling(incoming_states='S', G=1.0),
+...                   LinearCoupling(source='S', G=1.0),
 ...                   DenseGraph(jnp.ones((68, 68))))
 >>> model_fn, config = prepare(network, Euler(), t0=0, t1=100, dt=0.1)
 >>> result = model_fn(config)

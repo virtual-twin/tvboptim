@@ -151,14 +151,14 @@ def oscillator():
 def delay_network(G, n=N_SMALL, max_delay=40.0):
     graph = DenseDelayGraph.random(n, max_delay=max_delay, key=jax.random.key(0))
     return Network(
-        oscillator(), {"delayed": DelayedLinearCoupling(incoming_states="V", G=G)}, graph
+        oscillator(), {"delayed": DelayedLinearCoupling(source="V", G=G)}, graph
     )
 
 
 def instant_network(G, n=N_SMALL):
     graph = DenseGraph.random(n, key=jax.random.key(0))
     return Network(
-        oscillator(), {"instant": LinearCoupling(incoming_states="V", G=G)}, graph
+        oscillator(), {"instant": LinearCoupling(source="V", G=G)}, graph
     )
 
 
@@ -314,7 +314,7 @@ and per-stage trajectories coincide exactly, with and without noise:
 #| code-fold: true
 #| code-summary: "Plotting code"
 graph = DenseDelayGraph.random(N_SMALL, max_delay=40.0, key=jax.random.key(0))
-coup = {"delayed": DelayedLinearCoupling(incoming_states="V", G=0.05)}
+coup = {"delayed": DelayedLinearCoupling(source="V", G=0.05)}
 det_net = Network(oscillator(), coup, graph)
 noisy_net = Network(oscillator(), coup, graph, noise=AdditiveNoise(sigma=0.02, key=jax.random.key(7)))
 
@@ -360,11 +360,11 @@ from tvboptim.experimental.network_dynamics.dynamics.tvb import Kuramoto
 g8 = DenseDelayGraph.random(8, max_delay=20.0, key=jax.random.key(0))
 family = [
     ("DelayedLinearCoupling (history only)",
-     lambda: Network(oscillator(), {"delayed": DelayedLinearCoupling(incoming_states="V", G=0.05)}, g8)),
+     lambda: Network(oscillator(), {"delayed": DelayedLinearCoupling(source="V", G=0.05)}, g8)),
     ("DelayedDifferenceCoupling (reads local)",
-     lambda: Network(oscillator(), {"delayed": DelayedDifferenceCoupling(incoming_states="V", local_states="V", G=0.05)}, g8)),
+     lambda: Network(oscillator(), {"delayed": DelayedDifferenceCoupling(source="V", local="V", G=0.05)}, g8)),
     ("DelayedKuramotoCoupling (reads local)",
-     lambda: Network(Kuramoto(omega=1.0), {"delayed": DelayedKuramotoCoupling(incoming_states="theta", local_states="theta", G=0.3)}, g8)),
+     lambda: Network(Kuramoto(omega=1.0), {"delayed": DelayedKuramotoCoupling(source="theta", local="theta", G=0.3)}, g8)),
 ]
 print(f"{'coupling':<42} {'max |frozen - per-stage|'}")
 for name, make in family:
@@ -413,12 +413,12 @@ def self_diffs(make_net, per_stage):
 
 def delayed_net(interp):
     return lambda: Network(oscillator(), {"delayed": DelayedLinearCoupling(
-        incoming_states="V", G=0.05, buffer_strategy="circular",
+        source="V", G=0.05, buffer_strategy="circular",
         history_interpolation="linear" if interp else None)}, gd6)
 
 
 def instant_net():
-    return Network(oscillator(), {"instant": LinearCoupling(incoming_states="V", G=0.05)}, gi6)
+    return Network(oscillator(), {"instant": LinearCoupling(source="V", G=0.05)}, gi6)
 
 
 # The delayed runs use history_interpolation="linear" so that rounding tau to
@@ -771,7 +771,7 @@ def sync_network(G=1.0, n=8, omega=4 * np.pi):
     # strong instantaneous coupling that swings fast within a step.
     graph = DenseGraph.random(n, key=jax.random.key(0))
     return Network(
-        SupHopf(a=1.0, omega=omega), {"instant": LinearCoupling(incoming_states="x", G=G)}, graph
+        SupHopf(a=1.0, omega=omega), {"instant": LinearCoupling(source="x", G=G)}, graph
     )
 
 

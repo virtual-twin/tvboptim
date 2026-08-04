@@ -670,7 +670,7 @@ from tvboptim.experimental.network_dynamics.solvers import Heun
 n_nodes = 8
 network = Network(
     dynamics=ReducedWongWang(),
-    coupling={'instant': LinearCoupling(incoming_states='S', G=0.5)},
+    coupling={'instant': LinearCoupling(source='S', G=0.5)},
     graph=DenseGraph(jnp.ones((n_nodes, n_nodes)) - jnp.eye(n_nodes)),
     noise=AdditiveNoise(sigma=1e-3, key=jax.random.key(0)),
 )

@@ -136,8 +136,16 @@ def test_source_local_spelling_matches_deprecated_aliases(new_kwargs, legacy_kwa
         _warnings.simplefilter("error")  # the new spelling must not warn
         current = TwoChannelSigmoid(**new_kwargs)
 
-    assert current.INCOMING_STATE_NAMES == legacy.INCOMING_STATE_NAMES
+    assert current.SOURCE_STATE_NAMES == legacy.SOURCE_STATE_NAMES
     assert current.LOCAL_STATE_NAMES == legacy.LOCAL_STATE_NAMES
+
+
+def test_deprecated_incoming_state_names_attribute_warns_and_is_read_only():
+    coupling = TwoChannelSigmoid(source=("x", "y"))
+    with pytest.warns(DeprecationWarning, match="SOURCE_STATE_NAMES"):
+        assert coupling.INCOMING_STATE_NAMES == coupling.SOURCE_STATE_NAMES
+    with pytest.raises(AttributeError):
+        coupling.INCOMING_STATE_NAMES = ("z",)
 
 
 @pytest.mark.parametrize("graph_type", [DenseGraph, SparseGraph])

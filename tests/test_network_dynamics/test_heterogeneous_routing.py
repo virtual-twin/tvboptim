@@ -23,6 +23,19 @@ from tvboptim.experimental.network_dynamics.coupling.base import (
 from tvboptim.experimental.network_dynamics.dynamics.base import AbstractDynamics
 from tvboptim.experimental.network_dynamics.solvers import Euler, Heun
 
+
+def test_route_rejects_configured_coupling_using_current_selector_names():
+    with pytest.raises(ValueError) as exc_info:
+        SignalRoute(
+            source={"a": "x"},
+            coupling=LinearCoupling(source="x"),
+            target={"a": "drive"},
+        )
+
+    message = str(exc_info.value)
+    assert "source=" in message
+    assert "incoming_states" not in message
+
 A_NODES = jnp.array([0, 2, 5])
 B_NODES = jnp.array([1, 3, 4])
 WEIGHTS = jnp.array(

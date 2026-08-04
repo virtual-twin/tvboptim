@@ -147,10 +147,10 @@ class SignalRoute:
             raise TypeError(
                 "SignalRoute currently supports PrePostCoupling instances only"
             )
-        if coupling.INCOMING_STATE_NAMES or coupling.LOCAL_STATE_NAMES:
+        if coupling.SOURCE_STATE_NAMES or coupling.LOCAL_STATE_NAMES:
             raise ValueError(
                 "SignalRoute owns source/local readouts; construct its coupling "
-                "without incoming_states or local_states"
+                "without source= or local="
             )
         if not source:
             raise ValueError("SignalRoute.source must contain at least one group")

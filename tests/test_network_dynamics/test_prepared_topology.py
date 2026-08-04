@@ -42,9 +42,9 @@ def _bcoo(data, indices=INDICES):
 
 def _instant_setup(*, two_couplings=False):
     graph = SparseGraph(_bcoo(WEIGHTS))
-    couplings = {"instant": LinearCoupling(incoming_states="x")}
+    couplings = {"instant": LinearCoupling(source="x")}
     if two_couplings:
-        couplings["delayed"] = LinearCoupling(incoming_states="x")
+        couplings["delayed"] = LinearCoupling(source="x")
     network = Network(Linear(), couplings, graph)
     solve_fn, config = prepare(network, Euler(), t1=0.2, dt=0.1)
     return network, solve_fn, config
@@ -52,7 +52,7 @@ def _instant_setup(*, two_couplings=False):
 
 def _delayed_setup():
     graph = SparseDelayGraph(_bcoo(WEIGHTS), _bcoo(DELAYS))
-    coupling = DelayedLinearCoupling(incoming_states="x")
+    coupling = DelayedLinearCoupling(source="x")
     network = Network(Linear(), {"delayed": coupling}, graph)
     solve_fn, config = prepare(network, Euler(), t1=0.3, dt=0.1)
     return network, solve_fn, config
@@ -91,7 +91,7 @@ def test_prepare_builds_one_public_order_topology_for_all_couplings():
 
 def test_dense_prepared_topology_does_not_materialize_coo_indices():
     graph = DenseGraph(jnp.eye(3))
-    network = Network(Linear(), {"instant": LinearCoupling(incoming_states="x")}, graph)
+    network = Network(Linear(), {"instant": LinearCoupling(source="x")}, graph)
     _solve_fn, config = prepare(network, Euler(), t1=0.2, dt=0.1)
     topology = config._internal.coupling.instant._prepared_topology
 
@@ -189,7 +189,7 @@ def test_subspace_inner_graph_has_its_own_prepared_topology_check():
     regional_delays = BCOO((jnp.array([0.1, 0.2]), regional_indices), shape=(2, 2))
     regional_graph = SparseDelayGraph(regional_weights, regional_delays)
     coupling = SubspaceCoupling(
-        inner_coupling=DelayedLinearCoupling(incoming_states="S"),
+        inner_coupling=DelayedLinearCoupling(source="S"),
         region_mapping=jnp.array([0, 0, 1, 1]),
         regional_graph=regional_graph,
     )
