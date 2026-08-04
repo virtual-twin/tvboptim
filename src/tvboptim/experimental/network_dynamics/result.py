@@ -411,6 +411,14 @@ class HeterogeneousSolution:
             }
         )
 
+    def sel(self, group, variables, nodes=None):
+        """Select variables and local nodes from one named group."""
+        return self.groups[group].sel(variables, nodes=nodes)
+
+    def plot(self, group, **kwargs):
+        """Plot one named group using :meth:`NativeSolution.plot`."""
+        return self.groups[group].plot(**kwargs)
+
     def to_graph(self, variable, groups=None, fill_value=jnp.nan):
         """Project one named variable from selected groups to graph-node order.
 
@@ -448,6 +456,7 @@ class HeterogeneousSolution:
         )
         projected = jnp.full((self.ts.shape[0], self.n_nodes), fill_value, dtype=dtype)
         used = False
+        skipped = []
         for name in selected_groups:
             names = self.variable_names[name]
             if names is None or variable not in names:
@@ -455,12 +464,22 @@ class HeterogeneousSolution:
                     raise ValueError(
                         f"Variable {variable!r} is not available in group {name!r}"
                     )
+                skipped.append(name)
                 continue
             local = self.ys[name][:, names.index(variable), :]
             projected = projected.at[:, self._group_nodes[name]].set(local)
             used = True
         if not used:
             raise ValueError(f"Variable {variable!r} is not available in any group")
+        if skipped:
+            warnings.warn(
+                f"Variable {variable!r} is unavailable in groups {skipped}; "
+                "those groups were skipped and their graph nodes retain "
+                "fill_value. Pass groups= explicitly to acknowledge partial "
+                "coverage.",
+                UserWarning,
+                stacklevel=2,
+            )
         return projected
 
     def tree_flatten(self):

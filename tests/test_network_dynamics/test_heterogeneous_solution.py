@@ -1,10 +1,13 @@
 """Heterogeneous result shape and projection contracts."""
 
+import warnings
+
 import jax
 import jax.numpy as jnp
 import pytest
 
 from tvboptim.experimental.network_dynamics import HeterogeneousSolution
+from tvboptim.experimental.network_dynamics.result import NativeSolution
 
 
 def _solution():
@@ -44,6 +47,41 @@ def test_partial_projection_fills_unrepresented_nodes():
     projected = result.to_graph("a_only", groups=["a"], fill_value=-1.0)
     assert jnp.array_equal(projected[:, [0, 2, 5]], result.ys.a[:, 1, :])
     assert jnp.all(projected[:, [1, 3, 4]] == -1.0)
+
+
+def test_to_graph_warns_on_partial_group_coverage_only_when_implicit():
+    result = _solution()
+    with pytest.warns(UserWarning, match=r"unavailable in groups \['b'\]"):
+        implicit = result.to_graph("a_only", fill_value=-1.0)
+    with warnings.catch_warnings(record=True) as warnings_seen:
+        warnings.simplefilter("always")
+        explicit = result.to_graph("a_only", groups=["a"], fill_value=-1.0)
+    assert not warnings_seen
+    assert jnp.array_equal(implicit, explicit)
+
+
+def test_sel_delegates_to_group_view():
+    result = _solution()
+    assert jnp.array_equal(
+        result.sel("a", "a_only", nodes=[1]),
+        result.groups.a.sel("a_only", nodes=[1]),
+    )
+
+
+def test_plot_delegates_to_group_view(monkeypatch):
+    calls = []
+
+    def fake_plot(solution, **kwargs):
+        calls.append((solution, kwargs))
+        return "figure", ["axes"]
+
+    monkeypatch.setattr(NativeSolution, "plot", fake_plot)
+    result = _solution()
+    rendered = result.plot("b", variables=["shared"], color="black")
+
+    assert rendered == ("figure", ["axes"])
+    assert calls[0][0].variable_names == ("shared",)
+    assert calls[0][1] == {"variables": ["shared"], "color": "black"}
 
 
 def test_projection_rejects_unknown_group_or_variable():
