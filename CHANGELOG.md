@@ -4,7 +4,81 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] - Unreleased
+## [0.5.0] - Unreleased
+
+### Added
+
+- **Different dynamics models can now run on named subsets of one connectome.**
+  `HeterogeneousNetwork` partitions a square `Graph` into `DynamicsGroup`s, each
+  with its own dynamics, parameters, noise, and external inputs. Groups may have
+  different state names and state counts. `solve()` and `prepare()` accept it
+  through the existing dispatch; ordinary `Network` code is unchanged.
+  - State stays segmented as a PyTree of `[states, nodes]` leaves per group.
+    There is no padded union array and no per-node model dispatch.
+  - `SignalRoute` declares one exchanged signal: which state, tuple of states,
+    or readout callable each source group emits, the coupling that transports
+    it, and the named `COUPLING_INPUTS` it reaches on each target group.
+    Multiple routes targeting one input are summed, and unrepresented source
+    nodes contribute zero.
+  - Each route performs one graph traversal regardless of how many groups
+    participate, so cost scales with distinct scientific signals rather than
+    with the number of model pairs.
+  - `Readout` gives route and observation callables an explicit `state` or
+    `recorded` input space without owning their parameters. Parameters remain
+    in the position-specific `source_params`, `local_params`, `target_params`,
+    or `GroupObservation.params` mappings, where they stay live after
+    `prepare()` and can be swept and differentiated.
+  - `HeterogeneousSolution` keeps each group's natural shape and variable
+    names, with `groups.<name>.sel(...)` for group-local access and
+    `to_graph(...)` for explicit projection to graph-node order.
+  - `GroupObservation` projects group-specific variables or readouts into one
+    common `[channels, graph nodes]` signal. It supports ordinary observed
+    trajectories and existing streaming reducers through `observe=` plus
+    `reduce=`; blockwise execution bounds forward trajectory memory.
+  - Delayed routes store the transmitted canonical signal rather than group
+    state, so history memory scales with signal width and delay capacity rather
+    than total state width. Warm starts, `update_history()` continuation, live
+    delays within prepared capacity, and all existing buffer strategies are
+    supported, on dense and sparse graphs alike.
+  - Supported under `jit`, `jvp`, `grad`/`value_and_grad`, `vmap`,
+    checkpointing, `grad_horizon`, and `Space` sweeps over group dynamics,
+    route coupling, graph weights and delays, history, noise, and external
+    inputs.
+  - `BoundedSolver` accepts either one scalar or array bound broadcast across
+    all group states, or bounds matching the group-state PyTree exactly.
+  - `format_network()` and `print_network()` describe heterogeneous groups,
+    routes, coupling inputs, and readouts alongside the graph structure.
+  - See `docs/network_dynamics/heterogeneous_networks.qmd` for construction,
+    mixed instantaneous and delayed routing, grouped and observed results,
+    gradient-based fitting, and a cached fixed-work group-scaling benchmark.
+
+### Changed
+
+- Coupling state selectors are now named `source=` and `local=`. The previous
+  `incoming_states=` and `local_states=` spellings became misleading once a
+  route, rather than the coupling, owns signal selection.
+
+### Deprecated
+
+- Deprecated `incoming_states=` and `local_states=` on couplings, removed in
+  1.0. Both remain accepted as aliases and emit a `DeprecationWarning`; passing
+  a name and its alias together is an error. Use `source=` and `local=`.
+
+### Known limitations
+
+- Heterogeneous `reduce=` requires `observe=GroupObservation(...)` to define a
+  common `[channels, graph nodes]` signal. Reducer observations must cover every
+  graph node unless `allow_partial_coverage=True`; that opt-in is only suitable
+  for reducers known to handle the configured fill value correctly.
+- Routes accept `PrePostCoupling` implementations only. Other couplings own
+  arbitrary state semantics that cannot be reinterpreted as operations on route
+  signals, and report a route-compatibility error.
+- Diffrax execution and group membership changes after `prepare()` are not
+  supported.
+- Prepared solve closures have no serialization guarantee. Reconstruct the
+  network and call `prepare()` before restoring numerical state.
+
+## [0.4.0] - 2026-07-17
 
 ### Added
 
