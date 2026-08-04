@@ -45,7 +45,9 @@ from tvboptim.execution import ParallelExecution
 from tvboptim.experimental.network_dynamics import (
     Bunch,
     DynamicsGroup,
+    GroupObservation,
     HeterogeneousNetwork,
+    Readout,
     SignalRoute,
     prepare,
 )
@@ -63,6 +65,7 @@ from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph
 from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
 from tvboptim.experimental.network_dynamics.solvers import Heun
 from tvboptim.optim import OptaxOptimizer
+from tvboptim.observations.observation import welford_cov
 from tvboptim.types import GridAxis, Parameter, Space
 ```
 
@@ -110,7 +113,12 @@ def pyramidal_activity(state, params):
     activity = 2.0 / (
         1.0 + jnp.exp(params.r * (params.v0 - voltage))
     )
-    return activity[None, :]  # [signal channels, nodes in this group]
+    return (0.5 * activity)[None, :]  # unitless [0, 1]
+
+
+def oscillator_activity(state, params):
+    del params
+    return jnp.clip((state[0:1] + 2.0) / 4.0, 0.0, 1.0)
 
 
 rate_params = Bunch(v0=5.52, r=0.56)
@@ -127,6 +135,10 @@ participate. The delayed route packs cortical `S` and relay firing activity
 and driven voltage into one graph-ordered signal and stores only that signal in
 its history. The instantaneous route has only the relay as a source, so other
 graph nodes emit zero on that route.
+
+When several routes target the same named coupling input, their converted
+target-local values are added. This accumulation is intentional; use separate
+input names in the dynamics when signals must remain distinguishable.
 
 ```{python}
 network = HeterogeneousNetwork(
@@ -158,7 +170,7 @@ network = HeterogeneousNetwork(
             source={
                 "cortex": "S",
                 "relay": pyramidal_activity,
-                "driven": "V",
+                "driven": oscillator_activity,
             },
             source_params={"relay": rate_params},
             coupling=DelayedLinearCoupling(
@@ -192,6 +204,27 @@ relay remains `[6, 2]`, the driven group remains `[2, 1]`, and routing
 temporarily packs only a `[1, 9]` signal. Noise and external input are evaluated
 in their respective group-local node spaces.
 
+Target conversions adapt a transported signal to one receiver's units. For
+example, a cortical input expecting current rather than unitless activity can
+declare:
+
+```python
+def to_cortical_current(signal, params):
+    return params.scale * signal
+
+
+SignalRoute(
+    source={...},
+    coupling=DelayedLinearCoupling(G=0.08),
+    target={"cortex": ("delayed", to_cortical_current), ...},
+    target_params={"cortex": Bunch(scale=0.25)},
+)
+```
+
+A target conversion happens after the shared graph transport. Source readouts
+feeding one route must therefore already describe comparable channels; the
+conversion cannot undo mixing incompatible source units under one gain.
+
 ## Prepare once, simulate many times
 
 ```{python}
@@ -222,6 +255,118 @@ print("driven:", solution.groups.driven.ys.shape)
 print("graph projection:", solution.to_graph("S", groups=["cortex"]).shape)
 print("delayed history:", config.routes.long_range.history.shape)
 ```
+
+Group index sequences preserve the order supplied at construction, while
+boolean masks normalize to ascending graph-node order. Columns of a group's
+`initial_state` must follow that normalized order; a mismatch has the right
+shape but silently assigns values to the wrong nodes.
+
+## Observe a common graph-order signal
+
+Group trajectories have different variable axes, so a whole-network reducer
+first needs an explicit common observable. `GroupObservation` applies one
+group-specific readout to each recorded group output and packs the results into
+`[channels, graph nodes]` order:
+
+```{python}
+def relay_observable(recorded, params):
+    voltage = recorded[1] - recorded[2]
+    activity = 2.0 / (
+        1.0 + jnp.exp(params.r * (params.v0 - voltage))
+    )
+    return (0.5 * activity)[None, :]  # normalize [0, 2] to [0, 1]
+
+
+def driven_observable(recorded, params):
+    del params
+    voltage = recorded[0:1]  # V is the first recorded oscillator variable
+    return jnp.clip((voltage + 2.0) / 4.0, 0.0, 1.0)
+
+
+common_activity = GroupObservation(
+    {
+        "cortex": "S",
+        "relay": Readout(
+            relay_observable,
+            name="relay_activity",
+            space="recorded",
+        ),
+        "driven": Readout(
+            driven_observable,
+            name="driven_activity",
+            space="recorded",
+        ),
+    },
+    params={"relay": rate_params},
+    channels=("activity",),
+)
+
+observe_simulation, observe_config = prepare(
+    network,
+    Heun(block_size=25),
+    t0=0.0,
+    t1=10.0,
+    dt=0.1,
+    observe=common_activity,
+)
+observed = observe_simulation(observe_config)
+print(observed.ys.shape)  # [time, common channels, graph nodes]
+print(observed.variable_names)
+```
+
+Here every group explicitly emits a unitless `[0, 1]` activity proxy.
+`channels=` names the shared output axis and becomes the returned
+`NativeSolution.variable_names`. Equal channel width is only a shape check: it
+cannot prove that cortical gating, relay firing, and oscillator voltage are
+commensurable. Before computing FC or BOLD, transform every group into a common
+scientific quantity and unit. A plausible-looking matrix is not evidence that
+this choice was correct.
+
+### Route and observation readouts use different spaces
+
+A route reads what a model **integrates**; an observation reads what a solution
+**records**. Prefer named variables, which resolve against the correct namespace
+automatically. For positional callables, wrap the function with
+`Readout(..., space="state")` on a route or
+`Readout(..., space="recorded")` in a `GroupObservation`. Preparation rejects a
+wrapped readout placed in the other space. Bare callables retain the historical
+position-dependent behavior and can only be checked by output shape.
+
+Readout parameters remain in their position-specific live mappings:
+`source_params`/`local_params` on routes and `GroupObservation.params` for
+observations. Parameter sharing under `config.readouts` is a later additive
+feature.
+
+### Stream FC and BOLD without retaining the neural trajectory
+
+The existing reducers consume the common graph-order observation unchanged:
+
+```{python}
+fc_simulation, fc_config = prepare(
+    network,
+    Heun(block_size=25),
+    t0=0.0,
+    t1=10.0,
+    dt=0.1,
+    observe=common_activity,
+    reduce=welford_cov(),
+)
+fc = fc_simulation(fc_config)
+print(fc.shape)
+```
+
+`observe=` plus `reduce=` runs in bounded forward memory only when
+`block_size` is set. Without `block_size`, reduction remains valid but occurs
+after the full `[time, channels, nodes]` trajectory has been materialized and
+preparation warns. Differentiating a reduced FC has the separate backward-memory
+cost `O(n_steps / block_size + block_size)` described in
+[Streaming Reductions](../advanced/streaming_reductions.qmd).
+
+An observation may omit groups when no reducer is used; their nodes receive
+`fill_value`. Reduction requires exhaustive coverage by default because a
+constant fill produces zero-variance/NaN rows in covariance and is interpreted
+as real neural drive by BOLD. `allow_partial_coverage=True` only removes this
+guard for a reducer the user has independently verified is fill-aware.
 
 The prepared config contains all live numerical values. For example:
 
@@ -446,12 +591,11 @@ retained trajectories can dominate memory in long simulations. Use block
 checkpointing and return only scientifically required variables when memory is
 the constraint; benchmark the differentiated loss, not only the forward solve.
 
-The heterogeneous path does not yet support the streaming `reduce=` contract.
-That contract currently assumes one shared variable axis and one node array;
-implicitly applying it per group would make cross-group observations ambiguous.
-For now, reduce `solution.groups.<name>` post-hoc. `block_size` can still bound
-noise generation and reverse rematerialization, but it does not remove the
-stacked heterogeneous output trajectory.
+Heterogeneous streaming reduction requires a `GroupObservation` defining one
+common graph-order array. With `block_size`, the neural trajectory is folded
+per block rather than retained; without it the reducer is post-hoc and offers
+no forward-memory win. Grouped trajectories without `observe=` remain useful
+for short diagnostic runs and group-specific post-processing.
 
 Native Euler, Heun, and Runge–Kutta solvers are currently supported.
 Heterogeneous Diffrax, multiple clocks, changing group membership, partial

@@ -147,6 +147,8 @@ quartodoc:
       contents:
         - Network
         - DynamicsGroup
+        - Readout
+        - GroupObservation
         - SignalRoute
         - HeterogeneousNetwork
         - HeterogeneousSolution
