@@ -558,6 +558,364 @@ Prefer, in order:
 3. separate groups when nodes truly need different dynamics, state layouts,
    noise/external-input definitions, or signal semantics.
 
+### Measure group-count scaling
+
+The benchmark below keeps the model, total node count, graph, number of time
+steps, and number of route transports fixed while splitting the same
+Jansen--Rit work into more static groups. It measures warmed forward and
+reverse-mode execution plus reverse-mode compilation for instantaneous and
+delayed routes. Every curve is normalized to the matching homogeneous
+`Network` baseline on the machine rendering this page; the figure therefore
+shows the shape of scaling rather than publishing machine-specific timings.
+
+Change `benchmark_options` in one place to substitute a node count, group sweep,
+or rollout representative of your own model.
+
+```{python}
+#| label: heterogeneous-group-scaling-v050
+#| cache: true
+#| code-fold: true
+#| code-summary: "Show the benchmark implementation and configuration"
+#| fig-cap: "Group-count scaling at fixed total Jansen--Rit node work, normalized to the matching homogeneous network."
+
+import statistics
+import time
+from collections.abc import Mapping, Sequence
+
+import matplotlib.pyplot as plt
+import pandas as pd
+from jax.extend import core as jax_core
+
+from tvboptim.experimental.network_dynamics import DenseGraph, Network
+
+
+ROUTE_KINDS = ("instantaneous", "delayed")
+
+
+def _sync(tree):
+    for leaf in jax.tree.leaves(tree):
+        if hasattr(leaf, "block_until_ready"):
+            leaf.block_until_ready()
+    return tree
+
+
+def _median_runtime(function, argument, repeats, warmup):
+    for _ in range(warmup):
+        _sync(function(argument))
+    samples = []
+    for _ in range(repeats):
+        start = time.perf_counter()
+        _sync(function(argument))
+        samples.append(time.perf_counter() - start)
+    return statistics.median(samples)
+
+
+def _nested_jaxprs(value, active=None):
+    if active is None:
+        active = set()
+    value_id = id(value)
+    if value_id in active:
+        return
+    if not isinstance(
+        value, (jax_core.Jaxpr, jax_core.ClosedJaxpr, Mapping, tuple, list)
+    ):
+        return
+    active.add(value_id)
+    try:
+        if isinstance(value, jax_core.Jaxpr):
+            yield value
+            for equation in value.eqns:
+                yield from _nested_jaxprs(equation.params, active)
+        elif isinstance(value, jax_core.ClosedJaxpr):
+            yield from _nested_jaxprs(value.jaxpr, active)
+        elif isinstance(value, Mapping):
+            for child in value.values():
+                yield from _nested_jaxprs(child, active)
+        else:
+            for child in value:
+                yield from _nested_jaxprs(child, active)
+    finally:
+        active.remove(value_id)
+
+
+def _jaxpr_statistics(closed):
+    equations = [
+        equation
+        for jaxpr in _nested_jaxprs(closed)
+        for equation in jaxpr.eqns
+    ]
+    return {
+        "jaxpr_equations": len(equations),
+        "dot_general_count": sum(
+            equation.primitive.name == "dot_general" for equation in equations
+        ),
+        "scatter_count": sum(
+            equation.primitive.name == "scatter" for equation in equations
+        ),
+    }
+
+
+def _benchmark_graphs(n_nodes, dt, key):
+    weight_key, delay_key = jax.random.split(key)
+    weights = jax.random.uniform(
+        weight_key, (n_nodes, n_nodes), minval=0.0, maxval=0.01
+    )
+    weights = weights.at[jnp.diag_indices(n_nodes)].set(0.0)
+    delays = jax.random.uniform(
+        delay_key, (n_nodes, n_nodes), minval=2.0 * dt, maxval=10.0 * dt
+    )
+    delays = delays.at[jnp.diag_indices(n_nodes)].set(0.0)
+    return (
+        DenseGraph(weights),
+        DenseDelayGraph(weights, delays, max_delay_bound=10.0 * dt),
+    )
+
+
+def _benchmark_case(
+    *, n_nodes, n_groups, route_kind, graph, steps, dt, block_size
+):
+    delayed = route_kind == "delayed"
+    input_name = "delayed" if delayed else "instant"
+    solver = Heun(block_size=block_size)
+    gain = jnp.array(0.1)
+
+    if n_groups == 0:
+        coupling = (
+            DelayedLinearCoupling(
+                source="y1",
+                G=gain,
+                history_interpolation="linear",
+                buffer_strategy="circular",
+            )
+            if delayed
+            else LinearCoupling(source="y1", G=gain)
+        )
+        network = Network(JansenRit(), {input_name: coupling}, graph)
+        solve_function, config = prepare(
+            network, solver, t1=steps * dt, dt=dt
+        )
+
+        def primal(value):
+            local = config.copy()
+            local.coupling[input_name].G = value
+            return solve_function(local).ys
+
+        implementation = "homogeneous"
+    else:
+        groups = {}
+        source = {}
+        target = {}
+        for index in range(n_groups):
+            name = f"g{index}"
+            nodes = tuple(range(index, n_nodes, n_groups))
+            groups[name] = DynamicsGroup(JansenRit(), nodes)
+            source[name] = "y1"
+            target[name] = input_name
+        coupling = (
+            DelayedLinearCoupling(
+                G=gain,
+                history_interpolation="linear",
+                buffer_strategy="circular",
+            )
+            if delayed
+            else LinearCoupling(G=gain)
+        )
+        network = HeterogeneousNetwork(
+            graph=graph,
+            groups=groups,
+            routes={
+                "activity": SignalRoute(
+                    source=source,
+                    coupling=coupling,
+                    target=target,
+                )
+            },
+        )
+        solve_function, config = prepare(
+            network, solver, t1=steps * dt, dt=dt
+        )
+
+        def primal(value):
+            local = config.copy()
+            local.routes.activity.coupling.G = value
+            return solve_function(local).ys
+
+        implementation = "heterogeneous"
+
+    return implementation, primal, gain
+
+
+def _measure_benchmark_case(primal, argument, repeats, warmup):
+    def loss(value):
+        return sum(
+            jnp.square(leaf).sum() for leaf in jax.tree.leaves(primal(value))
+        )
+
+    reverse = jax.value_and_grad(loss)
+    primal_stats = _jaxpr_statistics(jax.make_jaxpr(primal)(argument))
+    reverse_stats = _jaxpr_statistics(jax.make_jaxpr(reverse)(argument))
+
+    jax.clear_caches()
+    start = time.perf_counter()
+    primal_executable = jax.jit(primal).lower(argument).compile()
+    forward_compile = time.perf_counter() - start
+    forward_wall = _median_runtime(
+        primal_executable, argument, repeats=repeats, warmup=warmup
+    )
+
+    jax.clear_caches()
+    start = time.perf_counter()
+    reverse_executable = jax.jit(reverse).lower(argument).compile()
+    reverse_compile = time.perf_counter() - start
+    reverse_wall = _median_runtime(
+        reverse_executable, argument, repeats=repeats, warmup=warmup
+    )
+    return {
+        "forward_wall_s": forward_wall,
+        "reverse_wall_s": reverse_wall,
+        "forward_compile_s": forward_compile,
+        "reverse_compile_s": reverse_compile,
+        **{f"forward_{name}": value for name, value in primal_stats.items()},
+        **{f"reverse_{name}": value for name, value in reverse_stats.items()},
+    }
+
+
+def run_group_scaling_benchmark(
+    *,
+    n_nodes=256,
+    groups: Sequence[int] = (1, 2, 4, 8),
+    route_kinds: Sequence[str] = ROUTE_KINDS,
+    steps=1000,
+    dt=0.05,
+    block_size=100,
+    repeats=5,
+    warmup=2,
+    seed=0,
+    device_platform="cpu",
+) -> pd.DataFrame:
+    """Run the fixed-work scaling sweep and return tidy measurements."""
+    groups = tuple(int(value) for value in groups)
+    route_kinds = tuple(route_kinds)
+    if n_nodes < 1 or steps < 1 or repeats < 1 or warmup < 0:
+        raise ValueError("nodes, steps, and repeats must be positive; warmup >= 0")
+    if any(value < 1 or value > n_nodes for value in groups):
+        raise ValueError("every heterogeneous group count must be in [1, n_nodes]")
+    unknown_routes = set(route_kinds) - set(ROUTE_KINDS)
+    if unknown_routes:
+        raise ValueError(f"unknown route kinds {sorted(unknown_routes)}")
+    if block_size is not None and block_size < 1:
+        raise ValueError("block_size must be positive or None")
+
+    devices = jax.devices(device_platform)
+    if not devices:
+        raise ValueError(
+            f"no JAX device is available for platform {device_platform!r}"
+        )
+    device = devices[0]
+    rows = []
+    with jax.default_device(device):
+        instant_graph, delayed_graph = _benchmark_graphs(
+            n_nodes, dt, jax.random.key(seed)
+        )
+        for route_kind in route_kinds:
+            graph = delayed_graph if route_kind == "delayed" else instant_graph
+            for group_count in (0, *groups):
+                implementation, primal, gain = _benchmark_case(
+                    n_nodes=n_nodes,
+                    n_groups=group_count,
+                    route_kind=route_kind,
+                    graph=graph,
+                    steps=steps,
+                    dt=dt,
+                    block_size=block_size,
+                )
+                measurements = _measure_benchmark_case(
+                    primal, gain, repeats, warmup
+                )
+                for metric, value in measurements.items():
+                    rows.append(
+                        {
+                            "implementation": implementation,
+                            "group_count": group_count,
+                            "route_kind": route_kind,
+                            "metric": metric,
+                            "value": float(value),
+                            "unit": "s" if metric.endswith("_s") else "count",
+                            "n_nodes": n_nodes,
+                            "steps": steps,
+                            "dt": dt,
+                            "block_size": block_size,
+                            "model": "JansenRit",
+                            "device": str(device),
+                            "jax_version": jax.__version__,
+                        }
+                    )
+    return pd.DataFrame(rows)
+
+
+benchmark_options = {
+    "n_nodes": 256,
+    "groups": (1, 2, 4, 8),
+    "route_kinds": ("instantaneous", "delayed"),
+    "steps": 1000,
+    "dt": 0.05,
+    "block_size": 100,
+    "repeats": 5,
+    "warmup": 2,
+}
+
+scaling = run_group_scaling_benchmark(**benchmark_options)
+shown_metrics = {
+    "forward_wall_s": "Forward wall time",
+    "reverse_wall_s": "Value + gradient wall time",
+    "reverse_compile_s": "Value + gradient compile time",
+}
+baseline = (
+    scaling[
+        (scaling.implementation == "homogeneous")
+        & scaling.metric.isin(shown_metrics)
+    ]
+    .set_index(["route_kind", "metric"])
+    .value
+)
+relative = scaling[
+    (scaling.implementation == "heterogeneous")
+    & scaling.metric.isin(shown_metrics)
+].copy()
+relative["relative_to_homogeneous"] = [
+    value / baseline.loc[(route_kind, metric)]
+    for value, route_kind, metric in zip(
+        relative.value, relative.route_kind, relative.metric
+    )
+]
+
+fig, axes = plt.subplots(1, 3, figsize=(12, 3.4), sharex=True)
+for axis, (metric, title) in zip(axes, shown_metrics.items()):
+    selected = relative[relative.metric == metric]
+    for route_kind, values in selected.groupby("route_kind"):
+        values = values.sort_values("group_count")
+        axis.plot(
+            values.group_count,
+            values.relative_to_homogeneous,
+            marker="o",
+            label=route_kind,
+        )
+    axis.axhline(1.0, color="black", linestyle="--", linewidth=1)
+    axis.set_title(title)
+    axis.set_xlabel("heterogeneous groups")
+    axis.grid(alpha=0.25)
+axes[0].set_ylabel("relative to homogeneous")
+axes[-1].legend(frameon=False)
+fig.tight_layout()
+```
+
+The expected curve rises as separately lowered group vector fields and signal
+packing fragment the traced program, while each route still performs one graph
+transport. The exact slope depends on device, JAX/XLA version, node count, and
+group widths. If a rendered figure looks stale after changing the benchmark
+code or options, delete this notebook's freeze directory before trusting the
+cached result.
+
 ### Solver stages multiply route work
 
 With `recompute_coupling_per_stage=False`, routes are evaluated once at the
