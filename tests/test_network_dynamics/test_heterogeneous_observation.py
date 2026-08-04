@@ -70,9 +70,7 @@ def _network():
 
 
 def _observe_y(**kwargs):
-    return GroupObservation(
-        {"a": "y", "b": "y"}, channels=("activity",), **kwargs
-    )
+    return GroupObservation({"a": "y", "b": "y"}, channels=("activity",), **kwargs)
 
 
 def test_observation_projects_to_graph_order_matching_to_graph():
@@ -85,9 +83,7 @@ def test_observation_projects_to_graph_order_matching_to_graph():
 
 
 def test_unobserved_nodes_take_fill_value_without_reduce():
-    observation = GroupObservation(
-        {"a": "y"}, channels=("activity",), fill_value=-7.0
-    )
+    observation = GroupObservation({"a": "y"}, channels=("activity",), fill_value=-7.0)
     observed = solve(_network(), Euler(), t1=0.2, dt=0.1, observe=observation)
     assert jnp.all(observed.ys[:, 0, jnp.array([1, 3])] == -7.0)
 
@@ -143,9 +139,7 @@ def test_observation_readout_shape_error_names_params_mapping():
     def needs_gain(recorded, params):
         return params.gain * recorded[0:1]
 
-    observation = GroupObservation(
-        {"a": needs_gain, "b": "y"}, channels=("activity",)
-    )
+    observation = GroupObservation({"a": needs_gain, "b": "y"}, channels=("activity",))
     with pytest.raises(ValueError, match=r"params\['a'\].*empty"):
         prepare(_network(), Euler(), observe=observation)
 
@@ -328,9 +322,7 @@ def test_observation_params_are_live_differentiable_and_vmappable():
         params={"a": Bunch(gain=1.0), "b": Bunch(gain=1.0)},
         channels=("scaled",),
     )
-    solve_fn, config = prepare(
-        _network(), Euler(), t1=0.3, dt=0.1, observe=observation
-    )
+    solve_fn, config = prepare(_network(), Euler(), t1=0.3, dt=0.1, observe=observation)
 
     def total(gain):
         local = config.copy()
@@ -354,9 +346,7 @@ def test_observation_params_work_with_space():
         params={"a": Bunch(gain=1.0)},
         channels=("scaled",),
     )
-    solve_fn, config = prepare(
-        _network(), Euler(), t1=0.2, dt=0.1, observe=observation
-    )
+    solve_fn, config = prepare(_network(), Euler(), t1=0.2, dt=0.1, observe=observation)
     swept = config.copy()
     swept.observation.a.gain = DataAxis(jnp.array([0.5, 1.5]))
     execution = ParallelExecution(

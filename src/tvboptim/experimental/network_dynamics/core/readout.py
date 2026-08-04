@@ -28,9 +28,7 @@ class Readout:
     def __post_init__(self):
         if not callable(self.fn):
             raise TypeError("Readout.fn must be callable")
-        if self.name is not None and (
-            not isinstance(self.name, str) or not self.name
-        ):
+        if self.name is not None and (not isinstance(self.name, str) or not self.name):
             raise ValueError("Readout.name must be a non-empty string or None")
         if self.space not in {"state", "recorded"}:
             raise ValueError("Readout.space must be 'state' or 'recorded'")

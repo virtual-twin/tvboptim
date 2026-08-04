@@ -121,9 +121,7 @@ class TestBasicNetworks(unittest.TestCase):
                         source=coupling_var, G=self.coupling_G
                     )
                 else:
-                    coupling = LinearCoupling(
-                        source=coupling_var, G=self.coupling_G
-                    )
+                    coupling = LinearCoupling(source=coupling_var, G=self.coupling_G)
 
                 # Create dynamics
                 dynamics = model_class()
@@ -401,9 +399,7 @@ class TestBasicNetworks(unittest.TestCase):
                 # Create a simple network (no noise, no delay for gradient test)
                 key = jax.random.PRNGKey(123)
                 graph = DenseGraph.random(n_nodes=self.n_nodes, key=key)
-                coupling = LinearCoupling(
-                    source=coupling_var, G=self.coupling_G
-                )
+                coupling = LinearCoupling(source=coupling_var, G=self.coupling_G)
                 dynamics = model_class()
 
                 network = Network(
@@ -609,9 +605,7 @@ class TestPrepareIsolation(unittest.TestCase):
                 "network_delayed",
                 Network(
                     dynamics=ReducedWongWang(),
-                    coupling={
-                        "delayed": DelayedLinearCoupling(source=["S"], G=0.3)
-                    },
+                    coupling={"delayed": DelayedLinearCoupling(source=["S"], G=0.3)},
                     graph=DenseDelayGraph(weights, delays),
                 ),
             ),
@@ -1338,9 +1332,7 @@ class TestDelaySweepAccessibility(unittest.TestCase):
         weights = jax.random.uniform(weights_key, (n_nodes, n_nodes)) * 0.5
         delays = jax.random.uniform(delay_key, (n_nodes, n_nodes)) * 5.0
         graph = DenseDelayGraph(weights=weights, delays=delays, max_delay_bound=6.0)
-        coupling = DelayedLinearCoupling(
-            source="S", G=0.2, warn_on_delay_clamp=True
-        )
+        coupling = DelayedLinearCoupling(source="S", G=0.2, warn_on_delay_clamp=True)
         network = Network(
             dynamics=ReducedWongWang(),
             coupling={"delayed": coupling},

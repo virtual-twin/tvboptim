@@ -36,6 +36,7 @@ def test_route_rejects_configured_coupling_using_current_selector_names():
     assert "source=" in message
     assert "incoming_states" not in message
 
+
 A_NODES = jnp.array([0, 2, 5])
 B_NODES = jnp.array([1, 3, 4])
 WEIGHTS = jnp.array(

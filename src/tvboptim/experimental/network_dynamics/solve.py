@@ -1069,8 +1069,7 @@ def prepare(
         unknown_groups = set(observe.readouts) - set(network.group_names)
         if unknown_groups:
             raise ValueError(
-                "GroupObservation references unknown groups "
-                f"{sorted(unknown_groups)}"
+                f"GroupObservation references unknown groups {sorted(unknown_groups)}"
             )
         observed_nodes = {
             node
@@ -1078,7 +1077,11 @@ def prepare(
             for node in network.group_nodes[group_name]
         }
         uncovered_nodes = sorted(set(range(network.n_nodes)) - observed_nodes)
-        if reduce is not None and uncovered_nodes and not observe.allow_partial_coverage:
+        if (
+            reduce is not None
+            and uncovered_nodes
+            and not observe.allow_partial_coverage
+        ):
             missing_groups = [
                 name for name in network.group_names if name not in observe.readouts
             ]
