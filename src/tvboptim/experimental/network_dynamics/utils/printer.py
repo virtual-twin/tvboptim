@@ -15,6 +15,10 @@ def format_network(network) -> str:
     Returns:
         Formatted string describing the complete dynamical system
     """
+    from ..core.heterogeneous import HeterogeneousNetwork
+
+    if isinstance(network, HeterogeneousNetwork):
+        return HeterogeneousNetworkPrinter(network).format()
     return NetworkPrinter(network).format()
 
 
@@ -229,6 +233,114 @@ class NetworkPrinter:
         return str(states)
 
 
+class HeterogeneousNetworkPrinter:
+    """Pretty-print groups and signal routes of a heterogeneous network."""
+
+    def __init__(self, network):
+        self.network = network
+
+    def format(self) -> str:
+        sections = [
+            " Heterogeneous Network Dynamics System\n" + "=" * 50,
+            self._format_graph(),
+            self._format_groups(),
+            self._format_routes(),
+        ]
+        return "\n\n".join(section for section in sections if section)
+
+    def _format_graph(self) -> str:
+        graph = self.network.graph
+        lines = [f"Graph: {graph.__class__.__name__}", f"  Nodes: {graph.n_nodes}"]
+        if hasattr(graph, "nnz"):
+            density = graph.nnz / (graph.n_nodes**2) * 100
+            lines.append(f"  Density: {density:.3f}%")
+        if hasattr(graph, "max_delay"):
+            lines.append(f"  Max delay: {graph.max_delay} ms")
+        return "\n".join(lines)
+
+    def _format_groups(self) -> str:
+        lines = ["Groups", "-" * 50]
+        for name in self.network.group_names:
+            group = self.network.groups[name]
+            dynamics = group.dynamics
+            nodes = self.network.group_nodes[name]
+            lines.extend(
+                [
+                    f"{name} ({dynamics.__class__.__name__})",
+                    f"  Nodes ({len(nodes)}): {list(nodes)}",
+                    f"  States: {', '.join(dynamics.STATE_NAMES)}",
+                    "  Noise: "
+                    + (group.noise.__class__.__name__ if group.noise else "none"),
+                    "  External inputs: "
+                    + (", ".join(sorted(group.externals)) or "none"),
+                ]
+            )
+            if hasattr(dynamics, "params") and dynamics.params:
+                lines.append(f"  Parameters: {self._format_params(dynamics.params)}")
+            lines.append("")
+        return "\n".join(lines).rstrip()
+
+    def _format_routes(self) -> str:
+        if not self.network.route_names:
+            return "Routes\n" + "-" * 50 + "\nnone"
+
+        from ..coupling.base import DelayedCoupling
+
+        lines = ["Routes", "-" * 50]
+        for name in self.network.route_names:
+            route = self.network.routes[name]
+            coupling = route.coupling
+            route_type = (
+                "delayed" if isinstance(coupling, DelayedCoupling) else "instantaneous"
+            )
+            lines.extend(
+                [
+                    f"{name} ({coupling.__class__.__name__}, {route_type})",
+                    f"  Source: {self._format_readout_mapping(route.source)}",
+                ]
+            )
+            if route.local:
+                lines.append(f"  Local: {self._format_readout_mapping(route.local)}")
+            lines.append(f"  Target: {self._format_targets(route.target)}")
+            if coupling.params:
+                lines.append(f"  Parameters: {self._format_params(coupling.params)}")
+            lines.append("")
+        return "\n".join(lines).rstrip()
+
+    @staticmethod
+    def _callable_name(value):
+        return getattr(value, "__name__", value.__class__.__name__)
+
+    @classmethod
+    def _format_readout(cls, readout):
+        if callable(readout):
+            return cls._callable_name(readout)
+        if len(readout) == 1:
+            return readout[0]
+        return "(" + ", ".join(readout) + ")"
+
+    @classmethod
+    def _format_readout_mapping(cls, mapping):
+        return ", ".join(
+            f"{group}={cls._format_readout(readout)}"
+            for group, readout in mapping.items()
+        )
+
+    @classmethod
+    def _format_targets(cls, mapping):
+        targets = []
+        for group, (input_name, conversion) in mapping.items():
+            rendered = input_name
+            if conversion is not None:
+                rendered += f" via {cls._callable_name(conversion)}"
+            targets.append(f"{group}={rendered}")
+        return ", ".join(targets)
+
+    @staticmethod
+    def _format_params(params):
+        return ", ".join(f"{name}={value}" for name, value in params.items())
+
+
 class CouplingDescriptor:
     """Extract mathematical form of a coupling."""
 
@@ -261,7 +373,7 @@ class CouplingDescriptor:
                 )
             if "incoming_states" not in result:
                 result["incoming_states"] = self._normalize_states(
-                    self.coupling.INCOMING_STATE_NAMES
+                    self.coupling.SOURCE_STATE_NAMES
                 )
             if "local_states" not in result:
                 result["local_states"] = self._normalize_states(
@@ -279,7 +391,7 @@ class CouplingDescriptor:
                     else "instantaneous"
                 ),
                 "incoming_states": self._normalize_states(
-                    self.coupling.INCOMING_STATE_NAMES
+                    self.coupling.SOURCE_STATE_NAMES
                 ),
                 "local_states": self._normalize_states(self.coupling.LOCAL_STATE_NAMES),
                 "params": self._extract_params(),
