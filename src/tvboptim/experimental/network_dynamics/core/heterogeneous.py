@@ -45,6 +45,9 @@ class DynamicsGroup:
         external_input: Mapping from names declared by
             ``dynamics.EXTERNAL_INPUTS`` to group-local external inputs.
         initial_state: Optional ``[n_states, n_group_nodes]`` initial state.
+            Columns must follow the normalized order of ``nodes``. Integer
+            index sequences preserve the supplied order; boolean masks use
+            ascending graph-node order.
 
     Attributes:
         dynamics: The group's dynamics instance.

@@ -192,5 +192,5 @@ def test_bounded_solver_rejects_bounds_with_wrong_group_structure():
 def test_remaining_unimplemented_execution_features_fail_explicitly():
     with pytest.raises(NotImplementedError, match="native fixed-step"):
         prepare(_network(), DiffraxSolver(diffrax.Euler()), t1=0.2, dt=0.1)
-    with pytest.raises(NotImplementedError, match="does not support reduce yet"):
+    with pytest.raises(ValueError, match="GroupObservation"):
         prepare(_network(), Euler(), t1=0.2, dt=0.1, reduce=object())

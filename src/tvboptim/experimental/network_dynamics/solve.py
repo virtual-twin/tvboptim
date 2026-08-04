@@ -17,6 +17,8 @@ from plum import dispatch
 from .core.bunch import Bunch
 from .core.heterogeneous import HeterogeneousNetwork
 from .core.network import Network
+from .core.observation import GroupObservation
+from .core.readout import pack_history_readouts, pack_readouts, prepare_readouts
 from .coupling.base import DelayedCoupling, InstantaneousCoupling
 from .dynamics.base import AbstractDynamics
 from .graph.base import delay_steps_bound, effective_max_delay
@@ -754,8 +756,18 @@ def prepare(
     t1: float = 1.0,
     dt: float = 0.1,
     reduce=None,
+    observe=None,
 ) -> Tuple[Callable, Bunch]:
-    """Prepare heterogeneous groups and instantaneous routes."""
+    """Prepare heterogeneous groups, routes, and an optional observation.
+
+    Args:
+        reduce: Optional ``(init, update, finalize)`` reducer. Heterogeneous
+            reduction requires ``observe`` and runs in bounded forward memory
+            only when ``solver.block_size`` is set.
+        observe: Optional :class:`GroupObservation` projecting accepted
+            per-step recorded group outputs to common graph-order channels.
+            It does not participate in dynamics, route state, or scan carry.
+    """
     unsupported_routes = [
         name
         for name in network.route_names
@@ -769,12 +781,20 @@ def prepare(
             "Heterogeneous routes require an instantaneous or delayed "
             f"PrePostCoupling implementation: {unsupported_routes}"
         )
-    if reduce is not None:
-        raise NotImplementedError(
-            "HeterogeneousNetwork does not support reduce yet: groups have "
-            "different variable and node axes, so the homogeneous reducer "
-            "template is ambiguous. Reduce result.groups.<name> post-hoc, or "
-            "omit reduce until an explicit grouped-observation contract exists."
+    if observe is not None and not isinstance(observe, GroupObservation):
+        raise TypeError("observe must be a GroupObservation or None")
+    if reduce is not None and observe is None:
+        raise ValueError(
+            "Heterogeneous reduce= requires observe=GroupObservation(...) to "
+            "define common graph-order channels."
+        )
+    if reduce is not None and solver.block_size is None:
+        warnings.warn(
+            "Heterogeneous observe= with reduce= only bounds trajectory memory "
+            "when solver.block_size is set. Without block_size the full "
+            "trajectory is materialized before reduction.",
+            UserWarning,
+            stacklevel=2,
         )
     time_steps = jnp.arange(t0, t1, dt)
     prepared_topology = prepare_graph_topology(network.graph)
@@ -863,29 +883,10 @@ def prepare(
     route_specs = []
     route_history_shapes = {}
 
-    def pack_readouts(grouped_state, specs, width, dtype, params):
-        signal = jnp.zeros((width, network.n_nodes), dtype=dtype)
-        for group_name, nodes, readout, indices in specs:
-            values = (
-                grouped_state[group_name][indices]
-                if readout is None
-                else readout(grouped_state[group_name], params[group_name])
-            )
-            signal = signal.at[:, nodes].set(values)
-        return signal
-
-    def pack_history_readouts(history, specs, width, dtype, params):
-        n_times = history.ts.shape[0]
-        signal = jnp.zeros((n_times, width, network.n_nodes), dtype=dtype)
-        for group_name, nodes, readout, indices in specs:
-            states = history.groups[group_name]
-            values = (
-                states[:, indices, :]
-                if readout is None
-                else jax.vmap(readout, in_axes=(0, None))(states, params[group_name])
-            )
-            signal = signal.at[:, :, nodes].set(values)
-        return signal
+    state_names = {
+        name: tuple(network.groups[name].dynamics.STATE_NAMES)
+        for name in network.group_names
+    }
 
     for route_name in network.route_names:
         route = network.routes[route_name]
@@ -914,66 +915,26 @@ def prepare(
             target_params=target_params,
         )
 
-        def prepare_readouts(readouts, params, role, params_name):
-            prepared = []
-            widths = set()
-            dtypes = []
-            for group_name in sorted(readouts):
-                readout = readouts[group_name]
-                state = initial_state[group_name]
-                nodes = jnp.asarray(network.group_nodes[group_name], dtype=int)
-                if callable(readout):
-                    try:
-                        shaped = jax.eval_shape(readout, state, params[group_name])
-                    except Exception as exc:
-                        hint = (
-                            f" Its parameters {params_name}[{group_name!r}] are "
-                            "empty; if the readout reads parameters, pass them "
-                            "there on the route."
-                            if not params[group_name]
-                            else ""
-                        )
-                        raise ValueError(
-                            f"route {route_name!r} {role} readout for group "
-                            f"{group_name!r} could not be evaluated as "
-                            f"readout(state, params) ({type(exc).__name__}: "
-                            f"{exc})." + hint
-                        ) from exc
-                    if not hasattr(shaped, "shape"):
-                        raise ValueError(
-                            f"route {route_name!r} {role} readout for group "
-                            f"{group_name!r} must return one array"
-                        )
-                    expected_nodes = len(network.group_nodes[group_name])
-                    if len(shaped.shape) != 2 or shaped.shape[1] != expected_nodes:
-                        raise ValueError(
-                            f"route {route_name!r} {role} readout for group "
-                            f"{group_name!r} returned shape {shaped.shape}; "
-                            f"expected [Q, {expected_nodes}]"
-                        )
-                    width = shaped.shape[0]
-                    dtype = shaped.dtype
-                    prepared.append((group_name, nodes, readout, None))
-                else:
-                    indices = network.groups[group_name].dynamics.name_to_index(readout)
-                    width = len(readout)
-                    dtype = state.dtype
-                    prepared.append((group_name, nodes, None, indices))
-                widths.add(width)
-                dtypes.append(dtype)
-            if len(widths) != 1:
-                raise ValueError(
-                    f"route {route_name!r} {role} readouts must share one "
-                    f"channel width, got {sorted(widths)}"
-                )
-            return tuple(prepared), widths.pop(), tuple(dtypes)
-
         source_specs, source_width, source_dtypes = prepare_readouts(
-            route.source, source_params, "source", "source_params"
+            route.source,
+            source_params,
+            probe_values=initial_state,
+            names=state_names,
+            group_nodes=network.group_nodes,
+            role=f"route {route_name!r} source",
+            params_name="source_params",
+            space="state",
         )
         if route.local:
             local_specs, local_width, local_dtypes = prepare_readouts(
-                route.local, local_params, "local", "local_params"
+                route.local,
+                local_params,
+                probe_values=initial_state,
+                names=state_names,
+                group_nodes=network.group_nodes,
+                role=f"route {route_name!r} local",
+                params_name="local_params",
+                space="state",
             )
         else:
             local_specs, local_width, local_dtypes = (), 0, ()
@@ -999,6 +960,7 @@ def prepare(
                     source_width,
                     signal_dtype,
                     source_params,
+                    network.n_nodes,
                 )
                 history_rows = delay_steps_bound(max_delay, dt) + 1
                 initial_history = jnp.broadcast_to(
@@ -1012,6 +974,7 @@ def prepare(
                     source_width,
                     signal_dtype,
                     source_params,
+                    network.n_nodes,
                 )
                 initial_history = extract_history_window(
                     network._history.ts,
@@ -1098,6 +1061,67 @@ def prepare(
             )
         )
 
+    observation_specs = ()
+    observation_width = 0
+    observation_dtype = None
+    observation_params = Bunch()
+    if observe is not None:
+        unknown_groups = set(observe.readouts) - set(network.group_names)
+        if unknown_groups:
+            raise ValueError(
+                "GroupObservation references unknown groups "
+                f"{sorted(unknown_groups)}"
+            )
+        observed_nodes = {
+            node
+            for group_name in observe.readouts
+            for node in network.group_nodes[group_name]
+        }
+        uncovered_nodes = sorted(set(range(network.n_nodes)) - observed_nodes)
+        if reduce is not None and uncovered_nodes and not observe.allow_partial_coverage:
+            missing_groups = [
+                name for name in network.group_names if name not in observe.readouts
+            ]
+            raise ValueError(
+                "GroupObservation with reduce= must cover every graph node; "
+                f"uncovered nodes {uncovered_nodes}. Add groups {missing_groups}, "
+                "or set allow_partial_coverage=True only for a reducer you have "
+                "verified is fill-aware."
+            )
+        observation_params = Bunch(
+            {
+                name: _snapshot(observe.params.get(name, Bunch()))
+                for name in observe.readouts
+            }
+        )
+        recorded_probes = Bunch(
+            {
+                name: jnp.zeros(
+                    (len(variable_names[name]), len(network.group_nodes[name])),
+                    dtype=initial_state[name].dtype,
+                )
+                for name in observe.readouts
+            }
+        )
+        observation_specs, observation_width, observation_dtypes = prepare_readouts(
+            observe.readouts,
+            observation_params,
+            probe_values=recorded_probes,
+            names=variable_names,
+            group_nodes=network.group_nodes,
+            role="GroupObservation",
+            params_name="params",
+            space="recorded",
+        )
+        if len(observe.channels) != observation_width:
+            raise ValueError(
+                "GroupObservation channels length must match probed readout "
+                f"width Q={observation_width}; got {len(observe.channels)}"
+            )
+        observation_dtype = jnp.result_type(
+            *observation_dtypes, jnp.asarray(observe.fill_value).dtype
+        )
+
     config = Bunch(
         groups=group_config,
         routes=route_config,
@@ -1105,6 +1129,8 @@ def prepare(
         initial_state=initial_state,
         _internal=Bunch(time=Bunch(t0=t0, t1=t1, dt=dt)),
     )
+    if observe is not None:
+        config.observation = observation_params
     has_noise = bool(noise_specs)
     has_externals = bool(external_specs)
     if has_noise:
@@ -1155,6 +1181,7 @@ def prepare(
                     local_width,
                     signal_dtype,
                     route_params.local_params,
+                    network.n_nodes,
                 )
 
             if is_delayed:
@@ -1172,6 +1199,7 @@ def prepare(
                     source_width,
                     signal_dtype,
                     route_params.source_params,
+                    network.n_nodes,
                 )
                 transported = coupling._compute_from_signals(
                     source_signal,
@@ -1230,6 +1258,7 @@ def prepare(
                 source_width,
                 signal_dtype,
                 route_params.source_params,
+                network.n_nodes,
             )
             updated[route_name] = coupling._update_history_from_signal(
                 enriched[route_name], route_states[route_name], transmitted
@@ -1455,6 +1484,16 @@ def prepare(
                     aux_indices,
                     record_aux,
                 )
+            if observe is not None:
+                output = pack_readouts(
+                    output,
+                    observation_specs,
+                    observation_width,
+                    observation_dtype,
+                    config.observation,
+                    network.n_nodes,
+                    fill_value=observe.fill_value,
+                )
             if has_externals or has_delays:
                 next_external = (
                     update_group_externals(external_state, next_state)
@@ -1491,14 +1530,38 @@ def prepare(
             if not has_noise or streaming
             else (time_steps, noise_samples_all)
         )
-        _final_state, trajectories = run_scan(
+        fold = _reduce_fold(
+            reduce,
+            observe.channels if observe is not None else (),
+            network.n_nodes,
+            n_steps,
+        )
+        final_carry, trajectories = run_scan(
             op,
             state0,
             scan_inputs,
             n_steps,
             solver,
+            fold=fold,
             noise_gen=noise_gen,
         )
+        if reduce is not None:
+            _init, update, finalize = reduce
+            acc = (
+                update(fold[0], trajectories)
+                if solver.block_size is None
+                else final_carry[1]
+            )
+            return finalize(acc)
+
+        if observe is not None:
+            return wrap_native_result(
+                trajectories,
+                t0,
+                t1,
+                dt,
+                variable_names=observe.channels,
+            )
         ts = t0 + (jnp.arange(n_steps) + 1) * dt
         return HeterogeneousSolution(
             ts,

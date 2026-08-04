@@ -3,7 +3,15 @@
 Part of TVB-Optim experimental modules.
 """
 
-from .core import Bunch, DynamicsGroup, HeterogeneousNetwork, Network, SignalRoute
+from .core import (
+    Bunch,
+    DynamicsGroup,
+    GroupObservation,
+    HeterogeneousNetwork,
+    Network,
+    Readout,
+    SignalRoute,
+)
 from .graph import (
     DelayGraph,
     DenseDelayGraph,
@@ -20,6 +28,7 @@ __all__ = [
     "Bunch",
     "DynamicsGroup",
     "Graph",
+    "GroupObservation",
     "HeterogeneousSolution",
     "DelayGraph",
     "SparseGraph",
@@ -30,6 +39,7 @@ __all__ = [
     "solve",
     "prepare",
     "Network",
+    "Readout",
     "HeterogeneousNetwork",
     "SignalRoute",
 ]
