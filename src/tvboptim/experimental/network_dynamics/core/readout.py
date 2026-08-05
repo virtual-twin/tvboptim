@@ -1,7 +1,7 @@
 """Typed readouts and shared heterogeneous readout preparation helpers."""
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Literal
 
 import jax
 import jax.numpy as jnp
@@ -9,13 +9,13 @@ import jax.numpy as jnp
 
 @dataclass(frozen=True)
 class Readout:
-    """Wrap a readout callable with an explicit input-space declaration.
+    """Wrap a readout callable with an explicit input declaration.
 
     Args:
         fn: ``fn(values, params) -> [channels, nodes]`` callable.
         name: Optional display name used in validation errors.
-        space: ``"state"`` for route readouts or ``"recorded"`` for
-            observation readouts.
+        reads: ``"state"`` for route readouts or ``"voi"`` for observation
+            readouts that consume the selected variables of interest.
 
     Parameters remain in the position-specific route or observation mappings.
     Shared parameter ownership is an additive follow-up to this wrapper.
@@ -23,15 +23,15 @@ class Readout:
 
     fn: Callable
     name: str | None = None
-    space: str = "state"
+    reads: Literal["state", "voi"] = "state"
 
     def __post_init__(self):
         if not callable(self.fn):
             raise TypeError("Readout.fn must be callable")
         if self.name is not None and (not isinstance(self.name, str) or not self.name):
             raise ValueError("Readout.name must be a non-empty string or None")
-        if self.space not in {"state", "recorded"}:
-            raise ValueError("Readout.space must be 'state' or 'recorded'")
+        if self.reads not in {"state", "voi"}:
+            raise ValueError("Readout.reads must be 'state' or 'voi'")
 
     def __call__(self, values, params):
         return self.fn(values, params)
@@ -50,7 +50,7 @@ def prepare_readouts(
     group_nodes,
     role,
     params_name,
-    space,
+    reads,
 ):
     """Probe and resolve group readouts against one explicit value namespace."""
     prepared = []
@@ -61,11 +61,11 @@ def prepare_readouts(
         values = probe_values[group_name]
         nodes = jnp.asarray(group_nodes[group_name], dtype=int)
         if callable(readout):
-            if isinstance(readout, Readout) and readout.space != space:
+            if isinstance(readout, Readout) and readout.reads != reads:
                 raise ValueError(
                     f"{role} readout {readout.display_name!r} for group "
-                    f"{group_name!r} declares space={readout.space!r}, but this "
-                    f"position reads {space!r} values; use space={space!r}."
+                    f"{group_name!r} declares reads={readout.reads!r}, but this "
+                    f"position provides reads={reads!r}; use reads={reads!r}."
                 )
             try:
                 shaped = jax.eval_shape(readout, values, params[group_name])
@@ -78,7 +78,7 @@ def prepare_readouts(
                 )
                 raise ValueError(
                     f"{role} readout for group {group_name!r} could not be "
-                    f"evaluated as readout({space}, params) "
+                    f"evaluated as readout({reads}, params) "
                     f"({type(exc).__name__}: {exc})." + hint
                 ) from exc
             if not hasattr(shaped, "shape"):
@@ -100,7 +100,7 @@ def prepare_readouts(
             if missing:
                 raise ValueError(
                     f"{role} readout for group {group_name!r} names unknown "
-                    f"{space} variables {missing}; available {list(namespace)}"
+                    f"{reads} variables {missing}; available {list(namespace)}"
                 )
             indices = jnp.asarray(
                 [namespace.index(name) for name in readout], dtype=jnp.int32

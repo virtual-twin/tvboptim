@@ -8,10 +8,10 @@ from .heterogeneous import _normalize_readout, _require_name
 
 
 class GroupObservation:
-    """Project recorded group outputs into common graph-order channels.
+    """Project group variables of interest into common graph-order channels.
 
-    Each mapping value is a recorded variable name, a tuple of names, or a
-    ``readout(recorded, params) -> [Q, n_group_nodes]`` callable. Equal channel
+    Each mapping value is a variable-of-interest name, a tuple of names, or a
+    ``readout(voi, params) -> [Q, n_group_nodes]`` callable. Equal channel
     width only establishes shape compatibility; users remain responsible for
     making group-specific transformations scientifically commensurable.
 

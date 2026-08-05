@@ -3,9 +3,9 @@ import jax.numpy as jnp
 from tvboptim.experimental.network_dynamics import (
     Bunch,
     DenseGraph,
-    DynamicsGroup,
     HeterogeneousNetwork,
     Network,
+    NodeGroup,
     SignalRoute,
 )
 from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
@@ -29,8 +29,8 @@ def test_print_network_renders_heterogeneous_network():
     network = HeterogeneousNetwork(
         graph=graph,
         groups={
-            "left": DynamicsGroup(PrinterDynamics(), [0]),
-            "right": DynamicsGroup(PrinterDynamics(), [1]),
+            "left": NodeGroup(PrinterDynamics(), [0]),
+            "right": NodeGroup(PrinterDynamics(), [1]),
         },
         routes={
             "fast": SignalRoute(

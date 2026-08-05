@@ -146,7 +146,7 @@ quartodoc:
       package: tvboptim.experimental.network_dynamics
       contents:
         - Network
-        - DynamicsGroup
+        - NodeGroup
         - Readout
         - GroupObservation
         - SignalRoute

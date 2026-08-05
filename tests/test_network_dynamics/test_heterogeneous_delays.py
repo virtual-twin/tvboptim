@@ -8,9 +8,9 @@ import pytest
 from jax.experimental.sparse import BCOO
 
 from tvboptim.experimental.network_dynamics import (
-    DynamicsGroup,
     HeterogeneousNetwork,
     Network,
+    NodeGroup,
     SignalRoute,
     prepare,
 )
@@ -78,7 +78,7 @@ def _sparse_graph():
 def _one_group(graph, coupling):
     return HeterogeneousNetwork(
         graph=graph,
-        groups={"all": DynamicsGroup(Linear(gamma=-0.4), [0, 1, 2, 3])},
+        groups={"all": NodeGroup(Linear(gamma=-0.4), [0, 1, 2, 3])},
         routes={
             "delayed": SignalRoute(
                 source={"all": "x"},
@@ -98,8 +98,8 @@ def _split_groups(graph, coupling):
     return HeterogeneousNetwork(
         graph=graph,
         groups={
-            "left": DynamicsGroup(Linear(gamma=-0.4), [0, 2]),
-            "right": DynamicsGroup(Linear(gamma=-0.4), [1, 3]),
+            "left": NodeGroup(Linear(gamma=-0.4), [0, 2]),
+            "right": NodeGroup(Linear(gamma=-0.4), [1, 3]),
         },
         routes={
             "delayed": SignalRoute(
@@ -184,8 +184,8 @@ def test_zero_delay_route_matches_instantaneous_route():
     instantaneous = HeterogeneousNetwork(
         graph=DenseGraph(WEIGHTS),
         groups={
-            "left": DynamicsGroup(Linear(gamma=-0.4), [0, 2]),
-            "right": DynamicsGroup(Linear(gamma=-0.4), [1, 3]),
+            "left": NodeGroup(Linear(gamma=-0.4), [0, 2]),
+            "right": NodeGroup(Linear(gamma=-0.4), [1, 3]),
         },
         routes={
             "instant": SignalRoute(
@@ -306,8 +306,8 @@ def test_warm_start_recomputes_callable_route_history():
         return HeterogeneousNetwork(
             graph=_dense_graph(),
             groups={
-                "left": DynamicsGroup(Linear(gamma=-0.4), [0, 2]),
-                "right": DynamicsGroup(Linear(gamma=-0.4), [1, 3]),
+                "left": NodeGroup(Linear(gamma=-0.4), [0, 2]),
+                "right": NodeGroup(Linear(gamma=-0.4), [1, 3]),
             },
             routes={
                 "delayed": SignalRoute(
@@ -431,13 +431,13 @@ def test_delays_noise_and_external_inputs_share_one_grouped_scan_carry():
     network = HeterogeneousNetwork(
         graph=_dense_graph(),
         groups={
-            "left": DynamicsGroup(
+            "left": NodeGroup(
                 Generic2dOscillator(),
                 [0, 2],
                 noise=AdditiveNoise(sigma=0.01, apply_to="V", key=jax.random.key(3)),
                 external_input={"stimulus": ConstantInput(amplitude=0.2)},
             ),
-            "right": DynamicsGroup(Generic2dOscillator(), [1, 3]),
+            "right": NodeGroup(Generic2dOscillator(), [1, 3]),
         },
         routes={
             "delayed": SignalRoute(
@@ -466,7 +466,7 @@ def test_multichannel_jansen_rit_route_history_stores_only_source_channels():
     grouped_fn, grouped_config = prepare(
         HeterogeneousNetwork(
             graph=graph,
-            groups={"jr": DynamicsGroup(JansenRit(), [0, 1])},
+            groups={"jr": NodeGroup(JansenRit(), [0, 1])},
             routes={
                 "delayed": SignalRoute(
                     source={"jr": ("y1", "y2")},

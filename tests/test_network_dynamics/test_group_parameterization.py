@@ -1,4 +1,4 @@
-"""Same-model DynamicsGroups as a groupwise parameterization contract."""
+"""Same-model NodeGroups as a groupwise parameterization contract."""
 
 import jax
 import jax.numpy as jnp
@@ -7,9 +7,9 @@ import pytest
 from tvboptim.experimental.network_dynamics import (
     DenseDelayGraph,
     DenseGraph,
-    DynamicsGroup,
     HeterogeneousNetwork,
     Network,
+    NodeGroup,
     SignalRoute,
     prepare,
 )
@@ -62,7 +62,7 @@ def test_group_scalars_match_equivalent_node_local_parameter_and_gradient(
         name = f"g{index}"
         nodes = jnp.arange(index, n_nodes, n_groups)
         nodes_by_group[name] = nodes
-        groups[name] = DynamicsGroup(
+        groups[name] = NodeGroup(
             Linear(gamma=-1.0), nodes, initial_state=initial[:, nodes]
         )
         source[name] = "x"

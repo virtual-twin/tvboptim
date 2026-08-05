@@ -11,8 +11,8 @@ from jax.extend import core as jax_core
 from tvboptim.experimental.network_dynamics import (
     Bunch,
     DenseGraph,
-    DynamicsGroup,
     HeterogeneousNetwork,
+    NodeGroup,
     SignalRoute,
     SparseGraph,
     prepare,
@@ -47,7 +47,7 @@ def _network(n_nodes, n_groups, sparse=False):
     for index in range(n_groups):
         name = f"g{index}"
         nodes = tuple(range(index, n_nodes, n_groups))
-        groups[name] = DynamicsGroup(DrivenLinear(), nodes)
+        groups[name] = NodeGroup(DrivenLinear(), nodes)
         source[name] = "x"
         target[name] = "drive"
     return HeterogeneousNetwork(

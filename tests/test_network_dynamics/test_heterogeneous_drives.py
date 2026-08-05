@@ -6,8 +6,8 @@ import jax.numpy as jnp
 import pytest
 
 from tvboptim.experimental.network_dynamics import (
-    DynamicsGroup,
     HeterogeneousNetwork,
+    NodeGroup,
     prepare,
 )
 from tvboptim.experimental.network_dynamics.core import Bunch
@@ -60,14 +60,14 @@ def _driven_network(external, *, noise=None):
     return HeterogeneousNetwork(
         graph=_graph(),
         groups={
-            "driven": DynamicsGroup(
+            "driven": NodeGroup(
                 Generic2dOscillator(),
                 [0, 2],
                 initial_state=initial,
                 noise=noise,
                 external_input={"stimulus": external},
             ),
-            "other": DynamicsGroup(
+            "other": NodeGroup(
                 Linear(gamma=-0.4),
                 [1, 3],
                 initial_state=jnp.array([[0.4, -0.2]]),
@@ -207,13 +207,13 @@ def test_differently_shaped_group_noise_trees_match_independent_solves():
     network = HeterogeneousNetwork(
         graph=_graph(),
         groups={
-            "generic": DynamicsGroup(
+            "generic": NodeGroup(
                 Generic2dOscillator(),
                 [0, 2],
                 initial_state=generic_initial,
                 noise=generic_noise,
             ),
-            "linear": DynamicsGroup(
+            "linear": NodeGroup(
                 Linear(gamma=-0.4),
                 [1, 3],
                 initial_state=linear_initial,

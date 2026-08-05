@@ -5,10 +5,10 @@ Part of TVB-Optim experimental modules.
 
 from .core import (
     Bunch,
-    DynamicsGroup,
     GroupObservation,
     HeterogeneousNetwork,
     Network,
+    NodeGroup,
     Readout,
     SignalRoute,
 )
@@ -26,7 +26,7 @@ from .solve import prepare, solve
 
 __all__ = [
     "Bunch",
-    "DynamicsGroup",
+    "NodeGroup",
     "Graph",
     "GroupObservation",
     "HeterogeneousSolution",

@@ -9,7 +9,7 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **Different dynamics models can now run on named subsets of one connectome.**
-  `HeterogeneousNetwork` partitions a square `Graph` into `DynamicsGroup`s, each
+  `HeterogeneousNetwork` partitions a square `Graph` into `NodeGroup`s, each
   with its own dynamics, parameters, noise, and external inputs. Groups may have
   different state names and state counts. `solve()` and `prepare()` accept it
   through the existing dispatch; ordinary `Network` code is unchanged.
@@ -23,8 +23,9 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Each route performs one graph traversal regardless of how many groups
     participate, so cost scales with distinct scientific signals rather than
     with the number of model pairs.
-  - `Readout` gives route and observation callables an explicit `state` or
-    `recorded` input space without owning their parameters. Parameters remain
+  - `Readout` declares whether route and observation callables read the complete
+    `state` or selected variables of interest (`voi`) without owning their
+    parameters. Parameters remain
     in the position-specific `source_params`, `local_params`, `target_params`,
     or `GroupObservation.params` mappings, where they stay live after
     `prepare()` and can be swept and differentiated.

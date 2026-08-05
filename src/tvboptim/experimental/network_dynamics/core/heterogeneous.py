@@ -34,8 +34,8 @@ def _normalize_readout(value: Any, role: str):
     )
 
 
-class DynamicsGroup:
-    """Assign one dynamics implementation to a static graph-node subset.
+class NodeGroup:
+    """Configure one static graph-node subset with group-local behavior.
 
     Args:
         dynamics: Dynamics evaluated for this group's nodes.
@@ -89,7 +89,7 @@ class DynamicsGroup:
 
     def __repr__(self):
         return (
-            f"DynamicsGroup(dynamics={self.dynamics.__class__.__name__}, "
+            f"NodeGroup(dynamics={self.dynamics.__class__.__name__}, "
             f"nodes={self.nodes!r})"
         )
 
@@ -229,7 +229,7 @@ class HeterogeneousNetwork:
     Args:
         graph: Shared dense or sparse graph. Its node order is canonical for all
             group assignments and signal routes.
-        groups: Mapping from unique names to ``DynamicsGroup`` instances. Groups
+        groups: Mapping from unique names to ``NodeGroup`` instances. Groups
             must form an exhaustive, non-overlapping partition of graph nodes.
         routes: Optional mapping from unique names to ``SignalRoute`` instances.
         history: Optional ``HeterogeneousSolution`` used to warm-start every
@@ -254,14 +254,14 @@ class HeterogeneousNetwork:
         self,
         *,
         graph: AbstractGraph,
-        groups: Mapping[str, DynamicsGroup],
+        groups: Mapping[str, NodeGroup],
         routes: Mapping[str, SignalRoute] | None = None,
         history=None,
     ):
         if not isinstance(graph, AbstractGraph):
             raise TypeError("graph must be an AbstractGraph instance")
         if not isinstance(groups, Mapping):
-            raise TypeError("groups must be a mapping from names to DynamicsGroup")
+            raise TypeError("groups must be a mapping from names to NodeGroup")
         if routes is not None and not isinstance(routes, Mapping):
             raise TypeError("routes must be a mapping from names to SignalRoute")
         if tuple(graph.weights.shape)[0] != tuple(graph.weights.shape)[1]:
@@ -277,8 +277,8 @@ class HeterogeneousNetwork:
             _require_name(name, "route"): route
             for name, route in (routes or {}).items()
         }
-        if not all(isinstance(group, DynamicsGroup) for group in self.groups.values()):
-            raise TypeError("groups must map names to DynamicsGroup instances")
+        if not all(isinstance(group, NodeGroup) for group in self.groups.values()):
+            raise TypeError("groups must map names to NodeGroup instances")
         if not all(isinstance(route, SignalRoute) for route in self.routes.values()):
             raise TypeError("routes must map names to SignalRoute instances")
 

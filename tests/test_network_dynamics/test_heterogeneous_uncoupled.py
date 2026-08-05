@@ -7,10 +7,10 @@ import pytest
 
 from tvboptim.experimental.network_dynamics import (
     Bunch,
-    DynamicsGroup,
     HeterogeneousNetwork,
     HeterogeneousSolution,
     Network,
+    NodeGroup,
     prepare,
     solve,
 )
@@ -28,13 +28,13 @@ from tvboptim.experimental.network_dynamics.solvers import (
 
 def _network(*, order="ab", routes=None, noise=False):
     groups = {
-        "a": DynamicsGroup(
+        "a": NodeGroup(
             Linear(gamma=-0.3),
             [0, 2, 5],
             initial_state=jnp.array([[0.2, -0.1, 0.5]]),
             noise=AdditiveNoise(sigma=0.01) if noise else None,
         ),
-        "b": DynamicsGroup(
+        "b": NodeGroup(
             JansenRit(mu=0.18),
             [1, 3, 4],
         ),
@@ -126,7 +126,7 @@ def test_one_group_matches_zero_coupling_network():
     graph = DenseGraph(jnp.zeros((4, 4)))
     heterogeneous = HeterogeneousNetwork(
         graph=graph,
-        groups={"all": DynamicsGroup(dynamics, [0, 1, 2, 3])},
+        groups={"all": NodeGroup(dynamics, [0, 1, 2, 3])},
     )
     homogeneous = Network(Linear(gamma=-0.4), {}, graph)
     grouped = solve(heterogeneous, Heun(), t0=0.0, t1=0.5, dt=0.1)

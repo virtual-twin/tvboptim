@@ -8,8 +8,8 @@ from tvboptim.execution import ParallelExecution
 from tvboptim.experimental.network_dynamics import (
     Bunch,
     DenseDelayGraph,
-    DynamicsGroup,
     HeterogeneousNetwork,
+    NodeGroup,
     SignalRoute,
     prepare,
 )
@@ -48,13 +48,13 @@ def _setup():
     network = HeterogeneousNetwork(
         graph=DenseDelayGraph(WEIGHTS, DELAYS),
         groups={
-            "a": DynamicsGroup(
+            "a": NodeGroup(
                 DrivenLinear(decay=0.15),
                 nodes=(0, 2),
                 noise=AdditiveNoise(sigma=0.01, key=jax.random.key(7)),
                 initial_state=jnp.array([[0.2, -0.1]]),
             ),
-            "b": DynamicsGroup(
+            "b": NodeGroup(
                 DrivenLinear(decay=0.25),
                 nodes=(1, 3),
                 external_input={"stimulus": ConstantInput(amplitude=0.05)},

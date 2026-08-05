@@ -765,7 +765,7 @@ def prepare(
             reduction requires ``observe`` and runs in bounded forward memory
             only when ``solver.block_size`` is set.
         observe: Optional :class:`GroupObservation` projecting accepted
-            per-step recorded group outputs to common graph-order channels.
+            per-step group variables of interest to common graph-order channels.
             It does not participate in dynamics, route state, or scan carry.
     """
     unsupported_routes = [
@@ -923,7 +923,7 @@ def prepare(
             group_nodes=network.group_nodes,
             role=f"route {route_name!r} source",
             params_name="source_params",
-            space="state",
+            reads="state",
         )
         if route.local:
             local_specs, local_width, local_dtypes = prepare_readouts(
@@ -934,7 +934,7 @@ def prepare(
                 group_nodes=network.group_nodes,
                 role=f"route {route_name!r} local",
                 params_name="local_params",
-                space="state",
+                reads="state",
             )
         else:
             local_specs, local_width, local_dtypes = (), 0, ()
@@ -1097,7 +1097,7 @@ def prepare(
                 for name in observe.readouts
             }
         )
-        recorded_probes = Bunch(
+        voi_probes = Bunch(
             {
                 name: jnp.zeros(
                     (len(variable_names[name]), len(network.group_nodes[name])),
@@ -1109,12 +1109,12 @@ def prepare(
         observation_specs, observation_width, observation_dtypes = prepare_readouts(
             observe.readouts,
             observation_params,
-            probe_values=recorded_probes,
+            probe_values=voi_probes,
             names=variable_names,
             group_nodes=network.group_nodes,
             role="GroupObservation",
             params_name="params",
-            space="recorded",
+            reads="voi",
         )
         if len(observe.channels) != observation_width:
             raise ValueError(

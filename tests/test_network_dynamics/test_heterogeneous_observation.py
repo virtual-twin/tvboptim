@@ -12,9 +12,9 @@ from tvboptim.execution import ParallelExecution
 from tvboptim.experimental.network_dynamics import (
     Bunch,
     DenseGraph,
-    DynamicsGroup,
     GroupObservation,
     HeterogeneousNetwork,
+    NodeGroup,
     Readout,
     SignalRoute,
     prepare,
@@ -33,7 +33,7 @@ from tvboptim.observations.tvb_monitors import (
 from tvboptim.types import DataAxis, Space
 
 
-class RecordedDynamics(AbstractDynamics):
+class VoiDynamics(AbstractDynamics):
     STATE_NAMES = ("x", "y")
     AUXILIARY_NAMES = ("sum",)
     VARIABLES_OF_INTEREST = ("y", "sum")
@@ -46,7 +46,7 @@ class RecordedDynamics(AbstractDynamics):
         return derivatives, state[0:1] + state[1:2]
 
 
-class CoupledRecordedDynamics(RecordedDynamics):
+class CoupledVoiDynamics(VoiDynamics):
     COUPLING_INPUTS = {"drive": 1}
 
 
@@ -55,13 +55,13 @@ def _network():
     return HeterogeneousNetwork(
         graph=DenseGraph(weights),
         groups={
-            "a": DynamicsGroup(
-                RecordedDynamics(),
+            "a": NodeGroup(
+                VoiDynamics(),
                 [0, 2],
                 initial_state=jnp.array([[0.2, 0.7], [1.0, -0.3]]),
             ),
-            "b": DynamicsGroup(
-                RecordedDynamics(rate=-0.15),
+            "b": NodeGroup(
+                VoiDynamics(rate=-0.15),
                 [1, 3],
                 initial_state=jnp.array([[-0.4, 0.9], [0.5, 0.1]]),
             ),
@@ -88,56 +88,54 @@ def test_unobserved_nodes_take_fill_value_without_reduce():
     assert jnp.all(observed.ys[:, 0, jnp.array([1, 3])] == -7.0)
 
 
-def test_observation_readout_sees_recorded_not_state():
-    def recorded_sum(recorded, params):
+def test_observation_readout_sees_voi_not_state():
+    def voi_sum(voi, params):
         del params
-        return recorded[1:2]
+        return voi[1:2]
 
     network = _network()
     grouped = solve(network, Euler(), t1=0.3, dt=0.1)
-    observation = GroupObservation(
-        {"a": recorded_sum, "b": recorded_sum}, channels=("sum",)
-    )
+    observation = GroupObservation({"a": voi_sum, "b": voi_sum}, channels=("sum",))
     observed = solve(network, Euler(), t1=0.3, dt=0.1, observe=observation)
     assert jnp.allclose(observed.sel("sum"), grouped.to_graph("sum"))
 
 
-def test_wrapped_readout_space_mismatches_name_both_spaces():
+def test_wrapped_readout_reads_mismatches_name_both_inputs():
     def first(values, params):
         del params
         return values[0:1]
 
     observation = GroupObservation(
         {
-            "a": Readout(first, name="first", space="state"),
+            "a": Readout(first, name="first", reads="state"),
             "b": "y",
         },
         channels=("activity",),
     )
-    with pytest.raises(ValueError, match=r"space='state'.*reads 'recorded'"):
+    with pytest.raises(ValueError, match=r"reads='state'.*provides reads='voi'"):
         prepare(_network(), Euler(), observe=observation)
 
     route_network = HeterogeneousNetwork(
         graph=DenseGraph(jnp.zeros((2, 2))),
         groups={
-            "a": DynamicsGroup(CoupledRecordedDynamics(), [0]),
-            "b": DynamicsGroup(CoupledRecordedDynamics(), [1]),
+            "a": NodeGroup(CoupledVoiDynamics(), [0]),
+            "b": NodeGroup(CoupledVoiDynamics(), [1]),
         },
         routes={
             "bad": SignalRoute(
-                source={"a": Readout(first, space="recorded")},
+                source={"a": Readout(first, reads="voi")},
                 coupling=LinearCoupling(),
                 target={"a": "drive"},
             )
         },
     )
-    with pytest.raises(ValueError, match=r"space='recorded'.*reads 'state'"):
+    with pytest.raises(ValueError, match=r"reads='voi'.*provides reads='state'"):
         prepare(route_network, Euler())
 
 
 def test_observation_readout_shape_error_names_params_mapping():
-    def needs_gain(recorded, params):
-        return params.gain * recorded[0:1]
+    def needs_gain(voi, params):
+        return params.gain * voi[0:1]
 
     observation = GroupObservation({"a": needs_gain, "b": "y"}, channels=("activity",))
     with pytest.raises(ValueError, match=r"params\['a'\].*empty"):
@@ -314,8 +312,8 @@ def test_streaming_hrf_bold_runs_on_heterogeneous_observation():
 
 
 def test_observation_params_are_live_differentiable_and_vmappable():
-    def scaled(recorded, params):
-        return params.gain * recorded[0:1]
+    def scaled(voi, params):
+        return params.gain * voi[0:1]
 
     observation = GroupObservation(
         {"a": scaled, "b": scaled},
@@ -338,8 +336,8 @@ def test_observation_params_are_live_differentiable_and_vmappable():
 
 
 def test_observation_params_work_with_space():
-    def scaled(recorded, params):
-        return params.gain * recorded[0:1]
+    def scaled(voi, params):
+        return params.gain * voi[0:1]
 
     observation = GroupObservation(
         {"a": scaled, "b": "y"},
@@ -363,8 +361,8 @@ def test_observation_params_work_with_space():
 def test_readout_constructor_validation():
     with pytest.raises(TypeError, match="callable"):
         Readout(3)
-    with pytest.raises(ValueError, match="space"):
-        Readout(lambda values, params: values, space="raw")
+    with pytest.raises(ValueError, match="reads"):
+        Readout(lambda values, params: values, reads="raw")
     with pytest.raises(ValueError, match="non-empty"):
         Readout(lambda values, params: values, name="")
 

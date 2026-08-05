@@ -5,9 +5,9 @@ import pytest
 
 from tvboptim.experimental.network_dynamics import (
     Bunch,
-    DynamicsGroup,
     HeterogeneousNetwork,
     Network,
+    NodeGroup,
     SignalRoute,
 )
 from tvboptim.experimental.network_dynamics.coupling import (
@@ -24,8 +24,8 @@ def _graph(n_nodes=6):
 
 def _groups():
     return {
-        "a": DynamicsGroup(Linear(gamma=-0.2), nodes=[0, 2, 5]),
-        "b": DynamicsGroup(JansenRit(), nodes=[1, 3, 4]),
+        "a": NodeGroup(Linear(gamma=-0.2), nodes=[0, 2, 5]),
+        "b": NodeGroup(JansenRit(), nodes=[1, 3, 4]),
     }
 
 
@@ -58,7 +58,7 @@ def test_public_representations_summarize_static_structure():
 
 def test_public_mapping_arguments_fail_with_specific_errors():
     with pytest.raises(TypeError, match="external_input must be a mapping"):
-        DynamicsGroup(Linear(), [0], external_input=[])
+        NodeGroup(Linear(), [0], external_input=[])
     with pytest.raises(TypeError, match=r"SignalRoute\.source must be a mapping"):
         SignalRoute(source=[], coupling=LinearCoupling(), target={})
     with pytest.raises(TypeError, match="groups must be a mapping"):
@@ -70,12 +70,12 @@ def test_public_mapping_arguments_fail_with_specific_errors():
 def test_boolean_mask_and_custom_initial_state():
     initial = jnp.array([[0.2, 0.3, 0.4]])
     groups = {
-        "a": DynamicsGroup(
+        "a": NodeGroup(
             Linear(),
             nodes=jnp.array([True, False, True, False, False, True]),
             initial_state=initial,
         ),
-        "b": DynamicsGroup(
+        "b": NodeGroup(
             JansenRit(),
             nodes=jnp.array([False, True, False, True, True, False]),
         ),
@@ -90,29 +90,29 @@ def test_boolean_mask_and_custom_initial_state():
     [
         (
             {
-                "a": DynamicsGroup(Linear(), [0, 1, 2]),
-                "b": DynamicsGroup(JansenRit(), [2, 3, 4, 5]),
+                "a": NodeGroup(Linear(), [0, 1, 2]),
+                "b": NodeGroup(JansenRit(), [2, 3, 4, 5]),
             },
             "overlap",
         ),
         (
             {
-                "a": DynamicsGroup(Linear(), [0, 1]),
-                "b": DynamicsGroup(JansenRit(), [3, 4, 5]),
+                "a": NodeGroup(Linear(), [0, 1]),
+                "b": NodeGroup(JansenRit(), [3, 4, 5]),
             },
             "missing",
         ),
         (
             {
-                "a": DynamicsGroup(Linear(), [0, 0, 1]),
-                "b": DynamicsGroup(JansenRit(), [2, 3, 4, 5]),
+                "a": NodeGroup(Linear(), [0, 0, 1]),
+                "b": NodeGroup(JansenRit(), [2, 3, 4, 5]),
             },
             "duplicate",
         ),
         (
             {
-                "a": DynamicsGroup(Linear(), [0, 1, 6]),
-                "b": DynamicsGroup(JansenRit(), [2, 3, 4, 5]),
+                "a": NodeGroup(Linear(), [0, 1, 6]),
+                "b": NodeGroup(JansenRit(), [2, 3, 4, 5]),
             },
             "outside",
         ),
@@ -204,6 +204,6 @@ def test_selector_free_coupling_is_route_only():
 
 def test_initial_state_shape_is_group_local():
     groups = _groups()
-    groups["a"] = DynamicsGroup(Linear(), [0, 2, 5], initial_state=jnp.zeros((1, 6)))
+    groups["a"] = NodeGroup(Linear(), [0, 2, 5], initial_state=jnp.zeros((1, 6)))
     with pytest.raises(ValueError, match="initial_state"):
         HeterogeneousNetwork(graph=_graph(), groups=groups)

@@ -44,9 +44,9 @@ import optax
 from tvboptim.execution import ParallelExecution
 from tvboptim.experimental.network_dynamics import (
     Bunch,
-    DynamicsGroup,
     GroupObservation,
     HeterogeneousNetwork,
+    NodeGroup,
     Readout,
     SignalRoute,
     prepare,
@@ -144,7 +144,7 @@ input names in the dynamics when signals must remain distinguishable.
 network = HeterogeneousNetwork(
     graph=graph,
     groups={
-        "cortex": DynamicsGroup(
+        "cortex": NodeGroup(
             dynamics=ReducedWongWang(w=0.6),
             nodes=cortical_nodes,
             noise=AdditiveNoise(
@@ -153,11 +153,11 @@ network = HeterogeneousNetwork(
                 key=jax.random.key(11),
             ),
         ),
-        "relay": DynamicsGroup(
+        "relay": NodeGroup(
             dynamics=JansenRit(mu=0.22),
             nodes=relay_nodes,
         ),
-        "driven": DynamicsGroup(
+        "driven": NodeGroup(
             dynamics=Generic2dOscillator(),
             nodes=driven_nodes,
             external_input={
@@ -269,17 +269,17 @@ group-specific readout to each recorded group output and packs the results into
 `[channels, graph nodes]` order:
 
 ```{python}
-def relay_observable(recorded, params):
-    voltage = recorded[1] - recorded[2]
+def relay_observable(voi, params):
+    voltage = voi[1] - voi[2]
     activity = 2.0 / (
         1.0 + jnp.exp(params.r * (params.v0 - voltage))
     )
     return (0.5 * activity)[None, :]  # normalize [0, 2] to [0, 1]
 
 
-def driven_observable(recorded, params):
+def driven_observable(voi, params):
     del params
-    voltage = recorded[0:1]  # V is the first recorded oscillator variable
+    voltage = voi[0:1]  # V is the first oscillator variable of interest
     return jnp.clip((voltage + 2.0) / 4.0, 0.0, 1.0)
 
 
@@ -289,12 +289,12 @@ common_activity = GroupObservation(
         "relay": Readout(
             relay_observable,
             name="relay_activity",
-            space="recorded",
+            reads="voi",
         ),
         "driven": Readout(
             driven_observable,
             name="driven_activity",
-            space="recorded",
+            reads="voi",
         ),
     },
     params={"relay": rate_params},
@@ -322,15 +322,16 @@ commensurable. Before computing FC or BOLD, transform every group into a common
 scientific quantity and unit. A plausible-looking matrix is not evidence that
 this choice was correct.
 
-### Route and observation readouts use different spaces
+### Route and observation readouts consume different inputs
 
-A route reads what a model **integrates**; an observation reads what a solution
-**records**. Prefer named variables, which resolve against the correct namespace
-automatically. For positional callables, wrap the function with
-`Readout(..., space="state")` on a route or
-`Readout(..., space="recorded")` in a `GroupObservation`. Preparation rejects a
-wrapped readout placed in the other space. Bare callables retain the historical
-position-dependent behavior and can only be checked by output shape.
+A route reads the complete state that a model **integrates**; an observation
+reads the selected variables of interest (VOI), in VOI order. Prefer named
+variables, which resolve against the correct namespace automatically. For
+positional callables, wrap the function with
+`Readout(..., reads="state")` on a route or
+`Readout(..., reads="voi")` in a `GroupObservation`. Preparation rejects a
+wrapped readout placed in the other context. Bare callables retain the
+historical position-dependent behavior and can only be checked by output shape.
 
 Readout parameters remain in their position-specific live mappings:
 `source_params`/`local_params` on routes and `GroupObservation.params` for
@@ -708,7 +709,7 @@ def _benchmark_case(
         for index in range(n_groups):
             name = f"g{index}"
             nodes = tuple(range(index, n_nodes, n_groups))
-            groups[name] = DynamicsGroup(JansenRit(), nodes)
+            groups[name] = NodeGroup(JansenRit(), nodes)
             source[name] = "y1"
             target[name] = input_name
         coupling = (
@@ -929,7 +930,7 @@ described in [Coupling Freezing](../advanced/coupling_freezing.qmd).
 
 ### Keep local drives local
 
-Noise and `external_input` belong to a `DynamicsGroup` because they are
+Noise and `external_input` belong to a `NodeGroup` because they are
 evaluated directly in that group's node space and do not traverse the graph.
 Do not express a local stimulus as a route merely to reuse route syntax. Use a
 route only when a signal is transmitted between graph nodes. Conversely, a

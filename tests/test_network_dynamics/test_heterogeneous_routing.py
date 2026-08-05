@@ -7,8 +7,8 @@ import pytest
 from tvboptim.experimental.network_dynamics import (
     Bunch,
     DenseGraph,
-    DynamicsGroup,
     HeterogeneousNetwork,
+    NodeGroup,
     SignalRoute,
     SparseGraph,
     prepare,
@@ -88,8 +88,8 @@ def _network(graph_type=DenseGraph):
     return HeterogeneousNetwork(
         graph=graph_type(WEIGHTS),
         groups={
-            "a": DynamicsGroup(OneState(), A_NODES, initial_state=A0),
-            "b": DynamicsGroup(TwoState(), B_NODES, initial_state=B0),
+            "a": NodeGroup(OneState(), A_NODES, initial_state=A0),
+            "b": NodeGroup(TwoState(), B_NODES, initial_state=B0),
         },
         routes={
             "activity": SignalRoute(
@@ -185,8 +185,8 @@ def test_multichannel_pre_is_applied_before_transport():
     network = HeterogeneousNetwork(
         graph=DenseGraph(WEIGHTS),
         groups={
-            "a": DynamicsGroup(TwoState(), A_NODES, initial_state=B0),
-            "b": DynamicsGroup(TwoState(), B_NODES, initial_state=B0),
+            "a": NodeGroup(TwoState(), A_NODES, initial_state=B0),
+            "b": NodeGroup(TwoState(), B_NODES, initial_state=B0),
         },
         routes={
             "two": SignalRoute(
@@ -211,8 +211,8 @@ def test_omitted_source_groups_emit_no_messages_for_nonlinear_pre():
     network = HeterogeneousNetwork(
         graph=DenseGraph(WEIGHTS),
         groups={
-            "a": DynamicsGroup(TwoState(), A_NODES, initial_state=B0),
-            "b": DynamicsGroup(TwoState(), B_NODES, initial_state=B0),
+            "a": NodeGroup(TwoState(), A_NODES, initial_state=B0),
+            "b": NodeGroup(TwoState(), B_NODES, initial_state=B0),
         },
         routes={
             "subset": SignalRoute(
@@ -239,8 +239,8 @@ def test_local_paired_route_uses_target_values_before_reduction(graph_type):
     network = HeterogeneousNetwork(
         graph=graph_type(WEIGHTS),
         groups={
-            "a": DynamicsGroup(OneState(alpha=0.0), A_NODES, initial_state=state_a),
-            "b": DynamicsGroup(OneState(alpha=0.0), B_NODES, initial_state=state_b),
+            "a": NodeGroup(OneState(alpha=0.0), A_NODES, initial_state=state_a),
+            "b": NodeGroup(OneState(alpha=0.0), B_NODES, initial_state=state_b),
         },
         routes={
             "difference": SignalRoute(
@@ -273,8 +273,8 @@ def test_routes_accumulate_after_live_target_conversion():
     network = HeterogeneousNetwork(
         graph=DenseGraph(WEIGHTS),
         groups={
-            "a": DynamicsGroup(OneState(alpha=0.0), A_NODES, initial_state=A0),
-            "b": DynamicsGroup(OneState(alpha=0.0), B_NODES, initial_state=B0[0:1]),
+            "a": NodeGroup(OneState(alpha=0.0), A_NODES, initial_state=A0),
+            "b": NodeGroup(OneState(alpha=0.0), B_NODES, initial_state=B0[0:1]),
         },
         routes={
             "converted": SignalRoute(
@@ -314,8 +314,8 @@ def test_readout_missing_params_error_points_at_source_params():
     network = HeterogeneousNetwork(
         graph=DenseGraph(WEIGHTS),
         groups={
-            "a": DynamicsGroup(OneState(), A_NODES, initial_state=A0),
-            "b": DynamicsGroup(TwoState(), B_NODES, initial_state=B0),
+            "a": NodeGroup(OneState(), A_NODES, initial_state=A0),
+            "b": NodeGroup(TwoState(), B_NODES, initial_state=B0),
         },
         routes={
             "activity": SignalRoute(
@@ -334,8 +334,8 @@ def test_conversion_missing_params_error_points_at_target_params():
     network = HeterogeneousNetwork(
         graph=DenseGraph(WEIGHTS),
         groups={
-            "a": DynamicsGroup(OneState(alpha=0.0), A_NODES, initial_state=A0),
-            "b": DynamicsGroup(OneState(alpha=0.0), B_NODES, initial_state=B0[0:1]),
+            "a": NodeGroup(OneState(alpha=0.0), A_NODES, initial_state=A0),
+            "b": NodeGroup(OneState(alpha=0.0), B_NODES, initial_state=B0[0:1]),
         },
         routes={
             "converted": SignalRoute(
@@ -364,8 +364,8 @@ def test_local_params_feed_receive_only_callable_local_readout():
     network = HeterogeneousNetwork(
         graph=DenseGraph(WEIGHTS),
         groups={
-            "a": DynamicsGroup(OneState(alpha=0.0), A_NODES, initial_state=state_a),
-            "b": DynamicsGroup(OneState(alpha=0.0), B_NODES, initial_state=state_b),
+            "a": NodeGroup(OneState(alpha=0.0), A_NODES, initial_state=state_a),
+            "b": NodeGroup(OneState(alpha=0.0), B_NODES, initial_state=state_b),
         },
         routes={
             "difference": SignalRoute(
