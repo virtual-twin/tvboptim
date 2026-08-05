@@ -34,7 +34,7 @@ website:
       section: Utilities
     - contents:
       - reference/Network.qmd
-      - reference/DynamicsGroup.qmd
+      - reference/NodeGroup.qmd
       - reference/Readout.qmd
       - reference/GroupObservation.qmd
       - reference/SignalRoute.qmd

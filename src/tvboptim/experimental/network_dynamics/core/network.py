@@ -30,6 +30,9 @@ class Network:
 
     Supports multiple named coupling inputs and external inputs that are automatically
     mapped to dynamics model's COUPLING_INPUTS and EXTERNAL_INPUTS specifications.
+    Each coupling-input name maps to at most one coupling; ordinary ``Network``
+    couplings are not accumulated. Duplicate dictionary keys are resolved by
+    Python before construction and therefore cannot be detected here.
 
     Args:
         dynamics: Dynamics model (must be AbstractDynamics)

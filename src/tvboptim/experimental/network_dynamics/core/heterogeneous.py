@@ -121,6 +121,9 @@ class SignalRoute:
         Source, local, and target group names are validated when the route is
         attached to a ``HeterogeneousNetwork``. Numerical parameters remain live
         after ``prepare()``; route structure and callables remain static.
+        When multiple routes target the same input on a group, their values are
+        added after any target conversions. Use distinct input names when the
+        dynamics must receive the contributions separately.
     """
 
     def __init__(

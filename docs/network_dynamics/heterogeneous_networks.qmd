@@ -6,20 +6,43 @@ format:
     code-fold: false
     toc: true
     toc-depth: 3
+    embed-resources: true
+    fig-width: 8
+    out-width: "100%"
 jupyter: python3
 execute:
   cache: true
 ---
 
+Try this notebook interactively:
+
+[Download .ipynb](https://github.com/virtual-twin/tvboptim/blob/main/docs/network_dynamics/heterogeneous_networks.ipynb){.btn .btn-primary download="heterogeneous_networks.ipynb"}
+[Download .qmd](heterogeneous_networks.qmd){.btn .btn-secondary download="heterogeneous_networks.qmd"}
+[Open in Colab](https://colab.research.google.com/github/virtual-twin/tvboptim/blob/main/docs/network_dynamics/heterogeneous_networks.ipynb){.btn .btn-warning target="_blank"}
+
+## Introduction
+
+```{python}
+#| output: false
+#| echo: false
+try:
+    import google.colab
+    print("Running in Google Colab - installing dependencies...")
+    !pip install -q tvboptim
+    print("✓ Dependencies installed!")
+except ImportError:
+    pass
+```
+
 ::: {.callout-warning title="Experimental feature"}
-The heterogeneous-network API is experimental. It currently supports a fixed
-partition of one square graph, one time step, and the native Euler, Heun, and
-Runge–Kutta solvers.
+The heterogeneous-network API is experimental. It supports a fixed partition
+of one square graph, one time step, and the native Euler, Heun, and Runge–Kutta
+solvers.
 :::
 
 `HeterogeneousNetwork` assigns different neural-mass models to named subsets
-of one connectome. Each model keeps its natural state variables and parameters,
-while explicit signal routes describe what the groups exchange.
+of one connectome. Each model retains its own states and parameters; explicit
+routes define the signals exchanged between groups.
 
 This example combines:
 
@@ -29,16 +52,20 @@ This example combines:
 - delayed bidirectional long-range activity; and
 - an additional instantaneous relay-to-cortex signal.
 
-The same prepared simulation is then used directly, swept with `Space`, and
-differentiated inside an optimizer.
+We prepare the network once, then simulate, sweep it with `Space`, and optimize
+it through automatic differentiation.
 
 ## Imports and shared graph
 
 ```{python}
+#| code-fold: true
+#| code-summary: "Show imports"
+
 import copy
 
 import jax
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
 import optax
 
 from tvboptim.execution import ParallelExecution
@@ -64,17 +91,20 @@ from tvboptim.experimental.network_dynamics.external_input import ConstantInput
 from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph
 from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
 from tvboptim.experimental.network_dynamics.solvers import Heun
+from tvboptim.experimental.network_dynamics.utils import print_network
 from tvboptim.optim import OptaxOptimizer
 from tvboptim.observations.observation import welford_cov
 from tvboptim.types import GridAxis, Parameter, Space
 ```
 
-For clarity we use a small synthetic directed connectome. The first six nodes
-are cortical regions, the next two form the relay group, and the final node is
-a driven oscillator. All groups occupy the same graph and may be interleaved
-just as easily.
+We use a small synthetic directed connectome: six cortical nodes, two relay
+nodes, and one driven oscillator. Groups share the graph and need not occupy
+contiguous nodes.
 
 ```{python}
+#| code-fold: true
+#| code-summary: "Show synthetic connectome setup"
+
 n_nodes = 9
 cortical_nodes = tuple(range(6))
 relay_nodes = (6, 7)
@@ -98,14 +128,22 @@ graph = DenseDelayGraph(
     delays,
     max_delay_bound=2.0,
 )
+
+# A small offset keeps the two relay trajectories distinguishable in plots.
+relay_initial_state = jnp.broadcast_to(
+    jnp.asarray(JansenRit.INITIAL_STATE)[:, None],
+    (len(JansenRit.INITIAL_STATE), len(relay_nodes)),
+)
+relay_initial_state = relay_initial_state.at[0, 1].add(0.02)
+relay_initial_state = relay_initial_state.at[1, 1].add(0.20)
+relay_initial_state = relay_initial_state.at[2, 1].add(-0.10)
 ```
 
 ## Make the exchanged signal explicit
 
-Reduced Wong–Wang can transmit its synaptic gating state `S` directly.
-Jansen–Rit instead transmits a normalized pyramidal firing activity derived
-from the difference `y1 - y2`. A small pure JAX callable states that scientific
-choice explicitly:
+Reduced Wong–Wang transmits its synaptic gating state `S`. Jansen–Rit instead
+transmits normalized pyramidal firing activity derived from `y1 - y2`; a pure
+JAX callable makes that choice explicit:
 
 ```{python}
 def pyramidal_activity(state, params):
@@ -124,21 +162,19 @@ def oscillator_activity(state, params):
 rate_params = Bunch(v0=5.52, r=0.56)
 ```
 
-The callable and its output shape are static. Its numerical parameters live at
-`config.routes.<route>.source_params` and can therefore be changed, swept, or
-differentiated after preparation.
+The callable and output shape are static. Numerical parameters at
+`config.routes.<route>.source_params` remain changeable, sweepable, and
+differentiable after preparation.
 
 ## Construct a mixed-coupling network
 
-Each route performs one graph traversal, irrespective of how many groups
-participate. The delayed route packs cortical `S` and relay firing activity
-and driven voltage into one graph-ordered signal and stores only that signal in
-its history. The instantaneous route has only the relay as a source, so other
-graph nodes emit zero on that route.
+Each route performs one graph traversal regardless of group count. The delayed
+route packs cortical `S`, relay firing activity, and driven voltage into one
+graph-ordered signal and stores only that signal in history. On the
+relay-sourced instantaneous route, all other nodes emit zero.
 
-When several routes target the same named coupling input, their converted
-target-local values are added. This accumulation is intentional; use separate
-input names in the dynamics when signals must remain distinguishable.
+Converted values from routes targeting the same coupling input are added. Use
+distinct dynamics input names when signals must remain separate.
 
 ```{python}
 network = HeterogeneousNetwork(
@@ -156,6 +192,7 @@ network = HeterogeneousNetwork(
         "relay": NodeGroup(
             dynamics=JansenRit(mu=0.22),
             nodes=relay_nodes,
+            initial_state=relay_initial_state,
         ),
         "driven": NodeGroup(
             dynamics=Generic2dOscillator(),
@@ -195,15 +232,21 @@ network = HeterogeneousNetwork(
         ),
     },
 )
-
-network
 ```
 
-There is no padded six-state global array. The cortex remains `[1, 6]`, the
-relay remains `[6, 2]`, the driven group remains `[2, 1]`, and routing
-temporarily packs only a `[1, 9]` signal. Noise and external input are evaluated
-in their respective group-local node spaces.
+The network printer summarizes the partition and both signal routes before we
+run anything. Expand the summary when you need to inspect the structure:
 
+::: {.callout-note collapse="true" title="Inspect the network structure"}
+```{python}
+print_network(network)
+```
+:::
+
+Each group keeps its natural state width: cortex `[1, 6]`, relay `[6, 2]`, and
+driven `[2, 1]`. Only the routed signal is temporarily packed as `[1, 9]`.
+
+::: {.callout-note collapse="true" title="Target-specific unit conversion"}
 Target conversions adapt a transported signal to one receiver's units. For
 example, a cortical input expecting current rather than unitless activity can
 declare:
@@ -221,9 +264,10 @@ SignalRoute(
 )
 ```
 
-A target conversion happens after the shared graph transport. Source readouts
-feeding one route must therefore already describe comparable channels; the
-conversion cannot undo mixing incompatible source units under one gain.
+Target conversion occurs after graph transport. Sources on one route must
+therefore emit comparable channels: conversion cannot undo the mixing of
+incompatible units under one gain.
+:::
 
 ## Prepare once, simulate many times
 
@@ -237,17 +281,30 @@ simulate, config = prepare(
 )
 
 solution = jax.jit(simulate)(config)
-solution
 ```
 
-Results retain group-local shapes and variable names:
+`plot(group=...)` selects a group's native variables and local node axis. Here
+the two relay nodes, initialized with a small offset, are overlaid for three
+Jansen–Rit states:
 
 ```{python}
-cortical_S = solution.groups.cortex.sel("S")
-relay_voltage = (
-    solution.groups.relay.sel("y1")
-    - solution.groups.relay.sel("y2")
-)
+#| label: fig-heterogeneous-relay-trajectories
+#| fig-cap: "Relay-group trajectories. Heterogeneous results retain each group's native variables and node axis."
+
+with plt.style.context("default"):
+    solution.plot(
+        group="relay",
+        variables=("y0", "y1", "y2"),
+        nodes=2,
+        figsize=(8, 5),
+    )
+```
+
+Selection and graph projection remain explicit:
+
+```{python}
+#| code-fold: true
+#| code-summary: "Inspect group-local results and graph projection"
 
 print("cortex:", solution.groups.cortex.ys.shape)
 print("relay: ", solution.groups.relay.ys.shape)
@@ -256,17 +313,15 @@ print("graph projection:", solution.to_graph("S", groups=["cortex"]).shape)
 print("delayed history:", config.routes.long_range.history.shape)
 ```
 
-Group index sequences preserve the order supplied at construction, while
-boolean masks normalize to ascending graph-node order. Columns of a group's
-`initial_state` must follow that normalized order; a mismatch has the right
-shape but silently assigns values to the wrong nodes.
+Index sequences preserve construction order; boolean masks normalize to
+ascending graph-node order. A group's `initial_state` columns must follow that
+order, or values can silently reach the wrong nodes despite matching shapes.
 
 ## Observe a common graph-order signal
 
-Group trajectories have different variable axes, so a whole-network reducer
-first needs an explicit common observable. `GroupObservation` applies one
-group-specific readout to each recorded group output and packs the results into
-`[channels, graph nodes]` order:
+Because group trajectories have different variable axes, whole-network
+reducers require a common observable. `GroupObservation` applies a readout to
+each group and packs the outputs as `[channels, graph nodes]`:
 
 ```{python}
 def relay_observable(voi, params):
@@ -314,33 +369,28 @@ print(observed.ys.shape)  # [time, common channels, graph nodes]
 print(observed.variable_names)
 ```
 
-Here every group explicitly emits a unitless `[0, 1]` activity proxy.
-`channels=` names the shared output axis and becomes the returned
-`NativeSolution.variable_names`. Equal channel width is only a shape check: it
-cannot prove that cortical gating, relay firing, and oscillator voltage are
-commensurable. Before computing FC or BOLD, transform every group into a common
-scientific quantity and unit. A plausible-looking matrix is not evidence that
-this choice was correct.
+Each group now emits a unitless `[0, 1]` activity proxy. `channels=` names the
+shared axis and becomes `NativeSolution.variable_names`. Equal width verifies
+only shape, not scientific comparability. Before FC or BOLD, transform every
+group to a common quantity and unit.
 
 ### Route and observation readouts consume different inputs
 
 A route reads the complete state that a model **integrates**; an observation
-reads the selected variables of interest (VOI), in VOI order. Prefer named
-variables, which resolve against the correct namespace automatically. For
-positional callables, wrap the function with
+reads the selected variables of interest (VOI), in VOI order. Named variables
+resolve against the correct namespace. Wrap positional callables with
 `Readout(..., reads="state")` on a route or
 `Readout(..., reads="voi")` in a `GroupObservation`. Preparation rejects a
-wrapped readout placed in the other context. Bare callables retain the
-historical position-dependent behavior and can only be checked by output shape.
+wrapped readout placed in the other context. Bare callables retain the historical
+position-dependent behavior and can only be checked by output shape.
 
-Readout parameters remain in their position-specific live mappings:
+Readout parameters use their position-specific live mappings:
 `source_params`/`local_params` on routes and `GroupObservation.params` for
-observations. Parameter sharing under `config.readouts` is a later additive
-feature.
+observations. Shared `config.readouts` parameters are not yet supported.
 
 ### Stream FC and BOLD without retaining the neural trajectory
 
-The existing reducers consume the common graph-order observation unchanged:
+Existing reducers consume the graph-order observation directly:
 
 ```{python}
 fc_simulation, fc_config = prepare(
@@ -356,18 +406,16 @@ fc = fc_simulation(fc_config)
 print(fc.shape)
 ```
 
-`observe=` plus `reduce=` runs in bounded forward memory only when
-`block_size` is set. Without `block_size`, reduction remains valid but occurs
-after the full `[time, channels, nodes]` trajectory has been materialized and
-preparation warns. Differentiating a reduced FC has the separate backward-memory
-cost `O(n_steps / block_size + block_size)` described in
+`observe=` plus `reduce=` bounds forward memory only when `block_size` is set.
+Otherwise the full `[time, channels, nodes]` trajectory is materialized before
+reduction, and preparation warns. Differentiated FC has a separate backward
+memory cost of `O(n_steps / block_size + block_size)`, described in
 [Streaming Reductions](../advanced/streaming_reductions.qmd).
 
-An observation may omit groups when no reducer is used; their nodes receive
-`fill_value`. Reduction requires exhaustive coverage by default because a
-constant fill produces zero-variance/NaN rows in covariance and is interpreted
-as real neural drive by BOLD. `allow_partial_coverage=True` only removes this
-guard for a reducer the user has independently verified is fill-aware.
+Without a reducer, observations may omit groups and fill their nodes with
+`fill_value`. Reduction requires full coverage because constant fill causes
+zero-variance or NaN covariance rows and appears as real drive to BOLD. Use
+`allow_partial_coverage=True` only with a verified fill-aware reducer.
 
 The prepared config contains all live numerical values. For example:
 
@@ -382,15 +430,14 @@ changed.graph.delays = jnp.minimum(changed.graph.delays * 1.1, 2.0)
 changed_solution = jax.jit(simulate)(changed)
 ```
 
-Changing array shapes, group membership, sparse indices, or the maximum delay
-capacity requires `prepare()` again. Changing values within those shapes and
-bounds does not.
+Changing shapes, group membership, sparse indices, or maximum delay capacity
+requires another `prepare()`; changing in-bounds values does not.
 
 ## Sweep prepared leaves with `Space`
 
-Axes can be placed directly at heterogeneous config paths. Here `Space`
-constructs the Cartesian product of three delayed gains and two cortical
-recurrence values. `ParallelExecution` vectorizes the already prepared solve.
+Axes can target heterogeneous config paths directly. Here `Space` forms the
+Cartesian product of three delayed gains and two cortical recurrence values;
+`ParallelExecution` vectorizes the prepared solve.
 
 ```{python}
 def observe(cfg):
@@ -417,15 +464,13 @@ sweep_result = ParallelExecution(
 sweep_result.to_dataframe()
 ```
 
-Static structure—including group indices, route callables, and delay-buffer
-capacity—is shared by all six simulations. Only the selected numerical leaves
-are batched.
+All six simulations share static group indices, route callables, and buffer
+capacity; only the selected numerical leaves are batched.
 
 ## Fit a route parameter
 
-The same config is also an optimization state. To keep the example
-self-contained, we generate a synthetic target at a known delayed gain and fit
-that gain from a different starting point.
+The config is also an optimization state. We generate a synthetic target at a
+known delayed gain, then fit that gain from another starting value.
 
 ```{python}
 def cortical_summary(cfg):
@@ -461,14 +506,14 @@ print(
 print("final loss:", float(loss(fitted_config)))
 ```
 
-Only leaves wrapped in `Parameter` are optimized. The graph, group assignment,
-other route, initial state, and delay history stay fixed, while gradients pass
-through both mixed routes and the delayed circular history.
+Only `Parameter` leaves are optimized. The graph, groups, other route, initial
+state, and delay history stay fixed; gradients pass through both routes and the
+delayed circular history.
 
 ## Continue a delayed simulation
 
-`update_history()` stores the final group states and reconstructs every delayed
-route's canonical signal history from the saved trajectory:
+`update_history()` stores final group states and reconstructs each delayed
+route's signal history from the saved trajectory:
 
 ```{python}
 network.update_history(solution)
@@ -482,51 +527,42 @@ continue_simulation, continue_config = prepare(
 continued = continue_simulation(continue_config)
 ```
 
-The continuation uses the previous solution rather than repeating a constant
-initial history. All integrated state variables must be retained for this
-operation.
+The continuation uses the previous solution instead of a constant initial
+history. This requires retaining all integrated state variables.
 
 ## Performance model and current boundaries
 
-Heterogeneity does not create one padded state tensor. If group `k` has `S_k`
-state variables and `N_k` nodes, its dynamics operate on `[S_k, N_k]`. The
-cost of the local vector fields therefore follows the actual group state sizes,
-not `max(S_k) * N`.
+Heterogeneity does not create a padded state tensor. Group `k` operates on
+`[S_k, N_k]`, so local vector-field cost follows actual group sizes rather than
+`max(S_k) * N`.
 
-Routing has a different cost model. A route packs one graph-ordered signal with
-`Q` channels and performs one transport, irrespective of how many source and
-target groups participate:
+A route instead packs one graph-ordered signal with `Q` channels and performs
+one transport regardless of participating group count:
 
 | Graph representation | Approximate transport work per route evaluation |
 |---|---:|
 | Dense | `O(Q * N²)` |
 | Sparse with `E` stored edges | `O(Q * E)` |
 
-Dense matrix multiplication can still outperform sparse message passing for a
-small or moderately dense graph, especially on a GPU. Choose the graph
-representation from measurement and memory requirements, not density alone.
-Sparse indices and representation are static after `prepare()`; edge weights
-and delays remain live numerical leaves.
+Dense multiplication can outperform sparse message passing on small or
+moderately dense graphs, especially on GPUs. Choose by benchmark and memory
+needs, not density alone. Sparse indices and representation are static after
+`prepare()`; weights and delays remain live.
 
 ### Merge signals that share transport semantics
 
-Put signals in one route when they have the same coupling family, delay policy,
-and scientific interpretation. Adding a compatible source or target group to
-an existing route does not add another graph traversal. Multiple source groups
-must emit the same `Q`-channel schema, but each may use its own named-state or
-callable readout.
+Combine signals that share a coupling family, delay policy, and scientific
+interpretation. Compatible source or target groups add no graph traversal.
+Sources must emit the same `Q`-channel schema but may use different readouts.
 
-Use separate routes when signals require different coupling equations, gains,
-delays, instantaneous versus delayed timing, or target conversions. Each
-additional route adds another transport. Reusing the same readout in two routes
-also evaluates and packs it twice; route separation should therefore represent
-a real scientific distinction.
+Separate routes when coupling equations, gains, delays, timing, or conversions
+differ. Each adds transport work, and reused readouts are evaluated and packed
+again, so route separation should reflect a scientific distinction.
 
-A route with only a subset of source groups still packs a full `[Q, N]` signal.
-Unselected nodes emit zero, but a dense graph still performs its dense
-`N x N` transport. Source selection is a semantic mask, not an induced-subgraph
-optimization. Large sparse problems should use a sparse shared graph rather
-than expecting a subset route to prune dense work.
+A subset-source route still packs `[Q, N]`; unselected nodes emit zero, but a
+dense graph still performs `N x N` transport. Source selection is a semantic
+mask, not an induced-subgraph optimization. Use a sparse shared graph for large
+sparse problems.
 
 ### Delays scale with transmitted signals
 
@@ -536,21 +572,18 @@ A delayed route stores approximately:
 [history capacity, Q_source, N]
 ```
 
-The capacity is determined by the prepared maximum delay, `dt`, interpolation,
-and buffer strategy. It does not grow with simulation duration or with the
-source models' complete state widths. Two delayed routes maintain two histories,
-so signals with genuinely identical delay and coupling semantics should share a
-route. Changing delay values within prepared capacity does not require another
-preparation; increasing capacity does.
+Prepared maximum delay, `dt`, interpolation, and buffer strategy determine
+capacity. It grows with neither simulation duration nor full source-state
+width. Each delayed route owns a history, so compatible signals should share a
+route. In-capacity delay changes remain live; increasing capacity requires
+preparation.
 
 ### Keep the number of groups scientifically meaningful
 
-Group loops are static Python structure and are unrolled while JAX traces the
-group-local vector fields. More groups therefore mean more separately lowered
-dynamics calls and a more fragmented forward and reverse program. This is
-appropriate for a small number of distinct neural populations, but splitting
-one model into many groups solely for parameter management is not free,
-particularly for GPU differentiation.
+JAX unrolls static group loops while tracing local vector fields. More groups
+produce more separately lowered calls and fragment forward and reverse
+programs. Use groups for distinct neural populations, not merely for parameter
+management—especially when differentiating on GPUs.
 
 Prefer, in order:
 
@@ -561,23 +594,22 @@ Prefer, in order:
 
 ### Measure group-count scaling
 
-The benchmark below keeps the model, total node count, graph, number of time
-steps, and number of route transports fixed while splitting the same
-Jansen--Rit work into more static groups. It measures warmed forward and
-reverse-mode execution plus reverse-mode compilation for instantaneous and
-delayed routes. Every curve is normalized to the matching homogeneous
-`Network` baseline on the machine rendering this page; the figure therefore
-shows the shape of scaling rather than publishing machine-specific timings.
+The benchmark fixes model, node count, graph, steps, and route transports while
+splitting the same Jansen--Rit work across more static groups. Before timing, it
+asserts that the homogeneous and one-group heterogeneous trajectories, losses,
+and gain gradients agree. All cases are then compiled and warmed before runtime
+measurements are taken in rotating order. Points show medians, shaded bands show
+the interquartile range, and values are normalized to the matching homogeneous
+`Network` baseline. Compilation is measured once per case and has no band.
 
-Change `benchmark_options` in one place to substitute a node count, group sweep,
-or rollout representative of your own model.
+Edit `benchmark_options` to match your node count, group sweep, and rollout.
 
 ```{python}
-#| label: heterogeneous-group-scaling-v050
+#| label: fig-heterogeneous-group-scaling-v050
 #| cache: true
 #| code-fold: true
 #| code-summary: "Show the benchmark implementation and configuration"
-#| fig-cap: "Group-count scaling at fixed total Jansen--Rit node work, normalized to the matching homogeneous network."
+#| fig-cap: "Group-count scaling at fixed total Jansen--Rit node work, normalized to the matching homogeneous network. Runtime bands show the interquartile range across interleaved measurements."
 
 import statistics
 import time
@@ -588,9 +620,16 @@ import pandas as pd
 from jax.extend import core as jax_core
 
 from tvboptim.experimental.network_dynamics import DenseGraph, Network
+from tvboptim.utils import cache, set_cache_path
 
 
 ROUTE_KINDS = ("instantaneous", "delayed")
+ROUTE_COLORS = {
+    "instantaneous": "#0072B2",  # blue
+    "delayed": "#D55E00",        # vermilion
+}
+
+set_cache_path("./heterogeneous_networks_benchmark")
 
 
 def _sync(tree):
@@ -598,17 +637,6 @@ def _sync(tree):
         if hasattr(leaf, "block_until_ready"):
             leaf.block_until_ready()
     return tree
-
-
-def _median_runtime(function, argument, repeats, warmup):
-    for _ in range(warmup):
-        _sync(function(argument))
-    samples = []
-    for _ in range(repeats):
-        start = time.perf_counter()
-        _sync(function(argument))
-        samples.append(time.perf_counter() - start)
-    return statistics.median(samples)
 
 
 def _nested_jaxprs(value, active=None):
@@ -746,7 +774,7 @@ def _benchmark_case(
     return implementation, primal, gain
 
 
-def _measure_benchmark_case(primal, argument, repeats, warmup):
+def _compile_benchmark_case(primal, argument):
     def loss(value):
         return sum(
             jnp.square(leaf).sum() for leaf in jax.tree.leaves(primal(value))
@@ -760,24 +788,106 @@ def _measure_benchmark_case(primal, argument, repeats, warmup):
     start = time.perf_counter()
     primal_executable = jax.jit(primal).lower(argument).compile()
     forward_compile = time.perf_counter() - start
-    forward_wall = _median_runtime(
-        primal_executable, argument, repeats=repeats, warmup=warmup
-    )
 
     jax.clear_caches()
     start = time.perf_counter()
     reverse_executable = jax.jit(reverse).lower(argument).compile()
     reverse_compile = time.perf_counter() - start
-    reverse_wall = _median_runtime(
-        reverse_executable, argument, repeats=repeats, warmup=warmup
-    )
     return {
-        "forward_wall_s": forward_wall,
-        "reverse_wall_s": reverse_wall,
+        "argument": argument,
+        "forward_executable": primal_executable,
+        "reverse_executable": reverse_executable,
         "forward_compile_s": forward_compile,
         "reverse_compile_s": reverse_compile,
         **{f"forward_{name}": value for name, value in primal_stats.items()},
         **{f"reverse_{name}": value for name, value in reverse_stats.items()},
+    }
+
+
+def _rotated_order(keys, round_index):
+    """Rotate and reverse case order so no case owns one timing position."""
+    offset = round_index % len(keys)
+    order = keys[offset:] + keys[:offset]
+    return list(reversed(order)) if round_index % 2 else order
+
+
+def _percentile(samples, quantile):
+    ordered = sorted(samples)
+    position = (len(ordered) - 1) * quantile
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    fraction = position - lower
+    return ordered[lower] + fraction * (ordered[upper] - ordered[lower])
+
+
+def _summarize_samples(samples):
+    return {
+        "value": statistics.median(samples),
+        "q25": _percentile(samples, 0.25),
+        "q75": _percentile(samples, 0.75),
+    }
+
+
+def _measure_interleaved(compiled, repeats, warmup):
+    """Warm all cases, then time every case once per rotated round."""
+    keys = list(compiled)
+    samples = {
+        phase: {key: [] for key in keys} for phase in ("forward", "reverse")
+    }
+    for phase in samples:
+        executable_key = f"{phase}_executable"
+        for round_index in range(warmup):
+            for key in _rotated_order(keys, round_index):
+                case = compiled[key]
+                _sync(case[executable_key](case["argument"]))
+        for repeat in range(repeats):
+            for key in _rotated_order(keys, warmup + repeat):
+                case = compiled[key]
+                start = time.perf_counter()
+                _sync(case[executable_key](case["argument"]))
+                samples[phase][key].append(time.perf_counter() - start)
+    return samples
+
+
+def _parity_check(compiled, route_kind, *, rtol=2e-5, atol=2e-7):
+    """Require the ordinary and one-group implementations to be equivalent."""
+    ordinary = compiled[("homogeneous", 0)]
+    grouped = compiled[("heterogeneous", 1)]
+
+    ordinary_ys = jax.tree.leaves(
+        _sync(ordinary["forward_executable"](ordinary["argument"]))
+    )
+    grouped_ys = jax.tree.leaves(
+        _sync(grouped["forward_executable"](grouped["argument"]))
+    )
+    if len(ordinary_ys) != 1 or len(grouped_ys) != 1:
+        raise AssertionError("one-group parity expects one returned trajectory")
+    trajectory_error = float(jnp.max(jnp.abs(ordinary_ys[0] - grouped_ys[0])))
+    if not bool(jnp.allclose(ordinary_ys[0], grouped_ys[0], rtol=rtol, atol=atol)):
+        raise AssertionError(
+            f"{route_kind} one-group trajectory mismatch: {trajectory_error}"
+        )
+
+    ordinary_value, ordinary_grad = _sync(
+        ordinary["reverse_executable"](ordinary["argument"])
+    )
+    grouped_value, grouped_grad = _sync(
+        grouped["reverse_executable"](grouped["argument"])
+    )
+    if not bool(jnp.allclose(ordinary_value, grouped_value, rtol=rtol, atol=atol)):
+        raise AssertionError(f"{route_kind} one-group loss mismatch")
+    if not bool(jnp.allclose(ordinary_grad, grouped_grad, rtol=rtol, atol=atol)):
+        raise AssertionError(f"{route_kind} one-group gradient mismatch")
+
+    def relative_error(left, right):
+        scale = jnp.maximum(jnp.maximum(jnp.abs(left), jnp.abs(right)), 1e-30)
+        return float(jnp.abs(left - right) / scale)
+
+    return {
+        "route": route_kind,
+        "max trajectory error": trajectory_error,
+        "loss relative error": relative_error(ordinary_value, grouped_value),
+        "gradient relative error": relative_error(ordinary_grad, grouped_grad),
     }
 
 
@@ -793,14 +903,16 @@ def run_group_scaling_benchmark(
     warmup=2,
     seed=0,
     device_platform="cpu",
-) -> pd.DataFrame:
-    """Run the fixed-work scaling sweep and return tidy measurements."""
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Run parity checks and the fixed-work, interleaved scaling sweep."""
     groups = tuple(int(value) for value in groups)
     route_kinds = tuple(route_kinds)
     if n_nodes < 1 or steps < 1 or repeats < 1 or warmup < 0:
         raise ValueError("nodes, steps, and repeats must be positive; warmup >= 0")
     if any(value < 1 or value > n_nodes for value in groups):
         raise ValueError("every heterogeneous group count must be in [1, n_nodes]")
+    if 1 not in groups:
+        raise ValueError("groups must include 1 for homogeneous parity checks")
     unknown_routes = set(route_kinds) - set(ROUTE_KINDS)
     if unknown_routes:
         raise ValueError(f"unknown route kinds {sorted(unknown_routes)}")
@@ -814,12 +926,14 @@ def run_group_scaling_benchmark(
         )
     device = devices[0]
     rows = []
+    parity_rows = []
     with jax.default_device(device):
         instant_graph, delayed_graph = _benchmark_graphs(
             n_nodes, dt, jax.random.key(seed)
         )
         for route_kind in route_kinds:
             graph = delayed_graph if route_kind == "delayed" else instant_graph
+            cases = {}
             for group_count in (0, *groups):
                 implementation, primal, gain = _benchmark_case(
                     n_nodes=n_nodes,
@@ -830,17 +944,40 @@ def run_group_scaling_benchmark(
                     dt=dt,
                     block_size=block_size,
                 )
-                measurements = _measure_benchmark_case(
-                    primal, gain, repeats, warmup
-                )
-                for metric, value in measurements.items():
+                key = (implementation, group_count)
+                cases[key] = _compile_benchmark_case(primal, gain)
+
+            parity_rows.append(_parity_check(cases, route_kind))
+            samples = _measure_interleaved(cases, repeats, warmup)
+            for (implementation, group_count), case in cases.items():
+                measurements = {
+                    "forward_wall_s": _summarize_samples(
+                        samples["forward"][(implementation, group_count)]
+                    ),
+                    "reverse_wall_s": _summarize_samples(
+                        samples["reverse"][(implementation, group_count)]
+                    ),
+                }
+                for metric, value in case.items():
+                    if metric in {
+                        "argument",
+                        "forward_executable",
+                        "reverse_executable",
+                    }:
+                        continue
+                    measurements[metric] = {
+                        "value": float(value),
+                        "q25": float(value),
+                        "q75": float(value),
+                    }
+                for metric, summary in measurements.items():
                     rows.append(
                         {
                             "implementation": implementation,
                             "group_count": group_count,
                             "route_kind": route_kind,
                             "metric": metric,
-                            "value": float(value),
+                            **summary,
                             "unit": "s" if metric.endswith("_s") else "count",
                             "n_nodes": n_nodes,
                             "steps": steps,
@@ -851,21 +988,31 @@ def run_group_scaling_benchmark(
                             "jax_version": jax.__version__,
                         }
                     )
-    return pd.DataFrame(rows)
+            del cases
+            jax.clear_caches()
+    return pd.DataFrame(rows), pd.DataFrame(parity_rows)
 
 
-benchmark_options = {
-    "n_nodes": 256,
-    "groups": (1, 2, 4, 8),
-    "route_kinds": ("instantaneous", "delayed"),
-    "steps": 1000,
-    "dt": 0.05,
-    "block_size": 100,
-    "repeats": 5,
-    "warmup": 2,
-}
+@cache("group_scaling_interleaved_v050", redo=False)
+def calculate_group_scaling_benchmark():
+    # Keep workload options inside the cached function so changing one
+    # invalidates the source-stamped cache. Plot-only edits reuse it.
+    benchmark_options = {
+        "n_nodes": 256,
+        "groups": (1, 2, 4, 8),
+        "route_kinds": ROUTE_KINDS,
+        "steps": 1000,
+        "dt": 0.05,
+        "block_size": 100,
+        "repeats": 5,
+        "warmup": 2,
+    }
+    return run_group_scaling_benchmark(**benchmark_options)
 
-scaling = run_group_scaling_benchmark(**benchmark_options)
+
+scaling, parity = calculate_group_scaling_benchmark()
+print("Homogeneous / one-group parity checks:")
+print(parity.to_string(index=False))
 shown_metrics = {
     "forward_wall_s": "Forward wall time",
     "reverse_wall_s": "Value + gradient wall time",
@@ -889,17 +1036,34 @@ relative["relative_to_homogeneous"] = [
         relative.value, relative.route_kind, relative.metric
     )
 ]
+for quantile in ("q25", "q75"):
+    relative[f"{quantile}_relative_to_homogeneous"] = [
+        value / baseline.loc[(route_kind, metric)]
+        for value, route_kind, metric in zip(
+            relative[quantile], relative.route_kind, relative.metric
+        )
+    ]
 
 fig, axes = plt.subplots(1, 3, figsize=(12, 3.4), sharex=True)
 for axis, (metric, title) in zip(axes, shown_metrics.items()):
     selected = relative[relative.metric == metric]
-    for route_kind, values in selected.groupby("route_kind"):
+    for route_kind in ROUTE_KINDS:
+        values = selected[selected.route_kind == route_kind]
         values = values.sort_values("group_count")
         axis.plot(
             values.group_count,
             values.relative_to_homogeneous,
+            color=ROUTE_COLORS[route_kind],
             marker="o",
             label=route_kind,
+        )
+        axis.fill_between(
+            values.group_count,
+            values.q25_relative_to_homogeneous,
+            values.q75_relative_to_homogeneous,
+            color=ROUTE_COLORS[route_kind],
+            alpha=0.15,
+            linewidth=0,
         )
     axis.axhline(1.0, color="black", linestyle="--", linewidth=1)
     axis.set_title(title)
@@ -908,55 +1072,64 @@ for axis, (metric, title) in zip(axes, shown_metrics.items()):
 axes[0].set_ylabel("relative to homogeneous")
 axes[-1].legend(frameon=False)
 fig.tight_layout()
+plt.show()
 ```
 
-The expected curve rises as separately lowered group vector fields and signal
-packing fragment the traced program, while each route still performs one graph
-transport. The exact slope depends on device, JAX/XLA version, node count, and
-group widths. If a rendered figure looks stale after changing the benchmark
-code or options, delete this notebook's freeze directory before trusting the
-cached result.
+The curve should rise as separately lowered vector fields and signal packing
+fragment the traced program, although each route still performs one transport.
+Its slope depends on device, JAX/XLA version, node count, and group widths. If
+only the plot changes, `@cache` reuses the measured table. Workload-option edits
+invalidate the source-stamped cache; after changing a benchmark helper, bump the
+cache key or delete `cache/heterogeneous_networks_benchmark` before rendering.
+
+::: {.callout-note title="Why delayed reverse time can fall below 1×"}
+On the reference CPU, the one-group heterogeneous delayed reverse pass can be
+faster than the homogeneous baseline. Dedicated interleaved timings ruled out
+compile time and asynchronous dispatch, and the difference disappeared with
+nearest-neighbor delays. Profiling linear interpolation showed that CPU XLA
+fused the upstream dynamics adjoint into two dense interpolation-cotangent
+kernels in the homogeneous path. The heterogeneous route instead materialized
+the node-wise cotangent before those kernels; reproducing that materialization
+internally closed the timing gap without changing trajectories or gradients.
+
+This is a backend- and compiler-dependent optimization opportunity, not an
+expected semantic advantage of heterogeneous networks. GPU fusion may behave
+differently, and the candidate change still needs broader gradient, graph, and
+backend testing before it belongs in the implementation.
+:::
 
 ### Solver stages multiply route work
 
-With `recompute_coupling_per_stage=False`, routes are evaluated once at the
-start of a step and held through the native solver stages. With
-`recompute_coupling_per_stage=True`, routes are evaluated from every stage
-state, so transport work grows with the solver's stage count. The latter can be
-important for instantaneous-coupling accuracy; it should be selected as a
-numerical policy rather than enabled without measuring forward and reverse
-cost. Delayed interpolation and stage timing have their own accuracy trade-offs,
-described in [Coupling Freezing](../advanced/coupling_freezing.qmd).
+With `recompute_coupling_per_stage=False`, routes are evaluated once per step
+and held through native solver stages. With `True`, they are evaluated at every
+stage, multiplying transport work by stage count. This may improve
+instantaneous-coupling accuracy; measure both forward and reverse cost. See
+[Coupling Freezing](../advanced/coupling_freezing.qmd) for accuracy trade-offs.
 
 ### Keep local drives local
 
-Noise and `external_input` belong to a `NodeGroup` because they are
-evaluated directly in that group's node space and do not traverse the graph.
-Do not express a local stimulus as a route merely to reuse route syntax. Use a
-route only when a signal is transmitted between graph nodes. Conversely, a
-stimulus that should propagate through connectivity can drive one group
-locally, whose resulting state is then emitted by an ordinary route.
+Noise and `external_input` belong to `NodeGroup`: they are evaluated in
+group-local node space without graph transport. Routes are for signals
+transmitted between nodes. To propagate a stimulus, drive one group locally and
+emit its resulting state through a route.
 
 Readout and conversion callables should be pure, fixed-shape JAX functions.
-Avoid data-dependent Python control flow and avoid reconstructing large dense
-arrays inside a callable. Source readouts run before transport; target
-conversions run only on the target group's transported slice.
+Avoid data-dependent Python control flow and large dense-array reconstruction.
+Source readouts run before transport; target conversions run on the transported
+target slice.
 
 ### Forward and reverse mode
 
-Reverse-mode work follows the operations actually executed: group kernels,
-readouts, route transports, conversions, and solver stages. Delayed history and
-retained trajectories can dominate memory in long simulations. Use block
-checkpointing and return only scientifically required variables when memory is
-the constraint; benchmark the differentiated loss, not only the forward solve.
+Reverse mode differentiates group kernels, readouts, transports, conversions,
+and solver stages. Delayed history and retained trajectories can dominate long
+simulations. Use block checkpointing, return only required variables, and
+benchmark the differentiated loss rather than only the forward solve.
 
-Heterogeneous streaming reduction requires a `GroupObservation` defining one
-common graph-order array. With `block_size`, the neural trajectory is folded
-per block rather than retained; without it the reducer is post-hoc and offers
-no forward-memory win. Grouped trajectories without `observe=` remain useful
-for short diagnostic runs and group-specific post-processing.
+Streaming reduction requires a `GroupObservation` defining one graph-order
+array. With `block_size`, it folds each block instead of retaining the neural
+trajectory; without it, reduction is post-hoc and saves no forward memory.
+Omit `observe=` when short, group-specific trajectories are needed.
 
-Native Euler, Heun, and Runge–Kutta solvers are currently supported.
-Heterogeneous Diffrax, multiple clocks, changing group membership, partial
-graph partitions, and networks on different node spaces are intentionally
-later milestones.
+Current support is limited to native Euler, Heun, and Runge–Kutta solvers.
+Diffrax, multiple clocks, changing membership, partial graph partitions, and
+networks on different node spaces are future work.

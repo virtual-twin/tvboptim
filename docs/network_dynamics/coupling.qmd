@@ -498,6 +498,11 @@ network = Network(
 )
 ```
 
+Each input name accepts exactly one coupling. Ordinary `Network` does not add
+multiple couplings into one input; define separate `COUPLING_INPUTS` when the
+dynamics must receive separate mechanisms. Duplicate keys in a Python
+dictionary are discarded before `Network` can validate them.
+
 **Key behavior**: If a dynamics model declares coupling inputs that are not provided, those inputs are **automatically filled with zeros**. This allows flexible configurations:
 
 ```python

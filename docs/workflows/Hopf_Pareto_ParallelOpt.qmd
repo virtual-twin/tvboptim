@@ -73,9 +73,9 @@ jax.config.update("jax_enable_x64", True)
 
 from tvboptim.types import (
     DataAxis,
-    RescaledParameter,
     SigmoidBoundedParameter,
 )
+from tvboptim.types.parameter import RescaledParameter
 from tvboptim.types.spaces import Space
 from tvboptim.execution import ParallelExecution
 from tvboptim.utils import set_cache_path, cache
