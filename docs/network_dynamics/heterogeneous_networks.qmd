@@ -283,22 +283,29 @@ simulate, config = prepare(
 solution = jax.jit(simulate)(config)
 ```
 
-`plot(group=...)` selects a group's native variables and local node axis. Here
-the two relay nodes, initialized with a small offset, are overlaid for three
-Jansen–Rit states:
+With no `group=`, `plot()` puts each group in a column while retaining its own
+variable rows and node axis. The unequal panel counts make the different state
+dimensions visible immediately:
 
 ```{python}
-#| label: fig-heterogeneous-relay-trajectories
-#| fig-cap: "Relay-group trajectories. Heterogeneous results retain each group's native variables and node axis."
+#| label: fig-heterogeneous-overview
+#| fig-cap: "One shared time grid, three groups, and each neural mass's native variables and graph nodes."
 
 with plt.style.context("default"):
     solution.plot(
-        group="relay",
-        variables=("y0", "y1", "y2"),
+        groups=("cortex", "relay", "driven"),
+        variables={
+            "cortex": ("S",),
+            "relay": ("y0", "y1", "y2"),
+            "driven": ("V", "W"),
+        },
         nodes=2,
-        figsize=(8, 5),
+        figsize=(10, 6),
     )
 ```
+
+For a closer view, `plot(group="relay", ...)` delegates to the ordinary
+single-group trajectory plot.
 
 Selection and graph projection remain explicit:
 

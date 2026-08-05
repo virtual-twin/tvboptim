@@ -81,7 +81,51 @@ def test_plot_delegates_to_group_view(monkeypatch):
 
     assert rendered == ("figure", ["axes"])
     assert calls[0][0].variable_names == ("shared",)
-    assert calls[0][1] == {"variables": ["shared"], "color": "black"}
+    assert calls[0][1] == {
+        "variables": ["shared"],
+        "nodes": None,
+        "t_range": None,
+        "max_nodes": 10,
+        "default_window": 10_000.0,
+        "ax": None,
+        "figsize": None,
+        "dpi": 150,
+        "color": "black",
+    }
+
+
+def test_plot_overview_uses_group_columns_and_native_variable_rows():
+    plt = pytest.importorskip("matplotlib.pyplot")
+    result = _solution()
+
+    fig, axes = result.plot(
+        variables={"a": ("shared", "a_only"), "b": "shared"},
+        nodes=1,
+    )
+
+    assert len(axes.a) == 2
+    assert len(axes.b) == 1
+    assert axes.a[0].get_title() == "a (3 nodes)"
+    assert axes.b[0].get_title() == "b (3 nodes)"
+    assert axes.a[0].get_ylabel() == "shared"
+    assert axes.a[1].get_ylabel() == "a_only"
+    assert axes.a[0].lines[0].get_label() == "node 0"
+    assert axes.b[0].lines[0].get_label() == "node 1"
+    assert axes.a[1].get_xlabel() == "time"
+    assert axes.b[0].get_xlabel() == "time"
+    plt.close(fig)
+
+
+def test_plot_overview_validates_group_and_selection_mappings():
+    result = _solution()
+    with pytest.raises(ValueError, match="either group= or groups="):
+        result.plot(group="a", groups=["b"])
+    with pytest.raises(ValueError, match="Unknown solution groups"):
+        result.plot(groups=["missing"])
+    with pytest.raises(ValueError, match="Unknown groups in variables mapping"):
+        result.plot(variables={"missing": "shared"})
+    with pytest.raises(ValueError, match="at least one variable for group 'a'"):
+        result.plot(variables={"a": (), "b": "shared"})
 
 
 def test_projection_rejects_unknown_group_or_variable():

@@ -415,9 +415,188 @@ class HeterogeneousSolution:
         """Select variables and local nodes from one named group."""
         return self.groups[group].sel(variables, nodes=nodes)
 
-    def plot(self, group, **kwargs):
-        """Plot one named group using :meth:`NativeSolution.plot`."""
-        return self.groups[group].plot(**kwargs)
+    def plot(
+        self,
+        group=None,
+        *,
+        groups=None,
+        variables=None,
+        nodes=None,
+        t_range=None,
+        max_nodes=10,
+        default_window=10_000.0,
+        ax=None,
+        figsize=None,
+        dpi=150,
+        **plot_kwargs,
+    ):
+        """Plot one group or a multi-group trajectory overview.
+
+        Passing ``group=`` preserves the group-local
+        :meth:`NativeSolution.plot` view. With ``group=None``, each group gets
+        one column containing its own selected native-variable rows.
+
+        Args:
+            group: Optional single group to plot with ``NativeSolution.plot``.
+            groups: Optional group names for the overview. ``None`` selects all
+                groups. Incompatible with ``group``.
+            variables: Variable selection shared by all groups, or a mapping
+                from group name to its selection. ``None`` plots every variable.
+            nodes: Local-node selection shared by all groups, or a mapping from
+                group name to its selection. Integer ``N`` means the first
+                ``N`` local nodes, matching ``NativeSolution.plot``.
+            t_range: Optional ``(t_start, t_end)`` time window.
+            max_nodes: Cap used for groups where ``nodes`` is ``None``.
+            default_window: Initial time window when ``t_range`` is ``None``.
+            ax: Optional mapping from group names to their Axes sequences.
+            figsize: Figure size when creating the overview.
+            dpi: Figure DPI when creating the overview.
+            **plot_kwargs: Forwarded to each ``Axes.plot`` call.
+
+        Returns:
+            For one group, the return value of ``NativeSolution.plot``. For an
+            overview, ``(fig, axes)`` with an Axes list keyed by group.
+        """
+        if group is not None:
+            if groups is not None:
+                raise ValueError("Pass either group= or groups=, not both")
+            return self.groups[group].plot(
+                variables=variables,
+                nodes=nodes,
+                t_range=t_range,
+                max_nodes=max_nodes,
+                default_window=default_window,
+                ax=ax,
+                figsize=figsize,
+                dpi=dpi,
+                **plot_kwargs,
+            )
+
+        import matplotlib.pyplot as plt
+
+        selected_groups = list(self.ys) if groups is None else list(groups)
+        if not selected_groups:
+            raise ValueError("groups must select at least one group")
+        if len(set(selected_groups)) != len(selected_groups):
+            raise ValueError("groups must not contain duplicates")
+        unknown = set(selected_groups) - set(self.ys)
+        if unknown:
+            raise ValueError(f"Unknown solution groups: {sorted(unknown)}")
+
+        def selections(value, label):
+            if not isinstance(value, Mapping):
+                return {name: value for name in selected_groups}
+            unknown_keys = set(value) - set(self.ys)
+            if unknown_keys:
+                raise ValueError(
+                    f"Unknown groups in {label} mapping: {sorted(unknown_keys)}"
+                )
+            return {name: value.get(name) for name in selected_groups}
+
+        variable_selections = selections(variables, "variables")
+        node_selections = selections(nodes, "nodes")
+        resolved = {}
+        max_rows = 0
+        for name in selected_groups:
+            view = self.groups[name]
+            requested = variable_selections[name]
+            if isinstance(requested, (str, int)):
+                requested = (requested,)
+            var_indices, var_labels = view._resolve_variables(requested)
+            if not var_indices:
+                raise ValueError(
+                    f"variables must select at least one variable for group {name!r}"
+                )
+            node_indices = view._resolve_nodes(
+                node_selections[name], view.ys.shape[2], max_nodes
+            )
+            resolved[name] = (view, var_indices, var_labels, node_indices)
+            max_rows = max(max_rows, len(var_indices))
+
+        n_columns = len(selected_groups)
+        if ax is None:
+            if figsize is None:
+                figsize = (4.0 * n_columns, max(2.8, 2.1 * max_rows))
+            fig = plt.figure(
+                figsize=figsize,
+                dpi=dpi,
+                constrained_layout=True,
+            )
+            outer_grid = fig.add_gridspec(1, n_columns)
+            axes = Bunch()
+            for column, name in enumerate(selected_groups):
+                n_group_rows = len(resolved[name][1])
+                group_grid = outer_grid[0, column].subgridspec(n_group_rows, 1)
+                group_axes = []
+                for row in range(n_group_rows):
+                    group_axes.append(
+                        fig.add_subplot(
+                            group_grid[row, 0],
+                            sharex=group_axes[0] if group_axes else None,
+                        )
+                    )
+                axes[name] = group_axes
+        else:
+            if not isinstance(ax, Mapping):
+                raise TypeError("overview ax must map group names to Axes sequences")
+            missing_axes = set(selected_groups) - set(ax)
+            unknown_axes = set(ax) - set(selected_groups)
+            if missing_axes or unknown_axes:
+                raise ValueError(
+                    "overview ax keys must match selected groups; "
+                    f"missing={sorted(missing_axes)}, unknown={sorted(unknown_axes)}"
+                )
+            axes = Bunch()
+            for name in selected_groups:
+                supplied = ax[name]
+                group_axes = [supplied] if hasattr(supplied, "plot") else list(supplied)
+                expected = len(resolved[name][1])
+                if len(group_axes) != expected:
+                    raise ValueError(
+                        f"Got {len(group_axes)} Axes for group {name!r}; "
+                        f"expected {expected}."
+                    )
+                axes[name] = group_axes
+            fig = axes[selected_groups[0]][0].figure
+
+        t_mask = self.groups[selected_groups[0]]._resolve_t_mask(
+            t_range, default_window
+        )
+        ts_selected = self.ts[t_mask]
+        line_kwargs = dict(plot_kwargs)
+
+        for name in selected_groups:
+            view, var_indices, var_labels, node_indices = resolved[name]
+            local_to_graph = self._group_nodes.get(name)
+            show_legend = len(node_indices) <= 8
+            group_kwargs = dict(line_kwargs)
+            group_kwargs.setdefault("alpha", 0.7 if len(node_indices) > 3 else 1.0)
+
+            for row, axis in enumerate(axes[name]):
+                variable_index = var_indices[row]
+                for local_node in node_indices:
+                    graph_node = (
+                        local_to_graph[local_node]
+                        if local_to_graph is not None
+                        else local_node
+                    )
+                    axis.plot(
+                        ts_selected,
+                        view.ys[t_mask, variable_index, local_node],
+                        label=f"node {graph_node}" if show_legend else None,
+                        **group_kwargs,
+                    )
+                axis.set_ylabel(var_labels[row])
+                axis.grid(True, alpha=0.3)
+                if row == 0:
+                    count = view.ys.shape[2]
+                    node_label = "node" if count == 1 else "nodes"
+                    axis.set_title(f"{name} ({count} {node_label})")
+                if show_legend:
+                    axis.legend(fontsize="small", loc="best")
+            axes[name][-1].set_xlabel("time")
+
+        return fig, axes
 
     def to_graph(self, variable, groups=None, fill_value=jnp.nan):
         """Project one named variable from selected groups to graph-node order.
