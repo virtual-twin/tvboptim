@@ -8,50 +8,29 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **Different dynamics models can now run on named subsets of one connectome.**
-  `HeterogeneousNetwork` partitions a square `Graph` into `NodeGroup`s, each
-  with its own dynamics, parameters, noise, and external inputs. Groups may have
-  different state names and state counts. `solve()` and `prepare()` accept it
-  through the existing dispatch; ordinary `Network` code is unchanged.
-  - State stays segmented as a PyTree of `[states, nodes]` leaves per group.
-    There is no padded union array and no per-node model dispatch.
-  - `SignalRoute` declares one exchanged signal: which state, tuple of states,
-    or readout callable each source group emits, the coupling that transports
-    it, and the named `COUPLING_INPUTS` it reaches on each target group.
-    Multiple routes targeting one input are summed, and unrepresented source
-    nodes contribute zero.
-  - Each route performs one graph traversal regardless of how many groups
-    participate, so cost scales with distinct scientific signals rather than
-    with the number of model pairs.
-  - `Readout` declares whether route and observation callables read the complete
-    `state` or selected variables of interest (`voi`) without owning their
-    parameters. Parameters remain
-    in the position-specific `source_params`, `local_params`, `target_params`,
-    or `GroupObservation.params` mappings, where they stay live after
-    `prepare()` and can be swept and differentiated.
-  - `HeterogeneousSolution` keeps each group's natural shape and variable
-    names, with `groups.<name>.sel(...)` for group-local access and
-    `to_graph(...)` for explicit projection to graph-node order.
-  - `GroupObservation` projects group-specific variables or readouts into one
-    common `[channels, graph nodes]` signal. It supports ordinary observed
-    trajectories and existing streaming reducers through `observe=` plus
-    `reduce=`; blockwise execution bounds forward trajectory memory.
-  - Delayed routes store the transmitted canonical signal rather than group
-    state, so history memory scales with signal width and delay capacity rather
-    than total state width. Warm starts, `update_history()` continuation, live
-    delays within prepared capacity, and all existing buffer strategies are
-    supported, on dense and sparse graphs alike.
-  - Supported under `jit`, `jvp`, `grad`/`value_and_grad`, `vmap`,
-    checkpointing, `grad_horizon`, and `Space` sweeps over group dynamics,
-    route coupling, graph weights and delays, history, noise, and external
-    inputs.
-  - `BoundedSolver` accepts either one scalar or array bound broadcast across
-    all group states, or bounds matching the group-state PyTree exactly.
-  - `format_network()` and `print_network()` describe heterogeneous groups,
-    routes, coupling inputs, and readouts alongside the graph structure.
-  - See `docs/network_dynamics/heterogeneous_networks.qmd` for construction,
-    mixed instantaneous and delayed routing, grouped and observed results,
-    gradient-based fitting, and a cached fixed-work group-scaling benchmark.
+- **Heterogeneous neural-mass networks on one shared connectome.**
+  `HeterogeneousNetwork` partitions graph nodes into named `NodeGroup`s with
+  independent dynamics, state dimensions, initial states, noise, and external
+  inputs while keeping state as an unpadded segmented PyTree.
+  - `SignalRoute` maps group-specific source readouts through one instantaneous
+    or delayed coupling operation to named target inputs. Each route traverses
+    dense or sparse connectivity once, and routes targeting the same input sum.
+  - `Readout` distinguishes callables that consume integrated `state` from
+    selected variables of interest (`voi`). Role-specific parameter mappings
+    remain live after `prepare()` for sweeps and differentiation.
+  - `GroupObservation` transforms group outputs into a common graph-order
+    signal for returned trajectories and existing reducers. With blockwise
+    execution, streaming reduction bounds forward trajectory memory.
+  - `HeterogeneousSolution` preserves natural group shapes and provides named
+    selection, graph projection, single-group plots, and a multi-group overview.
+  - Dense and sparse graphs, delayed history and continuation, native fixed-step
+    solvers, noise, external inputs, `jit`, autodiff, `vmap`, checkpointing,
+    `grad_horizon`, and `Space` sweeps are supported.
+  - `format_network()` and `print_network()` describe groups, routes, readouts,
+    targets, coupling inputs, and graph structure.
+- Added an executable heterogeneous-network tutorial covering mixed routing,
+  observations and streaming reduction, sweeps, optimization, continuation,
+  plotting, and fixed-work group-count benchmarks.
 
 ### Changed
 
@@ -67,17 +46,14 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Known limitations
 
-- Heterogeneous `reduce=` requires `observe=GroupObservation(...)` to define a
-  common `[channels, graph nodes]` signal. Reducer observations must cover every
-  graph node unless `allow_partial_coverage=True`; that opt-in is only suitable
-  for reducers known to handle the configured fill value correctly.
-- Routes accept `PrePostCoupling` implementations only. Other couplings own
-  arbitrary state semantics that cannot be reinterpreted as operations on route
-  signals, and report a route-compatibility error.
-- Diffrax execution and group membership changes after `prepare()` are not
-  supported.
-- Prepared solve closures have no serialization guarantee. Reconstruct the
-  network and call `prepare()` before restoring numerical state.
+- Networks use one fixed square graph, an exhaustive static node partition, one
+  time step, native fixed-step solvers, and `PrePostCoupling` routes.
+- Heterogeneous reduction requires an explicit `GroupObservation`; reducer
+  observations must cover every graph node unless a fill-aware reducer opts
+  into partial coverage.
+- Heterogeneous Diffrax execution, changing group membership after `prepare()`,
+  multiple clocks or node spaces, shared readout parameters, and route-signal
+  recording are not yet supported.
 
 ## [0.4.0] - 2026-07-17
 
