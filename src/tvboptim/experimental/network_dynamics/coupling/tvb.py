@@ -27,9 +27,9 @@ class SigmoidalJansenRit(InstantaneousCoupling):
 
     Parameters
     ----------
-    incoming_states : tuple of str
+    source : tuple of str
         Tuple of two state names, e.g., ``('y1', 'y2')`` (required)
-    local_states : str or list of str, optional
+    local : str or list of str, optional
         State name(s) from current node (default: ``[]``)
 
     Attributes
@@ -44,7 +44,7 @@ class SigmoidalJansenRit(InstantaneousCoupling):
     --------
     >>> # Typical Jansen-Rit coupling
     >>> coupling = SigmoidalJansenRit(
-    ...     incoming_states=('y1', 'y2'),
+    ...     source=('y1', 'y2'),
     ...     G=1.0,
     ...     cmax=0.005
     ... )
@@ -121,9 +121,9 @@ class DelayedSigmoidalJansenRit(DelayedCoupling):
 
     Parameters
     ----------
-    incoming_states : tuple of str
+    source : tuple of str
         Tuple of two state names, e.g., ``('y1', 'y2')`` (required)
-    local_states : str or list of str, optional
+    local : str or list of str, optional
         State name(s) from current node (default: ``[]``)
 
     Attributes
@@ -138,7 +138,7 @@ class DelayedSigmoidalJansenRit(DelayedCoupling):
     --------
     >>> # Typical delayed Jansen-Rit coupling
     >>> coupling = DelayedSigmoidalJansenRit(
-    ...     incoming_states=('y1', 'y2'),
+    ...     source=('y1', 'y2'),
     ...     G=1.0,
     ...     cmax=0.005
     ... )

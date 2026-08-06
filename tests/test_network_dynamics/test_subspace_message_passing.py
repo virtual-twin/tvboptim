@@ -71,7 +71,7 @@ def test_sparse_node_dense_delayed_regional_subspace_matches_fixed_reference():
         max_delay_bound=2.0,
     )
     inner = DelayedLinearCoupling(
-        incoming_states="x",
+        source="x",
         G=0.4,
         b=-0.05,
         history_interpolation="linear",

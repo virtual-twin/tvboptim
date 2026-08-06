@@ -91,7 +91,7 @@ def test_eib_edge_params_match_declared_order_oracle(representation, layout):
     w_lre = WLRE if layout == "graph" else graph.gather_edges(WLRE)
     w_ffi = WFFI if layout == "graph" else graph.gather_edges(WFFI)
     coupling = EIBLinearCoupling(
-        incoming_states="x",
+        source="x",
         wLRE=w_lre,
         wFFI=w_ffi,
     )
@@ -118,12 +118,12 @@ def test_prepared_e_edge_param_and_signal_gradients_match_dense():
     dense_graph = DenseGraph(WEIGHTS)
     sparse_graph = SparseGraph(WEIGHTS)
     dense = EIBLinearCoupling(
-        incoming_states="x",
+        source="x",
         wLRE=WLRE,
         wFFI=WFFI,
     )
     sparse = EIBLinearCoupling(
-        incoming_states="x",
+        source="x",
         wLRE=sparse_graph.gather_edges(WLRE),
         wFFI=sparse_graph.gather_edges(WFFI),
     )
@@ -188,7 +188,7 @@ def test_prepared_e_eib_large_sparse_jaxpr_has_no_node_squared_array():
     )
     graph = SparseGraph(weights)
     coupling = EIBLinearCoupling(
-        incoming_states="x",
+        source="x",
         wLRE=jnp.linspace(0.5, 1.5, n_edges),
         wFFI=jnp.linspace(1.5, 0.5, n_edges),
     )

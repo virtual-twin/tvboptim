@@ -345,7 +345,7 @@ dynamics = ReducedWongWangEIB(J_i = jnp.ones((n_nodes)))
 
 # Initialize EIB coupling with dual weight matrices
 # wLRE and wFFI start as copies of structural connectivity
-coupling = EIBLinearCoupling(incoming_states=["S_e"])
+coupling = EIBLinearCoupling(source=["S_e"])
 
 # Set the weight matrices to the proper shape based on structural connectivity
 # Both start as scaled versions of structural connectivity

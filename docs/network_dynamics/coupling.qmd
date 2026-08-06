@@ -53,7 +53,7 @@ from tvboptim.experimental.network_dynamics.solvers import Euler
 # Create simple network
 dynamics = ReducedWongWang()
 graph = DenseGraph(jnp.array([[0.0, 1.0], [1.0, 0.0]]))
-coupling = LinearCoupling(incoming_states='S', G=0.5)
+coupling = LinearCoupling(source='S', G=0.5)
 
 network = Network(
     dynamics=dynamics,
@@ -152,10 +152,10 @@ The simplest coupling applies a gain and offset to the weighted sum:
 from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
 
 # Create linear coupling
-coupling = LinearCoupling(incoming_states='x', G=2.0, b=0.1)
+coupling = LinearCoupling(source='x', G=2.0, b=0.1)
 
 print(f"Coupling parameters: G={coupling.params.G}, b={coupling.params.b}")
-print(f"Incoming states: {coupling.INCOMING_STATE_NAMES}")
+print(f"Incoming states: {coupling.SOURCE_STATE_NAMES}")
 ```
 
 The `post()` implementation is simple:
@@ -176,12 +176,12 @@ from tvboptim.experimental.network_dynamics.coupling import DifferenceCoupling
 
 # Difference coupling: couples based on (x_j - x_i)
 diff_coupling = DifferenceCoupling(
-    incoming_states='x',
-    local_states='x',  # Need local state for difference
+    source='x',
+    local='x',  # Need local state for difference
     G=1.0
 )
 
-print(f"Incoming states: {diff_coupling.INCOMING_STATE_NAMES}")
+print(f"Incoming states: {diff_coupling.SOURCE_STATE_NAMES}")
 print(f"Local states: {diff_coupling.LOCAL_STATE_NAMES}")
 ```
 
@@ -204,9 +204,9 @@ The framework selects the scalable transport representation from the coupling co
 - Incoming-only instantaneous coupling without edge parameters transforms one value per source node. Dense graphs reduce with `messages @ weights.T`; sparse graphs gather source values at stored edges and reduce by target.
 - Delays, target-local operands (`PRE_USES_LOCAL = True`), or declared `EDGE_PARAMS` require an aligned message per connection. Sparse graphs execute these as `[channels, E]`, while dense graphs use `[channels, N_target, N_source]`.
 
-The `pre()` body is identical in every case: it performs only elementwise math on operands the framework has already aligned. Do not add `[:, :, None]` or `[None, :, :]` reshapes. Incoming-only `pre()` receives `local_states=None`; `post()` continues to receive node-shaped local states.
+The `pre()` body is identical in every case: it performs only elementwise math on operands the framework has already aligned. Do not add `[:, :, None]` or `[None, :, :]` reshapes. Incoming-only `pre()` receives `local=None`; `post()` continues to receive node-shaped local states.
 
-`LinearCoupling` now uses the optimized incoming-only path directly. `FastLinearCoupling` is a deprecated compatibility wrapper that maps its historical `local_states=...` spelling to `LinearCoupling(incoming_states=...)`; new code should use `LinearCoupling`.
+`LinearCoupling` now uses the optimized incoming-only path directly. `FastLinearCoupling` is a deprecated compatibility wrapper that maps its historical `local=...` spelling to `LinearCoupling(source=...)`; new code should use `LinearCoupling`.
 
 ## Custom `pre()` migration and edge parameters
 
@@ -226,7 +226,7 @@ Each name in `EDGE_PARAMS` accepts either a graph-shaped `[N_target, N_source]` 
 
 ```python
 edge_gain_e = sparse_graph.gather_edges(edge_gain_matrix)
-coupling = EdgeScaledCoupling(incoming_states="S", edge_gain=edge_gain_e)
+coupling = EdgeScaledCoupling(source="S", edge_gain=edge_gain_e)
 ```
 
 `sparse_graph.edge_indices` documents how an existing E-vector is interpreted: rows are `(target, source)` in the same order used by `gather_edges()`. That topology remains fixed for one prepared solve; numerical weights, delays, and edge parameters may be swept or differentiated, but changing or reordering indices requires graph reconstruction and another `prepare()` call.
@@ -307,7 +307,7 @@ dynamics_adaptive = Generic2dOscillator(
 )
 
 # Fixed coupling: strong constant gain
-fixed_coupling = LinearCoupling(incoming_states='V', G=0.8)
+fixed_coupling = LinearCoupling(source='V', G=0.8)
 network_fixed = Network(
     dynamics=dynamics_fixed,
     coupling={'instant': fixed_coupling},
@@ -316,8 +316,8 @@ network_fixed = Network(
 
 # Adaptive coupling: same base gain but adapts
 adaptive_coupling = AdaptiveGainCoupling(
-    incoming_states='V',
-    local_states='V',  # Need local state for adaptation
+    source='V',
+    local='V',  # Need local state for adaptation
     G=0.8,
     alpha=0.9
 )
@@ -451,7 +451,7 @@ delays_small = lengths_small / 3.0
 graph_delayed = DenseDelayGraph(weights_small, delays_small)
 
 # Delayed coupling
-delayed_coupling = DelayedLinearCoupling(incoming_states='x', G=0.5)
+delayed_coupling = DelayedLinearCoupling(source='x', G=0.5)
 
 # Create network
 network_delayed = Network(
@@ -491,12 +491,17 @@ When creating a network, provide couplings as a named dictionary:
 network = Network(
     dynamics=dynamics,
     coupling={
-        'instant': LinearCoupling(incoming_states='S', G=1.0),
-        'delayed': DelayedLinearCoupling(incoming_states='S', G=0.5)
+        'instant': LinearCoupling(source='S', G=1.0),
+        'delayed': DelayedLinearCoupling(source='S', G=0.5)
     },
     graph=graph  # Must be DelayGraph for delayed coupling
 )
 ```
+
+Each input name accepts exactly one coupling. Ordinary `Network` does not add
+multiple couplings into one input; define separate `COUPLING_INPUTS` when the
+dynamics must receive separate mechanisms. Duplicate keys in a Python
+dictionary are discarded before `Network` can validate them.
 
 **Key behavior**: If a dynamics model declares coupling inputs that are not provided, those inputs are **automatically filled with zeros**. This allows flexible configurations:
 

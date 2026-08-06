@@ -126,7 +126,7 @@ def test_sparse_delayed_matches_dense_for_every_history_strategy(
     for sparse in (False, True):
         graph = _graph(sparse)
         coupling = DelayedLinearCoupling(
-            incoming_states="x",
+            source="x",
             G=0.7,
             b=-0.2,
             buffer_strategy=buffer_strategy,
@@ -146,13 +146,13 @@ def test_sparse_delay_gradients_match_dense_gathered_at_prepared_edges(
     dense_graph = _graph(False)
     sparse_graph = _graph(True)
     dense_coupling = DelayedLinearCoupling(
-        incoming_states="x",
+        source="x",
         G=0.7,
         buffer_strategy=buffer_strategy,
         history_interpolation="linear" if interpolate else None,
     )
     sparse_coupling = DelayedLinearCoupling(
-        incoming_states="x",
+        source="x",
         G=0.7,
         buffer_strategy=buffer_strategy,
         history_interpolation="linear" if interpolate else None,
@@ -202,7 +202,7 @@ def test_delayed_edge_params_execute_in_both_public_layouts(representation, layo
     graph = _graph(sparse)
     edge = EDGE_PARAM if layout == "graph" else graph.gather_edges(EDGE_PARAM)
     coupling = DelayedEdgeScaledCoupling(
-        incoming_states="x",
+        source="x",
         edge=edge,
         history_interpolation="linear",
     )
@@ -211,7 +211,7 @@ def test_delayed_edge_params_execute_in_both_public_layouts(representation, layo
 
     dense_graph = _graph(False)
     dense_coupling = DelayedEdgeScaledCoupling(
-        incoming_states="x",
+        source="x",
         edge=EDGE_PARAM,
         history_interpolation="linear",
     )
@@ -232,7 +232,7 @@ def test_genuinely_empty_sparse_delayed_graph_returns_zero(interpolate):
     delays = BCOO((data, indices), shape=(3, 3), unique_indices=True)
     graph = SparseDelayGraph(weights, delays)
     coupling = DelayedLinearCoupling(
-        incoming_states="x",
+        source="x",
         G=1.0,
         b=0.0,
         history_interpolation="linear" if interpolate else None,
@@ -263,7 +263,7 @@ def test_sparse_delayed_jaxpr_has_no_node_squared_array():
     )
     graph = SparseDelayGraph(weights, delays, max_delay_bound=0.25)
     coupling = DelayedLinearCoupling(
-        incoming_states="x",
+        source="x",
         history_interpolation="linear",
         buffer_strategy="circular",
         warn_on_delay_clamp=True,

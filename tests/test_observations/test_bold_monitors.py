@@ -202,7 +202,7 @@ class TestStreamingHrfBold(unittest.TestCase):
         d = jax.random.uniform(dk, (n, n)) * 5.0
         return Network(
             dynamics=ReducedWongWang(),
-            coupling={"delayed": DelayedLinearCoupling(incoming_states="S", G=0.1)},
+            coupling={"delayed": DelayedLinearCoupling(source="S", G=0.1)},
             graph=DenseDelayGraph(weights=w, delays=d),
             noise=AdditiveNoise(sigma=1e-3, key=jax.random.key(0)),
         )

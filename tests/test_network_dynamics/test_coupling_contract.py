@@ -91,7 +91,7 @@ def _compute_instantaneous(coupling, graph, state, params=None):
 def test_dense_edge_params_normalize_to_graph_shape(layout):
     graph = DenseGraph(WEIGHTS)
     value = EDGE_VALUES if layout == "graph" else graph.gather_edges(EDGE_VALUES)
-    coupling = EdgeScaledCoupling(incoming_states="x", edge=value)
+    coupling = EdgeScaledCoupling(source="x", edge=value)
     data, _ = _prepare_data(coupling, graph)
 
     enriched = coupling.precompute(data, coupling.params, graph)
@@ -111,7 +111,7 @@ def test_sparse_edge_params_normalize_to_public_prepared_order(layout):
     graph = SparseGraph(WEIGHTS)
     prepared_e = graph.gather_edges(EDGE_VALUES)
     value = EDGE_VALUES if layout == "graph" else prepared_e
-    coupling = EdgeScaledCoupling(incoming_states="x", edge=value)
+    coupling = EdgeScaledCoupling(source="x", edge=value)
     data, _ = _prepare_data(coupling, graph)
 
     enriched = coupling.precompute(data, coupling.params, graph)
@@ -125,7 +125,7 @@ def test_sparse_edge_params_normalize_to_public_prepared_order(layout):
 def test_edge_param_normalization_is_jittable_and_differentiable():
     graph = SparseGraph(WEIGHTS)
     coupling = EdgeScaledCoupling(
-        incoming_states="x",
+        source="x",
         edge=graph.gather_edges(EDGE_VALUES),
     )
     data, _ = _prepare_data(coupling, graph)
@@ -145,7 +145,7 @@ def test_edge_param_normalization_is_jittable_and_differentiable():
 def test_delayed_precompute_extends_edge_alignment():
     graph = DenseDelayGraph(WEIGHTS, jnp.zeros_like(WEIGHTS))
     coupling = DelayedEdgeScaledCoupling(
-        incoming_states="x",
+        source="x",
         edge=graph.gather_edges(EDGE_VALUES),
     )
     data, _ = _prepare_data(coupling, graph)
@@ -197,14 +197,14 @@ class MissingEdgeCoupling(UndeclaredEdgeCoupling):
 
 def test_prepare_probe_accepts_aligned_local_elementwise_pre():
     graph = DenseGraph(WEIGHTS)
-    coupling = LocalElementwiseCoupling(incoming_states="x", local_states="x")
+    coupling = LocalElementwiseCoupling(source="x", local="x")
     data, _ = _prepare_data(coupling, graph)
     assert data.incoming_indices.shape == data.local_indices.shape == (1,)
 
 
 def test_prepare_probe_rejects_legacy_explicit_reshape_with_migration_message():
     graph = DenseGraph(WEIGHTS)
-    coupling = LegacyReshapeCoupling(incoming_states="x")
+    coupling = LegacyReshapeCoupling(source="x")
 
     with pytest.raises(ValueError, match=r"elementwise.*PRE_USES_LOCAL.*EDGE_PARAMS"):
         _prepare_data(coupling, graph)
@@ -212,7 +212,7 @@ def test_prepare_probe_rejects_legacy_explicit_reshape_with_migration_message():
 
 def test_prepare_probe_wraps_errors_with_migration_message():
     graph = SparseGraph(WEIGHTS)
-    coupling = LegacyIndexReshapeCoupling(incoming_states="x")
+    coupling = LegacyIndexReshapeCoupling(source="x")
 
     with pytest.raises(ValueError, match="violates the coupling contract"):
         _prepare_data(coupling, graph)
@@ -220,7 +220,7 @@ def test_prepare_probe_wraps_errors_with_migration_message():
 
 def test_prepare_rejects_undeclared_graph_shaped_param():
     graph = DenseGraph(WEIGHTS)
-    coupling = UndeclaredEdgeCoupling(incoming_states="x", edge=EDGE_VALUES)
+    coupling = UndeclaredEdgeCoupling(source="x", edge=EDGE_VALUES)
 
     with pytest.raises(ValueError, match="not declared.*EDGE_PARAMS"):
         _prepare_data(coupling, graph)
@@ -228,11 +228,11 @@ def test_prepare_rejects_undeclared_graph_shaped_param():
 
 def test_prepare_rejects_missing_or_unsupported_declared_edge_param():
     graph = SparseGraph(WEIGHTS)
-    missing = MissingEdgeCoupling(incoming_states="x")
+    missing = MissingEdgeCoupling(source="x")
     with pytest.raises(ValueError, match="does not exist"):
         _prepare_data(missing, graph)
 
-    invalid = EdgeScaledCoupling(incoming_states="x", edge=jnp.ones(4))
+    invalid = EdgeScaledCoupling(source="x", edge=jnp.ones(4))
     with pytest.raises(ValueError, match=r"expected.*\(3, 3\).*\(3,\)"):
         _prepare_data(invalid, graph)
 
@@ -242,7 +242,7 @@ def test_prepared_e_fixture_is_constructed_without_private_indices():
         BCOO.fromdense(WEIGHTS),
     )
     prepared_e = graph.gather_edges(EDGE_VALUES)
-    coupling = EdgeScaledCoupling(incoming_states="x", edge=prepared_e)
+    coupling = EdgeScaledCoupling(source="x", edge=prepared_e)
     data, _ = _prepare_data(coupling, graph)
 
     actual = coupling.precompute(data, coupling.params, graph)
@@ -256,7 +256,7 @@ def test_instantaneous_edge_params_execute_in_both_public_layouts(
 ):
     graph = DenseGraph(WEIGHTS) if representation == "dense" else SparseGraph(WEIGHTS)
     edge = EDGE_VALUES if layout == "graph" else graph.gather_edges(EDGE_VALUES)
-    coupling = EdgeScaledCoupling(incoming_states="x", edge=edge, gain=2.0)
+    coupling = EdgeScaledCoupling(source="x", edge=edge, gain=2.0)
     state = jnp.array([[2.0, 3.0, 7.0]])
 
     actual = _compute_instantaneous(coupling, graph, state)
@@ -276,13 +276,13 @@ def test_sparse_prepared_edge_param_and_state_gradients_match_dense():
     dense_graph = DenseGraph(WEIGHTS)
     sparse_graph = SparseGraph(WEIGHTS)
     dense_coupling = EdgeScaledCoupling(
-        incoming_states="x",
+        source="x",
         edge=EDGE_VALUES,
         gain=2.0,
     )
     sparse_edge = sparse_graph.gather_edges(EDGE_VALUES)
     sparse_coupling = EdgeScaledCoupling(
-        incoming_states="x",
+        source="x",
         edge=sparse_edge,
         gain=2.0,
     )

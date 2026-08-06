@@ -73,9 +73,9 @@ jax.config.update("jax_enable_x64", True)
 
 from tvboptim.types import (
     DataAxis,
-    RescaledParameter,
     SigmoidBoundedParameter,
 )
+from tvboptim.types.parameter import RescaledParameter
 from tvboptim.types.spaces import Space
 from tvboptim.execution import ParallelExecution
 from tvboptim.utils import set_cache_path, cache
@@ -162,7 +162,7 @@ weights_laplacian = weights - np.diag(row_sums)
 
 graph = DenseDelayGraph(weights_laplacian, delays, region_labels=region_labels)
 dynamics = SupHopf(a=0.01, omega=jnp.asarray(omega_target))
-coupling = LinearCoupling(incoming_states=["x"], G=0.025)
+coupling = LinearCoupling(source=["x"], G=0.025)
 noise = AdditiveNoise(sigma=1e-2, apply_to=["x", "y"])
 
 network = Network(

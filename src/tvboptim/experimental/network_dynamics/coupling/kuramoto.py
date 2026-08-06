@@ -21,9 +21,9 @@ class KuramotoCoupling(InstantaneousCoupling):
 
     Parameters
     ----------
-    incoming_states : str or list of str
+    source : str or list of str
         State name(s) to collect from connected nodes (typically ``'theta'``)
-    local_states : str or list of str
+    local : str or list of str
         State name(s) from current node (required for the phase difference)
 
     Attributes
@@ -40,7 +40,7 @@ class KuramotoCoupling(InstantaneousCoupling):
 
     Examples
     --------
-    >>> coupling = KuramotoCoupling(incoming_states='theta', local_states='theta', G=1.0)
+    >>> coupling = KuramotoCoupling(source='theta', local='theta', G=1.0)
     """
 
     N_OUTPUT_STATES = 1
@@ -93,9 +93,9 @@ class DelayedKuramotoCoupling(DelayedCoupling):
 
     Parameters
     ----------
-    incoming_states : str or list of str
+    source : str or list of str
         State name(s) to collect from connected nodes (typically ``'theta'``)
-    local_states : str or list of str
+    local : str or list of str
         State name(s) from current node (required for the phase difference)
 
     Attributes
@@ -112,7 +112,7 @@ class DelayedKuramotoCoupling(DelayedCoupling):
 
     Examples
     --------
-    >>> coupling = DelayedKuramotoCoupling(incoming_states='theta', local_states='theta', G=1.0)
+    >>> coupling = DelayedKuramotoCoupling(source='theta', local='theta', G=1.0)
 
     References
     ----------

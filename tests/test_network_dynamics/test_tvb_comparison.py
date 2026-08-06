@@ -329,7 +329,7 @@ class TestTVBComparison(unittest.TestCase):
             # Instant coupling - use DenseGraph
             graph = DenseGraph(self.weights, region_labels=self.region_labels)
             coupling_obj = LinearCoupling(
-                incoming_states=config["coupling_var"], G=coupling_config["G"]
+                source=config["coupling_var"], G=coupling_config["G"]
             )
             coupling_dict = {"instant": coupling_obj}
             t_offset = 0.0
@@ -340,7 +340,7 @@ class TestTVBComparison(unittest.TestCase):
                 self.weights, delays, region_labels=self.region_labels
             )
             coupling_obj = DelayedLinearCoupling(
-                incoming_states=config["coupling_var"], G=coupling_config["G"]
+                source=config["coupling_var"], G=coupling_config["G"]
             )
             coupling_dict = {"delayed": coupling_obj}
             t_offset = float(tvb_conn.horizon * self.DT)

@@ -4,7 +4,58 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] - Unreleased
+## [0.5.0] - Unreleased
+
+### Added
+
+- **Heterogeneous neural-mass networks on one shared connectome.**
+  `HeterogeneousNetwork` partitions graph nodes into named `NodeGroup`s with
+  independent dynamics, state dimensions, initial states, noise, and external
+  inputs while keeping state as an unpadded segmented PyTree.
+  - `SignalRoute` maps group-specific source readouts through one instantaneous
+    or delayed coupling operation to named target inputs. Each route traverses
+    dense or sparse connectivity once, and routes targeting the same input sum.
+  - `Readout` distinguishes callables that consume integrated `state` from
+    selected variables of interest (`voi`). Role-specific parameter mappings
+    remain live after `prepare()` for sweeps and differentiation.
+  - `GroupObservation` transforms group outputs into a common graph-order
+    signal for returned trajectories and existing reducers. With blockwise
+    execution, streaming reduction bounds forward trajectory memory.
+  - `HeterogeneousSolution` preserves natural group shapes and provides named
+    selection, graph projection, single-group plots, and a multi-group overview.
+  - Dense and sparse graphs, delayed history and continuation, native fixed-step
+    solvers, noise, external inputs, `jit`, autodiff, `vmap`, checkpointing,
+    `grad_horizon`, and `Space` sweeps are supported.
+  - `format_network()` and `print_network()` describe groups, routes, readouts,
+    targets, coupling inputs, and graph structure.
+- Added an executable heterogeneous-network tutorial covering mixed routing,
+  observations and streaming reduction, sweeps, optimization, continuation,
+  plotting, and fixed-work group-count benchmarks.
+
+### Changed
+
+- Coupling state selectors are now named `source=` and `local=`. The previous
+  `incoming_states=` and `local_states=` spellings became misleading once a
+  route, rather than the coupling, owns signal selection.
+
+### Deprecated
+
+- Deprecated `incoming_states=` and `local_states=` on couplings, removed in
+  1.0. Both remain accepted as aliases and emit a `DeprecationWarning`; passing
+  a name and its alias together is an error. Use `source=` and `local=`.
+
+### Known limitations
+
+- Networks use one fixed square graph, an exhaustive static node partition, one
+  time step, native fixed-step solvers, and `PrePostCoupling` routes.
+- Heterogeneous reduction requires an explicit `GroupObservation`; reducer
+  observations must cover every graph node unless a fill-aware reducer opts
+  into partial coverage.
+- Heterogeneous Diffrax execution, changing group membership after `prepare()`,
+  multiple clocks or node spaces, shared readout parameters, and route-signal
+  recording are not yet supported.
+
+## [0.4.0] - 2026-07-17
 
 ### Added
 

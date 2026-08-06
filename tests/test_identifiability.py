@@ -291,7 +291,7 @@ class TestStimulationExampleIntegration(unittest.TestCase):
                 dynamics=Generic2dOscillator(
                     **dyn, I=exc, VARIABLES_OF_INTEREST=("V",)
                 ),
-                coupling={"instant": LinearCoupling(incoming_states="V", G=0.0)},
+                coupling={"instant": LinearCoupling(source="V", G=0.0)},
                 graph=DenseGraph(jnp.zeros((1, 1))),
                 external_input={
                     "stimulus": PulseInput(

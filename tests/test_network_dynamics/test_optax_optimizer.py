@@ -37,7 +37,7 @@ class TestOptaxOptimizerWithNetworkDynamics(unittest.TestCase):
         # Create RWW network
         key = self.base_key
         graph = DenseGraph.random(n_nodes=self.n_nodes, key=key)
-        coupling = LinearCoupling(incoming_states="S", G=0.1)  # Start with G=0.1
+        coupling = LinearCoupling(source="S", G=0.1)  # Start with G=0.1
         dynamics = ReducedWongWang()
 
         network = Network(
@@ -123,7 +123,7 @@ class TestOptaxOptimizerWithNetworkDynamics(unittest.TestCase):
         # Create RWW network
         key = self.base_key
         graph = DenseGraph.random(n_nodes=self.n_nodes, key=key)
-        coupling = LinearCoupling(incoming_states="S", G=0.1)
+        coupling = LinearCoupling(source="S", G=0.1)
         dynamics = ReducedWongWang()
 
         network = Network(

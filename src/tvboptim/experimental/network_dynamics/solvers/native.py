@@ -5,12 +5,54 @@ multi-coupling architecture. These solvers work with wrapped dynamics
 functions that already include coupling computation.
 """
 
-from typing import Callable
+from typing import Any, Callable
 
+import jax
 import jax.numpy as jnp
 
 from ..core.bunch import Bunch
 from .base import AbstractSolver
+
+
+def _tree_add_scaled(state, derivative, scale, noise_sample=0.0):
+    """Return ``state + scale * derivative + noise`` for array or PyTree state.
+
+    The deterministic public default is the scalar ``0.0``.  It cannot be
+    passed as a third tree to ``jax.tree.map`` when ``state`` is segmented, so
+    keep it as a broadcasted closed-over value in that case.  A supplied noise
+    PyTree must have exactly the state structure.
+    """
+    state_structure = jax.tree.structure(state)
+    if jax.tree.structure(noise_sample) == state_structure:
+        return jax.tree.map(
+            lambda y, dy, noise: y + scale * dy + noise,
+            state,
+            derivative,
+            noise_sample,
+        )
+    noise_leaves = jax.tree.leaves(noise_sample)
+    if len(noise_leaves) != 1 or jnp.ndim(noise_leaves[0]) != 0:
+        raise ValueError("noise_sample must be scalar or match the state PyTree")
+    scalar_noise = noise_leaves[0]
+    return jax.tree.map(
+        lambda y, dy: y + scale * dy + scalar_noise,
+        state,
+        derivative,
+    )
+
+
+def _tree_step(step_leaf, state, derivatives, noise_sample=0.0):
+    """Apply an exact leaf-level solver expression over a state PyTree."""
+    state_structure = jax.tree.structure(state)
+    if jax.tree.structure(noise_sample) == state_structure:
+        return jax.tree.map(step_leaf, state, *derivatives, noise_sample)
+    noise_leaves = jax.tree.leaves(noise_sample)
+    if len(noise_leaves) != 1 or jnp.ndim(noise_leaves[0]) != 0:
+        raise ValueError("noise_sample must be scalar or match the state PyTree")
+    scalar_noise = noise_leaves[0]
+    return jax.tree.map(
+        lambda y, *ds: step_leaf(y, *ds, scalar_noise), state, *derivatives
+    )
 
 
 class NativeSolver(AbstractSolver):
@@ -141,11 +183,11 @@ class NativeSolver(AbstractSolver):
         self,
         dynamics_fn: Callable,
         t: float,
-        state: jnp.ndarray,
+        state: Any,
         dt: float,
         params: Bunch,
-        noise_sample: jnp.ndarray = 0.0,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        noise_sample: Any = 0.0,
+    ) -> tuple[Any, Any]:
         """Single integration step for dynamics state.
 
         Args:
@@ -180,11 +222,11 @@ class Euler(NativeSolver):
         self,
         dynamics_fn: Callable,
         t: float,
-        state: jnp.ndarray,
+        state: Any,
         dt: float,
         params: Bunch,
-        noise_sample: jnp.ndarray = 0.0,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        noise_sample: Any = 0.0,
+    ) -> tuple[Any, Any]:
         """Euler integration step: y_{n+1} = y_n + dt * f(t, y_n) + noise.
 
         Args:
@@ -211,7 +253,7 @@ class Euler(NativeSolver):
             auxiliaries = jnp.array([])  # Empty array for no auxiliaries
 
         # Euler step for state integration
-        next_state = state + dt * derivatives + noise_sample
+        next_state = _tree_add_scaled(state, derivatives, dt, noise_sample)
 
         return next_state, auxiliaries
 
@@ -235,11 +277,11 @@ class Heun(NativeSolver):
         self,
         dynamics_fn: Callable,
         t: float,
-        state: jnp.ndarray,
+        state: Any,
         dt: float,
         params: Bunch,
-        noise_sample: jnp.ndarray = 0.0,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        noise_sample: Any = 0.0,
+    ) -> tuple[Any, Any]:
         """Heun integration step with predictor-corrector.
 
         Args:
@@ -267,7 +309,7 @@ class Heun(NativeSolver):
             auxiliaries = jnp.array([])
 
         # Predictor step
-        y_pred = state + dt * k1 + noise_sample
+        y_pred = _tree_add_scaled(state, k1, dt, noise_sample)
 
         # Second evaluation: k2 = f(t + dt, y_pred)
         result2 = dynamics_fn(t + dt, y_pred, params)
@@ -279,7 +321,12 @@ class Heun(NativeSolver):
             k2 = result2
 
         # Corrector: average drift, apply noise once
-        next_state = state + dt * 0.5 * (k1 + k2) + noise_sample
+        next_state = _tree_step(
+            lambda y, d1, d2, noise: y + dt * 0.5 * (d1 + d2) + noise,
+            state,
+            (k1, k2),
+            noise_sample,
+        )
 
         return next_state, auxiliaries
 
@@ -303,11 +350,11 @@ class RungeKutta4(NativeSolver):
         self,
         dynamics_fn: Callable,
         t: float,
-        state: jnp.ndarray,
+        state: Any,
         dt: float,
         params: Bunch,
-        noise_sample: jnp.ndarray = 0.0,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        noise_sample: Any = 0.0,
+    ) -> tuple[Any, Any]:
         """RK4 integration step with four evaluations.
 
         Args:
@@ -335,19 +382,30 @@ class RungeKutta4(NativeSolver):
             auxiliaries = jnp.array([])
 
         # Second evaluation: k2 = f(t + dt/2, y_n + dt/2 * k1)
-        result2 = dynamics_fn(t + 0.5 * dt, state + 0.5 * dt * k1, params)
+        result2 = dynamics_fn(
+            t + 0.5 * dt, _tree_add_scaled(state, k1, 0.5 * dt), params
+        )
         k2 = result2[0] if isinstance(result2, tuple) else result2
 
         # Third evaluation: k3 = f(t + dt/2, y_n + dt/2 * k2)
-        result3 = dynamics_fn(t + 0.5 * dt, state + 0.5 * dt * k2, params)
+        result3 = dynamics_fn(
+            t + 0.5 * dt, _tree_add_scaled(state, k2, 0.5 * dt), params
+        )
         k3 = result3[0] if isinstance(result3, tuple) else result3
 
         # Fourth evaluation: k4 = f(t + dt, y_n + dt * k3)
-        result4 = dynamics_fn(t + dt, state + dt * k3, params)
+        result4 = dynamics_fn(t + dt, _tree_add_scaled(state, k3, dt), params)
         k4 = result4[0] if isinstance(result4, tuple) else result4
 
         # RK4 combination: y_{n+1} = y_n + dt/6 * (k1 + 2*k2 + 2*k3 + k4) + noise
-        next_state = state + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4) + noise_sample
+        next_state = _tree_step(
+            lambda y, d1, d2, d3, d4, noise: (
+                y + (dt / 6.0) * (d1 + 2.0 * d2 + 2.0 * d3 + d4) + noise
+            ),
+            state,
+            (k1, k2, k3, k4),
+            noise_sample,
+        )
 
         return next_state, auxiliaries
 
@@ -362,6 +420,7 @@ class BoundedSolver(NativeSolver):
     - Scalar: same bound for all states/nodes
     - [n_states]: different bounds per state variable
     - [n_states, n_nodes]: different bounds per state per node
+    - State-matching PyTree: different broadcastable bounds for each state leaf
 
     Use -jnp.inf or jnp.inf to disable clipping for specific states/nodes.
 
@@ -380,23 +439,48 @@ class BoundedSolver(NativeSolver):
             low=jnp.array([0.0, -5.0]),  # state 0: ≥0, state 1: ≥-5
             high=jnp.array([1.0, 5.0])   # state 0: ≤1, state 1: ≤5
         )
+
+        # Different bounds for heterogeneous state groups
+        solver = BoundedSolver(
+            Heun(),
+            low=Bunch(cortex=jnp.array([[0.0]]), relay=-jnp.inf),
+            high=Bunch(cortex=jnp.array([[1.0]]), relay=jnp.inf),
+        )
     """
 
     def __init__(
         self,
         base_solver: NativeSolver,
-        low: float | jnp.ndarray = -jnp.inf,
-        high: float | jnp.ndarray = jnp.inf,
+        low: Any = -jnp.inf,
+        high: Any = jnp.inf,
     ):
         # Deliberately skip NativeSolver.__init__: block_size,
         # recompute_coupling_per_stage and grad_horizon are delegated to
         # base_solver via the properties below so that wrapping a solver does
         # not silently lose those settings.
         self.base_solver = base_solver
-        low = jnp.asarray(low)
-        high = jnp.asarray(high)
-        self.low = low[:, None] if low.ndim == 1 else low
-        self.high = high[:, None] if high.ndim == 1 else high
+        self.low = jax.tree.map(self._normalize_bound_leaf, low)
+        self.high = jax.tree.map(self._normalize_bound_leaf, high)
+
+    @staticmethod
+    def _normalize_bound_leaf(bound):
+        """Convert a bound leaf to an array and preserve state-axis broadcasting."""
+        bound = jnp.asarray(bound)
+        return bound[:, None] if bound.ndim == 1 else bound
+
+    @staticmethod
+    def _match_bound_tree(bound, state, name):
+        """Broadcast one bound leaf or require an exact state PyTree structure."""
+        bound_structure = jax.tree.structure(bound)
+        state_structure = jax.tree.structure(state)
+        if bound_structure == state_structure:
+            return bound
+        if bound_structure == jax.tree.structure(jnp.asarray(0.0)):
+            return jax.tree.map(lambda _state: bound, state)
+        raise ValueError(
+            f"BoundedSolver {name} must be a scalar/array or match the state "
+            f"PyTree; got {bound_structure} for state {state_structure}"
+        )
 
     @property
     def block_size(self):
@@ -418,11 +502,11 @@ class BoundedSolver(NativeSolver):
         self,
         dynamics_fn: Callable,
         t: float,
-        state: jnp.ndarray,
+        state: Any,
         dt: float,
         params: Bunch,
-        noise_sample: jnp.ndarray = 0.0,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        noise_sample: Any = 0.0,
+    ) -> tuple[Any, Any]:
         """Integration step with state clipping.
 
         Delegates to base solver, then clips output state to bounds.
@@ -431,22 +515,23 @@ class BoundedSolver(NativeSolver):
         Args:
             dynamics_fn: Dynamics function (t, state, params) -> (derivatives, auxiliaries)
             t: Current time
-            state: Current state [n_states, n_nodes]
+            state: Current state array or PyTree of state arrays
             dt: Time step
             params: Parameters
-            noise_sample: Pre-scaled noise increment
+            noise_sample: Pre-scaled scalar, array, or matching PyTree increment
 
         Returns:
             Tuple of (next_state, auxiliaries):
-                - next_state: Clipped next state [n_states, n_nodes]
-                - auxiliaries: Auxiliary variables [n_auxiliaries, n_nodes]
+                - next_state: Clipped state array or PyTree
+                - auxiliaries: Auxiliary-variable array or PyTree
         """
         # Delegate to wrapped solver
         next_state, auxiliaries = self.base_solver.step(
             dynamics_fn, t, state, dt, params, noise_sample
         )
 
-        # Clip output to bounds
-        next_state = jnp.clip(next_state, self.low, self.high)
+        low = self._match_bound_tree(self.low, next_state, "low")
+        high = self._match_bound_tree(self.high, next_state, "high")
+        next_state = jax.tree.map(jnp.clip, next_state, low, high)
 
         return next_state, auxiliaries

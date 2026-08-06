@@ -108,7 +108,7 @@ delays0 = jnp.array([[0.0, taus[0]], [taus[0], 0.0]])
 # max_delay_bound declares headroom for the whole sweep up front, so every
 # tau in the sweep reuses the same compiled buffer -- no re-prepare().
 graph = DenseDelayGraph(weights=weights, delays=delays0, max_delay_bound=tau_max * 1.05)
-coupling = DelayedKuramotoCoupling(incoming_states="theta", local_states="theta", G=G)
+coupling = DelayedKuramotoCoupling(source="theta", local="theta", G=G)
 network = Network(
     dynamics=Kuramoto(omega=omega),
     coupling={"delayed": coupling},
@@ -193,7 +193,7 @@ max_delay_bound = float(jnp.max(lengths) / speeds.min()) * 1.05
 # regardless of strategy (ParallelExecution vmaps one compiled shape); "circular"
 # avoids paying that inflated length every forward step the way "roll" would.
 coupling = DelayedKuramotoCoupling(
-    incoming_states="theta", local_states="theta", G=0.1 / n_nodes,
+    source="theta", local="theta", G=0.1 / n_nodes,
     buffer_strategy="circular",
 )
 # DenseLengthGraph carries lengths + speed; delays = lengths / speed is a
@@ -313,7 +313,7 @@ def build_two_oscillator(history_interpolation):
         weights=mask, delays=mask * 1.0, max_delay_bound=tau_bound_a,
     )
     coupling = DelayedKuramotoCoupling(
-        incoming_states="theta", local_states="theta", G=G_a,
+        source="theta", local="theta", G=G_a,
         history_interpolation=history_interpolation,
         warn_on_delay_clamp=True,  # a tau past the bound would be silently clamped
     )
@@ -397,7 +397,7 @@ t0_b, t1_b, dt_b = 0.0, 800.0, 1.0
 TAIL = 0.3  # fraction of the run used as the steady-state window
 
 coupling_b = DelayedKuramotoCoupling(
-    incoming_states="theta", local_states="theta", G=0.1 / n_nodes,
+    source="theta", local="theta", G=0.1 / n_nodes,
     buffer_strategy="circular", history_interpolation="linear", warn_on_delay_clamp=True,
 )
 graph_b = DenseLengthGraph(

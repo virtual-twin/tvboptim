@@ -118,12 +118,10 @@ class TestBasicNetworks(unittest.TestCase):
                     )
                     graph = DenseDelayGraph(weights=graph.weights, delays=delays)
                     coupling = DelayedLinearCoupling(
-                        incoming_states=coupling_var, G=self.coupling_G
+                        source=coupling_var, G=self.coupling_G
                     )
                 else:
-                    coupling = LinearCoupling(
-                        incoming_states=coupling_var, G=self.coupling_G
-                    )
+                    coupling = LinearCoupling(source=coupling_var, G=self.coupling_G)
 
                 # Create dynamics
                 dynamics = model_class()
@@ -215,7 +213,7 @@ class TestBasicNetworks(unittest.TestCase):
         graph = DenseGraph(weights)
         network = Network(
             dynamics=ReducedWongWang(),
-            coupling={"instant": LinearCoupling(incoming_states="S", G=0.0)},
+            coupling={"instant": LinearCoupling(source="S", G=0.0)},
             graph=graph,
         )
 
@@ -250,7 +248,7 @@ class TestBasicNetworks(unittest.TestCase):
         graph = DenseGraph(weights)
         network = Network(
             dynamics=ReducedWongWang(),
-            coupling={"instant": LinearCoupling(incoming_states="S", G=0.0)},
+            coupling={"instant": LinearCoupling(source="S", G=0.0)},
             graph=graph,
             noise=AdditiveNoise(sigma=1e-3, key=jax.random.key(0)),
         )
@@ -296,7 +294,7 @@ class TestBasicNetworks(unittest.TestCase):
         graph = DenseGraph(weights)
         network = Network(
             dynamics=ReducedWongWang(),
-            coupling={"instant": LinearCoupling(incoming_states="S", G=0.0)},
+            coupling={"instant": LinearCoupling(source="S", G=0.0)},
             graph=graph,
             noise=AdditiveNoise(sigma=1e-3, key=jax.random.key(7)),
         )
@@ -352,7 +350,7 @@ class TestBasicNetworks(unittest.TestCase):
         graph = DenseGraph(weights)
         network = Network(
             dynamics=ReducedWongWang(),
-            coupling={"instant": LinearCoupling(incoming_states="S", G=0.0)},
+            coupling={"instant": LinearCoupling(source="S", G=0.0)},
             graph=graph,
             noise=AdditiveNoise(sigma=1e-3, key=jax.random.key(0)),
         )
@@ -401,9 +399,7 @@ class TestBasicNetworks(unittest.TestCase):
                 # Create a simple network (no noise, no delay for gradient test)
                 key = jax.random.PRNGKey(123)
                 graph = DenseGraph.random(n_nodes=self.n_nodes, key=key)
-                coupling = LinearCoupling(
-                    incoming_states=coupling_var, G=self.coupling_G
-                )
+                coupling = LinearCoupling(source=coupling_var, G=self.coupling_G)
                 dynamics = model_class()
 
                 network = Network(
@@ -479,7 +475,7 @@ class TestCheckpointedScan(unittest.TestCase):
         weights = jax.random.uniform(weights_key, (n_nodes, n_nodes)) * 0.5
         delays = jax.random.uniform(delay_key, (n_nodes, n_nodes)) * 5.0
         graph = DenseDelayGraph(weights=weights, delays=delays)
-        coupling = DelayedLinearCoupling(incoming_states="S", G=0.1)
+        coupling = DelayedLinearCoupling(source="S", G=0.1)
         return Network(
             dynamics=ReducedWongWang(),
             coupling={"delayed": coupling},
@@ -601,7 +597,7 @@ class TestPrepareIsolation(unittest.TestCase):
                 "network_instant",
                 Network(
                     dynamics=ReducedWongWang(),
-                    coupling={"instant": LinearCoupling(incoming_states=["S"], G=0.3)},
+                    coupling={"instant": LinearCoupling(source=["S"], G=0.3)},
                     graph=DenseGraph(weights),
                 ),
             ),
@@ -609,9 +605,7 @@ class TestPrepareIsolation(unittest.TestCase):
                 "network_delayed",
                 Network(
                     dynamics=ReducedWongWang(),
-                    coupling={
-                        "delayed": DelayedLinearCoupling(incoming_states=["S"], G=0.3)
-                    },
+                    coupling={"delayed": DelayedLinearCoupling(source=["S"], G=0.3)},
                     graph=DenseDelayGraph(weights, delays),
                 ),
             ),
@@ -619,7 +613,7 @@ class TestPrepareIsolation(unittest.TestCase):
                 "network_noise",
                 Network(
                     dynamics=ReducedWongWang(),
-                    coupling={"instant": LinearCoupling(incoming_states=["S"], G=0.3)},
+                    coupling={"instant": LinearCoupling(source=["S"], G=0.3)},
                     graph=DenseGraph(weights),
                     noise=AdditiveNoise(sigma=1.0, apply_to="S", key=jax.random.key(0)),
                 ),
@@ -852,7 +846,7 @@ class TestTruncatedScan(unittest.TestCase):
         weights = jax.random.uniform(wkey, (n_nodes, n_nodes)) * 0.5
         delays = jax.random.uniform(dkey, (n_nodes, n_nodes)) * 5.0
         graph = DenseDelayGraph(weights=weights, delays=delays)
-        coupling = DelayedLinearCoupling(incoming_states="S", G=0.1)
+        coupling = DelayedLinearCoupling(source="S", G=0.1)
         return Network(
             dynamics=ReducedWongWang(),
             coupling={"delayed": coupling},
@@ -973,7 +967,7 @@ class TestReduce(unittest.TestCase):
         weights = jax.random.uniform(wkey, (n_nodes, n_nodes)) * 0.5
         delays = jax.random.uniform(dkey, (n_nodes, n_nodes)) * 5.0
         graph = DenseDelayGraph(weights=weights, delays=delays)
-        coupling = DelayedLinearCoupling(incoming_states="S", G=0.1)
+        coupling = DelayedLinearCoupling(source="S", G=0.1)
         return Network(
             dynamics=ReducedWongWang(),
             coupling={"delayed": coupling},
@@ -1090,7 +1084,7 @@ class TestReduce(unittest.TestCase):
         n_nodes = 3
         net = Network(
             dynamics=ReducedWongWang(),
-            coupling={"instant": LinearCoupling(incoming_states="S", G=0.1)},
+            coupling={"instant": LinearCoupling(source="S", G=0.1)},
             graph=DenseGraph(
                 jax.random.uniform(jax.random.PRNGKey(1), (n_nodes, n_nodes))
             ),
@@ -1127,7 +1121,7 @@ class TestStreamingNoise(unittest.TestCase):
         weights = jax.random.uniform(wkey, (n_nodes, n_nodes)) * 0.5
         delays = jax.random.uniform(dkey, (n_nodes, n_nodes)) * 5.0
         graph = DenseDelayGraph(weights=weights, delays=delays)
-        coupling = DelayedLinearCoupling(incoming_states="S", G=0.1)
+        coupling = DelayedLinearCoupling(source="S", G=0.1)
         return Network(
             dynamics=ReducedWongWang(),
             coupling={"delayed": coupling},
@@ -1241,7 +1235,7 @@ class TestDelaySweepAccessibility(unittest.TestCase):
             weights=weights, delays=delays, max_delay_bound=max_delay_bound
         )
         coupling = DelayedLinearCoupling(
-            incoming_states="S", G=0.2, buffer_strategy=buffer_strategy
+            source="S", G=0.2, buffer_strategy=buffer_strategy
         )
         network = Network(
             dynamics=ReducedWongWang(),
@@ -1338,9 +1332,7 @@ class TestDelaySweepAccessibility(unittest.TestCase):
         weights = jax.random.uniform(weights_key, (n_nodes, n_nodes)) * 0.5
         delays = jax.random.uniform(delay_key, (n_nodes, n_nodes)) * 5.0
         graph = DenseDelayGraph(weights=weights, delays=delays, max_delay_bound=6.0)
-        coupling = DelayedLinearCoupling(
-            incoming_states="S", G=0.2, warn_on_delay_clamp=True
-        )
+        coupling = DelayedLinearCoupling(source="S", G=0.2, warn_on_delay_clamp=True)
         network = Network(
             dynamics=ReducedWongWang(),
             coupling={"delayed": coupling},
@@ -1381,7 +1373,7 @@ class TestDelayInterpolation(unittest.TestCase):
             weights=weights, delays=delays, max_delay_bound=max_delay_bound
         )
         coupling = DelayedLinearCoupling(
-            incoming_states="S",
+            source="S",
             G=0.2,
             buffer_strategy=buffer_strategy,
             history_interpolation="linear" if interpolate else None,
@@ -1520,7 +1512,7 @@ class TestDenseLengthGraph(unittest.TestCase):
 
     def _network(self, graph, strategy="circular"):
         coupling = DelayedLinearCoupling(
-            incoming_states="S",
+            source="S",
             G=0.2,
             buffer_strategy=strategy,
             history_interpolation="linear",
@@ -1641,7 +1633,7 @@ class TestDelayBufferSizing(unittest.TestCase):
             weights=weights, delays=delays, max_delay_bound=max_delay_bound
         )
         coupling = DelayedLinearCoupling(
-            incoming_states="S",
+            source="S",
             G=G,
             buffer_strategy=strategy,
             history_interpolation="linear" if interpolate else None,
@@ -1772,7 +1764,7 @@ class TestDelayBufferSizing(unittest.TestCase):
                     delays = jnp.array([[0.0, max_delay], [max_delay, 0.0]])
                     graph = DenseDelayGraph(weights=weights, delays=delays)
                     coupling = DelayedLinearCoupling(
-                        incoming_states="S",
+                        source="S",
                         G=0.2,
                         history_interpolation="linear" if interpolate else None,
                         warn_on_delay_clamp=True,
@@ -1849,7 +1841,7 @@ class TestPrecomputeReachesEveryComputePath(unittest.TestCase):
         delays = jnp.array([[0.0, 1.0], [1.0, 0.0]])
         return Network(
             dynamics=ReducedWongWang(),
-            coupling={"delayed": DelayedLinearCoupling(incoming_states="S", G=0.5)},
+            coupling={"delayed": DelayedLinearCoupling(source="S", G=0.5)},
             graph=DenseDelayGraph(weights=weights, delays=delays),
             noise=None,
         )
@@ -1874,7 +1866,7 @@ class TestPrecomputeReachesEveryComputePath(unittest.TestCase):
             delays=jnp.array([[0.0, 1.0], [1.0, 0.0]]),
         )
         coupling = SubspaceCoupling(
-            inner_coupling=DelayedLinearCoupling(incoming_states="S", G=0.5),
+            inner_coupling=DelayedLinearCoupling(source="S", G=0.5),
             region_mapping=jnp.array([0, 0, 1, 1]),
             regional_graph=regional_graph,
         )
@@ -1920,7 +1912,7 @@ class TestStageTimeShift(unittest.TestCase):
             weights=weights, delays=jnp.asarray(delays), max_delay_bound=8.0
         )
         coupling = DelayedLinearCoupling(
-            incoming_states="S",
+            source="S",
             G=G,
             buffer_strategy="roll",
             history_interpolation="linear" if interpolate else None,
@@ -2054,8 +2046,8 @@ class TestStageTimeShift(unittest.TestCase):
             max_delay_bound=4.0,
         )
         coupling = DelayedKuramotoCoupling(
-            incoming_states="theta",
-            local_states="theta",
+            source="theta",
+            local="theta",
             G=0.5,
             buffer_strategy="roll",
             history_interpolation="linear",

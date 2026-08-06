@@ -5,10 +5,13 @@ ensuring consistent API across solver types.
 """
 
 import warnings
+from collections.abc import Mapping
 from typing import Optional, Sequence, Tuple, Union
 
 import jax.numpy as jnp
 from jax import tree_util
+
+from .core.bunch import Bunch
 
 
 @tree_util.register_pytree_with_keys_class
@@ -56,6 +59,21 @@ class NativeSolution:
     @property
     def data(self):
         return self.ys
+
+    def sel(self, variables, nodes=None):
+        """Select trajectory variables by name/index and optional local nodes.
+
+        A scalar variable selector returns ``[time, node]``; a sequence keeps
+        the variable axis and returns ``[time, variable, node]``.
+        """
+        scalar = isinstance(variables, (str, int))
+        requested = [variables] if scalar else list(variables)
+        indices, _ = self._resolve_variables(requested)
+        selected = self.ys[:, indices, :]
+        if nodes is not None:
+            node_indices = [nodes] if isinstance(nodes, int) else list(nodes)
+            selected = selected[:, :, node_indices]
+        return selected[:, 0, :] if scalar else selected
 
     def tree_flatten(self):
         """JAX PyTree flatten for transformations."""
@@ -291,6 +309,396 @@ class NativeSolution:
         axes[-1].set_xlabel("time")
         fig.tight_layout()
         return fig, axes
+
+
+@tree_util.register_pytree_with_keys_class
+class HeterogeneousSolution:
+    """Trajectories for named dynamics groups on one shared time grid.
+
+    Args:
+        ts: Shared time points with shape ``[n_time]``.
+        ys: Mapping from group names to natural trajectory arrays with shape
+            ``[n_time, n_variables, n_group_nodes]``.
+        dt: Optional integration time step, stored as static PyTree metadata.
+        variable_names: Optional mapping from group names to variable names in
+            trajectory-axis order.
+        group_nodes: Optional mapping from group names to their graph-node order.
+            Required, together with ``n_nodes``, for ``to_graph()``.
+        n_nodes: Optional size of the shared graph.
+
+    Attributes:
+        ts: Shared time points.
+        ys: Raw arrays in a ``Bunch`` keyed by group name.
+        dt: Optional integration time step.
+        variable_names: Variable-name tuples keyed by group.
+        n_nodes: Optional shared graph size.
+
+    Notes:
+        ``groups`` constructs lightweight ``NativeSolution`` views for named
+        selection and plotting. Use ``ys`` when direct array access is preferred.
+    """
+
+    def __init__(
+        self,
+        ts,
+        ys,
+        *,
+        dt=None,
+        variable_names=None,
+        group_nodes=None,
+        n_nodes=None,
+    ):
+        if not isinstance(ys, Mapping):
+            raise TypeError("ys must be a mapping from group names to trajectories")
+        self.ts = ts
+        self.ys = Bunch(ys)
+        self.dt = dt
+        names = variable_names or {}
+        nodes = group_nodes or {}
+        if not isinstance(names, Mapping):
+            raise TypeError("variable_names must be a mapping or None")
+        if not isinstance(nodes, Mapping):
+            raise TypeError("group_nodes must be a mapping or None")
+        unknown_names = set(names) - set(self.ys)
+        unknown_nodes = set(nodes) - set(self.ys)
+        if unknown_names or unknown_nodes:
+            raise ValueError(
+                "solution metadata must refer to trajectory groups; "
+                f"unknown variable_names={sorted(unknown_names)}, "
+                f"group_nodes={sorted(unknown_nodes)}"
+            )
+        self.variable_names = {
+            name: tuple(names[name]) if names.get(name) is not None else None
+            for name in sorted(self.ys)
+        }
+        self._group_nodes = {
+            name: tuple(int(node) for node in nodes[name]) for name in sorted(nodes)
+        }
+        self.n_nodes = int(n_nodes) if n_nodes is not None else None
+
+    @property
+    def time(self):
+        """Alias for ``ts``."""
+        return self.ts
+
+    @property
+    def data(self):
+        """Alias for the raw group-array ``ys`` mapping."""
+        return self.ys
+
+    @property
+    def groups(self):
+        """Construct ``NativeSolution`` views keyed by group name."""
+        return Bunch(
+            {
+                name: NativeSolution(
+                    self.ts,
+                    self.ys[name],
+                    dt=self.dt,
+                    variable_names=self.variable_names[name],
+                )
+                for name in sorted(self.ys)
+            }
+        )
+
+    @property
+    def group_nodes(self):
+        """Graph-node indices for groups with available projection metadata."""
+        return Bunch(
+            {
+                name: jnp.asarray(nodes, dtype=jnp.int32)
+                for name, nodes in self._group_nodes.items()
+            }
+        )
+
+    def sel(self, group, variables, nodes=None):
+        """Select variables and local nodes from one named group."""
+        return self.groups[group].sel(variables, nodes=nodes)
+
+    def plot(
+        self,
+        group=None,
+        *,
+        groups=None,
+        variables=None,
+        nodes=None,
+        t_range=None,
+        max_nodes=10,
+        default_window=10_000.0,
+        ax=None,
+        figsize=None,
+        dpi=150,
+        **plot_kwargs,
+    ):
+        """Plot one group or a multi-group trajectory overview.
+
+        Passing ``group=`` preserves the group-local
+        :meth:`NativeSolution.plot` view. With ``group=None``, each group gets
+        one column containing its own selected native-variable rows.
+
+        Args:
+            group: Optional single group to plot with ``NativeSolution.plot``.
+            groups: Optional group names for the overview. ``None`` selects all
+                groups. Incompatible with ``group``.
+            variables: Variable selection shared by all groups, or a mapping
+                from group name to its selection. ``None`` plots every variable.
+            nodes: Local-node selection shared by all groups, or a mapping from
+                group name to its selection. Integer ``N`` means the first
+                ``N`` local nodes, matching ``NativeSolution.plot``.
+            t_range: Optional ``(t_start, t_end)`` time window.
+            max_nodes: Cap used for groups where ``nodes`` is ``None``.
+            default_window: Initial time window when ``t_range`` is ``None``.
+            ax: Optional mapping from group names to their Axes sequences.
+            figsize: Figure size when creating the overview.
+            dpi: Figure DPI when creating the overview.
+            **plot_kwargs: Forwarded to each ``Axes.plot`` call.
+
+        Returns:
+            For one group, the return value of ``NativeSolution.plot``. For an
+            overview, ``(fig, axes)`` with an Axes list keyed by group.
+        """
+        if group is not None:
+            if groups is not None:
+                raise ValueError("Pass either group= or groups=, not both")
+            return self.groups[group].plot(
+                variables=variables,
+                nodes=nodes,
+                t_range=t_range,
+                max_nodes=max_nodes,
+                default_window=default_window,
+                ax=ax,
+                figsize=figsize,
+                dpi=dpi,
+                **plot_kwargs,
+            )
+
+        import matplotlib.pyplot as plt
+
+        selected_groups = list(self.ys) if groups is None else list(groups)
+        if not selected_groups:
+            raise ValueError("groups must select at least one group")
+        if len(set(selected_groups)) != len(selected_groups):
+            raise ValueError("groups must not contain duplicates")
+        unknown = set(selected_groups) - set(self.ys)
+        if unknown:
+            raise ValueError(f"Unknown solution groups: {sorted(unknown)}")
+
+        def selections(value, label):
+            if not isinstance(value, Mapping):
+                return {name: value for name in selected_groups}
+            unknown_keys = set(value) - set(self.ys)
+            if unknown_keys:
+                raise ValueError(
+                    f"Unknown groups in {label} mapping: {sorted(unknown_keys)}"
+                )
+            return {name: value.get(name) for name in selected_groups}
+
+        variable_selections = selections(variables, "variables")
+        node_selections = selections(nodes, "nodes")
+        resolved = {}
+        max_rows = 0
+        for name in selected_groups:
+            view = self.groups[name]
+            requested = variable_selections[name]
+            if isinstance(requested, (str, int)):
+                requested = (requested,)
+            var_indices, var_labels = view._resolve_variables(requested)
+            if not var_indices:
+                raise ValueError(
+                    f"variables must select at least one variable for group {name!r}"
+                )
+            node_indices = view._resolve_nodes(
+                node_selections[name], view.ys.shape[2], max_nodes
+            )
+            resolved[name] = (view, var_indices, var_labels, node_indices)
+            max_rows = max(max_rows, len(var_indices))
+
+        n_columns = len(selected_groups)
+        if ax is None:
+            if figsize is None:
+                figsize = (4.0 * n_columns, max(2.8, 2.1 * max_rows))
+            fig = plt.figure(
+                figsize=figsize,
+                dpi=dpi,
+                constrained_layout=True,
+            )
+            outer_grid = fig.add_gridspec(1, n_columns)
+            axes = Bunch()
+            for column, name in enumerate(selected_groups):
+                n_group_rows = len(resolved[name][1])
+                group_grid = outer_grid[0, column].subgridspec(n_group_rows, 1)
+                group_axes = []
+                for row in range(n_group_rows):
+                    group_axes.append(
+                        fig.add_subplot(
+                            group_grid[row, 0],
+                            sharex=group_axes[0] if group_axes else None,
+                        )
+                    )
+                axes[name] = group_axes
+        else:
+            if not isinstance(ax, Mapping):
+                raise TypeError("overview ax must map group names to Axes sequences")
+            missing_axes = set(selected_groups) - set(ax)
+            unknown_axes = set(ax) - set(selected_groups)
+            if missing_axes or unknown_axes:
+                raise ValueError(
+                    "overview ax keys must match selected groups; "
+                    f"missing={sorted(missing_axes)}, unknown={sorted(unknown_axes)}"
+                )
+            axes = Bunch()
+            for name in selected_groups:
+                supplied = ax[name]
+                group_axes = [supplied] if hasattr(supplied, "plot") else list(supplied)
+                expected = len(resolved[name][1])
+                if len(group_axes) != expected:
+                    raise ValueError(
+                        f"Got {len(group_axes)} Axes for group {name!r}; "
+                        f"expected {expected}."
+                    )
+                axes[name] = group_axes
+            fig = axes[selected_groups[0]][0].figure
+
+        t_mask = self.groups[selected_groups[0]]._resolve_t_mask(
+            t_range, default_window
+        )
+        ts_selected = self.ts[t_mask]
+        line_kwargs = dict(plot_kwargs)
+
+        for name in selected_groups:
+            view, var_indices, var_labels, node_indices = resolved[name]
+            local_to_graph = self._group_nodes.get(name)
+            show_legend = len(node_indices) <= 8
+            group_kwargs = dict(line_kwargs)
+            group_kwargs.setdefault("alpha", 0.7 if len(node_indices) > 3 else 1.0)
+
+            for row, axis in enumerate(axes[name]):
+                variable_index = var_indices[row]
+                for local_node in node_indices:
+                    graph_node = (
+                        local_to_graph[local_node]
+                        if local_to_graph is not None
+                        else local_node
+                    )
+                    axis.plot(
+                        ts_selected,
+                        view.ys[t_mask, variable_index, local_node],
+                        label=f"node {graph_node}" if show_legend else None,
+                        **group_kwargs,
+                    )
+                axis.set_ylabel(var_labels[row])
+                axis.grid(True, alpha=0.3)
+                if row == 0:
+                    count = view.ys.shape[2]
+                    node_label = "node" if count == 1 else "nodes"
+                    axis.set_title(f"{name} ({count} {node_label})")
+                if show_legend:
+                    axis.legend(fontsize="small", loc="best")
+            axes[name][-1].set_xlabel("time")
+
+        return fig, axes
+
+    def to_graph(self, variable, groups=None, fill_value=jnp.nan):
+        """Project one named variable from selected groups to graph-node order.
+
+        Args:
+            variable: Variable name to select from each chosen group.
+            groups: Optional group names. With ``None``, groups lacking the
+                variable are skipped; explicitly selected groups must provide it.
+            fill_value: Value for graph nodes not represented by the selection.
+
+        Returns:
+            Array with shape ``[n_time, n_nodes]``.
+
+        Raises:
+            ValueError: If graph metadata, selected groups, or the requested
+                variable are unavailable.
+        """
+        if self.n_nodes is None:
+            raise ValueError("n_nodes metadata is required for graph projection")
+        selected_groups = list(self.ys) if groups is None else list(groups)
+        if not selected_groups:
+            raise ValueError("groups must select at least one group")
+        unknown = set(selected_groups) - set(self.ys)
+        if unknown:
+            raise ValueError(f"Unknown solution groups: {sorted(unknown)}")
+        missing_nodes = set(selected_groups) - set(self._group_nodes)
+        if missing_nodes:
+            raise ValueError(
+                "group_nodes metadata is required for graph projection; "
+                f"missing {sorted(missing_nodes)}"
+            )
+
+        dtype = jnp.result_type(
+            *[self.ys[name].dtype for name in selected_groups],
+            jnp.asarray(fill_value).dtype,
+        )
+        projected = jnp.full((self.ts.shape[0], self.n_nodes), fill_value, dtype=dtype)
+        used = False
+        skipped = []
+        for name in selected_groups:
+            names = self.variable_names[name]
+            if names is None or variable not in names:
+                if groups is not None:
+                    raise ValueError(
+                        f"Variable {variable!r} is not available in group {name!r}"
+                    )
+                skipped.append(name)
+                continue
+            local = self.ys[name][:, names.index(variable), :]
+            projected = projected.at[:, self._group_nodes[name]].set(local)
+            used = True
+        if not used:
+            raise ValueError(f"Variable {variable!r} is not available in any group")
+        if skipped:
+            warnings.warn(
+                f"Variable {variable!r} is unavailable in groups {skipped}; "
+                "those groups were skipped and their graph nodes retain "
+                "fill_value. Pass groups= explicitly to acknowledge partial "
+                "coverage.",
+                UserWarning,
+                stacklevel=2,
+            )
+        return projected
+
+    def tree_flatten(self):
+        children = (self.ts, self.ys)
+        aux = {
+            "dt": self.dt,
+            "variable_names": self.variable_names,
+            "group_nodes": self._group_nodes,
+            "n_nodes": self.n_nodes,
+        }
+        return children, aux
+
+    def tree_flatten_with_keys(self):
+        children = (
+            (tree_util.GetAttrKey("ts"), self.ts),
+            (tree_util.GetAttrKey("ys"), self.ys),
+        )
+        aux = {
+            "dt": self.dt,
+            "variable_names": self.variable_names,
+            "group_nodes": self._group_nodes,
+            "n_nodes": self.n_nodes,
+        }
+        return children, aux
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        ts, ys = children
+        return cls(
+            ts,
+            ys,
+            dt=aux["dt"],
+            variable_names=aux["variable_names"],
+            group_nodes=aux["group_nodes"],
+            n_nodes=aux["n_nodes"],
+        )
+
+    def __repr__(self):
+        shapes = {name: tuple(value.shape) for name, value in self.ys.items()}
+        return f"HeterogeneousSolution(groups={shapes}, dt={self.dt})"
 
 
 @tree_util.register_pytree_with_keys_class

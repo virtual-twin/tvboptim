@@ -5,6 +5,7 @@ support. The prepare() function sets up the integration with all coupling state
 management, and returns a pure function for execution.
 """
 
+import copy
 import warnings
 from typing import Callable, Tuple
 
@@ -14,12 +15,18 @@ import jax.numpy as jnp
 from plum import dispatch
 
 from .core.bunch import Bunch
+from .core.heterogeneous import HeterogeneousNetwork
 from .core.network import Network
+from .core.observation import GroupObservation
+from .core.readout import pack_history_readouts, pack_readouts, prepare_readouts
+from .coupling.base import DelayedCoupling, InstantaneousCoupling
 from .dynamics.base import AbstractDynamics
+from .graph.base import delay_steps_bound, effective_max_delay
 from .graph.topology import prepare_graph_topology, validate_graph_topology
-from .result import DiffraxSolution, wrap_native_result
+from .result import DiffraxSolution, HeterogeneousSolution, wrap_native_result
 from .solvers.diffrax import DiffraxSolver
 from .solvers.native import NativeSolver
+from .utils.history import extract_history_window
 
 
 def _snapshot(tree):
@@ -32,6 +39,25 @@ def _snapshot(tree):
     buffers, pre-sampled noise tensors).
     """
     return jax.tree.map(lambda x: x, tree)
+
+
+def _partition_jax_params(params):
+    """Split a named parameter mapping into dynamic and static entries.
+
+    Strings and other non-JAX values cannot be leaves of a jitted solve config.
+    Keep such construction metadata in the prepared closure while exposing all
+    array-compatible values as live config leaves.
+    """
+    dynamic = Bunch()
+    static = Bunch()
+    for name, value in params.items():
+        try:
+            jax.eval_shape(lambda item: item, value)
+        except (TypeError, ValueError):
+            static[name] = value
+        else:
+            dynamic[name] = value
+    return dynamic, static
 
 
 def _blocked_scan(runner, state0, scan_inputs, n_steps, block_size):
@@ -639,7 +665,7 @@ Network with native solver (all features):
 >>> from tvboptim.experimental.network_dynamics.graph import DenseGraph
 >>> import jax.numpy as jnp
 >>> network = Network(ReducedWongWang(),
-...                   LinearCoupling(incoming_states='S', G=1.0),
+...                   LinearCoupling(source='S', G=1.0),
 ...                   DenseGraph(jnp.ones((68, 68))))
 >>> model_fn, config = prepare(network, Euler(), t0=0, t1=100, dt=0.1)
 >>> result = model_fn(config)
@@ -720,6 +746,851 @@ def solve(
     """
     solve_fn, params = prepare(model, solver, t0=t0, t1=t1, dt=dt, **kwargs)
     return solve_fn(params)
+
+
+@dispatch
+def prepare(
+    network: HeterogeneousNetwork,
+    solver: NativeSolver,
+    t0: float = 0.0,
+    t1: float = 1.0,
+    dt: float = 0.1,
+    reduce=None,
+    observe=None,
+) -> Tuple[Callable, Bunch]:
+    """Prepare heterogeneous groups, routes, and an optional observation.
+
+    Args:
+        reduce: Optional ``(init, update, finalize)`` reducer. Heterogeneous
+            reduction requires ``observe`` and runs in bounded forward memory
+            only when ``solver.block_size`` is set.
+        observe: Optional :class:`GroupObservation` projecting accepted
+            per-step group variables of interest to common graph-order channels.
+            It does not participate in dynamics, route state, or scan carry.
+    """
+    unsupported_routes = [
+        name
+        for name in network.route_names
+        if not isinstance(
+            network.routes[name].coupling,
+            (InstantaneousCoupling, DelayedCoupling),
+        )
+    ]
+    if unsupported_routes:
+        raise NotImplementedError(
+            "Heterogeneous routes require an instantaneous or delayed "
+            f"PrePostCoupling implementation: {unsupported_routes}"
+        )
+    if observe is not None and not isinstance(observe, GroupObservation):
+        raise TypeError("observe must be a GroupObservation or None")
+    if reduce is not None and observe is None:
+        raise ValueError(
+            "Heterogeneous reduce= requires observe=GroupObservation(...) to "
+            "define common graph-order channels."
+        )
+    if reduce is not None and solver.block_size is None:
+        warnings.warn(
+            "Heterogeneous observe= with reduce= only bounds trajectory memory "
+            "when solver.block_size is set. Without block_size the full "
+            "trajectory is materialized before reduction.",
+            UserWarning,
+            stacklevel=2,
+        )
+    time_steps = jnp.arange(t0, t1, dt)
+    prepared_topology = prepare_graph_topology(network.graph)
+    group_specs = []
+    variable_names = {}
+    initial_state = Bunch()
+    group_config = Bunch()
+    noise_specs = []
+    noise_samples_init = Bunch()
+    external_specs = Bunch()
+    external_data = Bunch()
+    external_state_init = Bunch()
+    zero_externals = Bunch()
+    for name in network.group_names:
+        group = network.groups[name]
+        n_group_nodes = len(network.group_nodes[name])
+        state_indices, aux_indices, record_aux, names = _split_voi(group.dynamics)
+        group_specs.append(
+            (
+                name,
+                group.dynamics,
+                n_group_nodes,
+                state_indices,
+                aux_indices,
+                record_aux,
+            )
+        )
+        variable_names[name] = names
+        initial_state[name] = network.initial_state_for(name)
+        group_config[name] = Bunch(dynamics=_snapshot(group.dynamics.params))
+
+        zero_externals[name] = Bunch(
+            {
+                input_name: jnp.zeros((n_dims, n_group_nodes))
+                for input_name, n_dims in group.dynamics.EXTERNAL_INPUTS.items()
+            }
+        )
+
+        if group.noise is not None:
+            # A noise instance owns its resolved state indices. Copy it so the
+            # same construction object can safely be reused by groups with
+            # different dynamics signatures.
+            noise = copy.copy(group.noise)
+            noise._state_indices = noise._resolve_state_indices(group.dynamics)
+            state_indices_noise = noise._state_indices
+            noise_specs.append(
+                (
+                    name,
+                    noise.diffusion,
+                    state_indices_noise,
+                    len(state_indices_noise),
+                    n_group_nodes,
+                )
+            )
+            group_config[name].noise = _snapshot(noise.params)
+            group_config[name].noise.key = noise.key
+            noise_samples_init[name] = None
+
+        if group.externals:
+            group_config[name].external = Bunch()
+            external_data[name] = Bunch()
+            external_state_init[name] = Bunch()
+            prepared_externals = []
+            # External inputs operate in group-local node space. The small
+            # context preserves the established prepare(network, dt) contract
+            # without pretending the shared graph has only this many nodes.
+            context = Bunch(
+                graph=Bunch(n_nodes=n_group_nodes),
+                dynamics=group.dynamics,
+                initial_state=initial_state[name],
+            )
+            for input_name in group.dynamics.EXTERNAL_INPUTS:
+                external = group.externals.get(input_name)
+                if external is None:
+                    prepared_externals.append((input_name, None, None, Bunch()))
+                    continue
+                data, state = external.prepare(context, dt)
+                runtime_params, static_params = _partition_jax_params(external.params)
+                external_data[name][input_name] = data
+                external_state_init[name][input_name] = state
+                group_config[name].external[input_name] = _snapshot(runtime_params)
+                prepared_externals.append((input_name, external, data, static_params))
+            external_specs[name] = tuple(prepared_externals)
+
+    route_config = Bunch()
+    route_specs = []
+    route_history_shapes = {}
+
+    state_names = {
+        name: tuple(network.groups[name].dynamics.STATE_NAMES)
+        for name in network.group_names
+    }
+
+    for route_name in network.route_names:
+        route = network.routes[route_name]
+        source_params = Bunch(
+            {
+                name: _snapshot(route.source_params.get(name, Bunch()))
+                for name in route.source
+            }
+        )
+        local_params = Bunch(
+            {
+                name: _snapshot(route.local_params.get(name, Bunch()))
+                for name in route.local
+            }
+        )
+        target_params = Bunch(
+            {
+                name: _snapshot(route.target_params.get(name, Bunch()))
+                for name in route.target
+            }
+        )
+        route_config[route_name] = Bunch(
+            coupling=_snapshot(route.coupling.params),
+            source_params=source_params,
+            local_params=local_params,
+            target_params=target_params,
+        )
+
+        source_specs, source_width, source_dtypes = prepare_readouts(
+            route.source,
+            source_params,
+            probe_values=initial_state,
+            names=state_names,
+            group_nodes=network.group_nodes,
+            role=f"route {route_name!r} source",
+            params_name="source_params",
+            reads="state",
+        )
+        if route.local:
+            local_specs, local_width, local_dtypes = prepare_readouts(
+                route.local,
+                local_params,
+                probe_values=initial_state,
+                names=state_names,
+                group_nodes=network.group_nodes,
+                role=f"route {route_name!r} local",
+                params_name="local_params",
+                reads="state",
+            )
+        else:
+            local_specs, local_width, local_dtypes = (), 0, ()
+
+        signal_dtype = jnp.result_type(*(source_dtypes + local_dtypes))
+        route.coupling._validate_pre_contract(
+            network.graph,
+            tuple(range(source_width)),
+            tuple(range(local_width)),
+            signal_dtype,
+        )
+        is_delayed = isinstance(route.coupling, DelayedCoupling)
+        if is_delayed and not hasattr(network.graph, "delays"):
+            raise ValueError(
+                f"delayed route {route_name!r} requires a graph with delays"
+            )
+        if is_delayed:
+            max_delay = effective_max_delay(network.graph)
+            if network._history is None:
+                initial_signal = pack_readouts(
+                    initial_state,
+                    source_specs,
+                    source_width,
+                    signal_dtype,
+                    source_params,
+                    network.n_nodes,
+                )
+                history_rows = delay_steps_bound(max_delay, dt) + 1
+                initial_history = jnp.broadcast_to(
+                    initial_signal,
+                    (history_rows,) + initial_signal.shape,
+                )
+            else:
+                packed_history = pack_history_readouts(
+                    network._history,
+                    source_specs,
+                    source_width,
+                    signal_dtype,
+                    source_params,
+                    network.n_nodes,
+                )
+                initial_history = extract_history_window(
+                    network._history.ts,
+                    packed_history,
+                    max_delay,
+                    dt,
+                )
+            coupling_data, coupling_state = route.coupling._prepare_history(
+                network.graph,
+                initial_history,
+                dt,
+                t0,
+                t1,
+                incoming_indices=tuple(range(source_width)),
+                local_indices=tuple(range(local_width)),
+            )
+            route_config[route_name].history = coupling_state.history
+            route_history_shapes[route_name] = tuple(coupling_state.history.shape)
+            if "write_idx" in coupling_state:
+                route_config[route_name].write_idx = coupling_state.write_idx
+        else:
+            coupling_data = Bunch()
+        coupling_data._prepared_topology = prepared_topology
+        coupling_data.stage_time_centroid = solver.stage_time_centroid
+        coupling_data.recompute_coupling_per_stage = solver.recompute_coupling_per_stage
+        source_node_count = sum(nodes.shape[0] for _, nodes, _, _ in source_specs)
+        if source_node_count != network.n_nodes:
+            source_mask = jnp.zeros((network.n_nodes,), dtype=signal_dtype)
+            for _group_name, nodes, _readout, _indices in source_specs:
+                source_mask = source_mask.at[nodes].set(1)
+            coupling_data._source_mask = source_mask
+
+        target_specs = []
+        for group_name in sorted(route.target):
+            input_name, conversion = route.target[group_name]
+            nodes = jnp.asarray(network.group_nodes[group_name], dtype=int)
+            n_group_nodes = len(network.group_nodes[group_name])
+            if conversion is not None:
+                signal = jax.ShapeDtypeStruct(
+                    (route.coupling.N_OUTPUT_STATES, n_group_nodes), signal_dtype
+                )
+                try:
+                    converted = jax.eval_shape(
+                        conversion, signal, target_params[group_name]
+                    )
+                except Exception as exc:
+                    hint = (
+                        f" Its parameters target_params[{group_name!r}] are "
+                        "empty; if the conversion reads parameters, pass them "
+                        "there on the route."
+                        if not target_params[group_name]
+                        else ""
+                    )
+                    raise ValueError(
+                        f"route {route_name!r} conversion for group "
+                        f"{group_name!r} could not be evaluated as "
+                        f"conversion(signal, params) ({type(exc).__name__}: "
+                        f"{exc})." + hint
+                    ) from exc
+                expected = (
+                    network.groups[group_name].dynamics.COUPLING_INPUTS[input_name],
+                    n_group_nodes,
+                )
+                actual = getattr(converted, "shape", None)
+                if actual != expected:
+                    raise ValueError(
+                        f"route {route_name!r} conversion for group "
+                        f"{group_name!r} returned shape {actual}; expected {expected}"
+                    )
+            target_specs.append((group_name, nodes, input_name, conversion))
+
+        route_specs.append(
+            (
+                route_name,
+                route.coupling,
+                coupling_data,
+                source_width,
+                local_width,
+                signal_dtype,
+                source_specs,
+                local_specs,
+                tuple(target_specs),
+                is_delayed,
+            )
+        )
+
+    observation_specs = ()
+    observation_width = 0
+    observation_dtype = None
+    observation_params = Bunch()
+    if observe is not None:
+        unknown_groups = set(observe.readouts) - set(network.group_names)
+        if unknown_groups:
+            raise ValueError(
+                f"GroupObservation references unknown groups {sorted(unknown_groups)}"
+            )
+        observed_nodes = {
+            node
+            for group_name in observe.readouts
+            for node in network.group_nodes[group_name]
+        }
+        uncovered_nodes = sorted(set(range(network.n_nodes)) - observed_nodes)
+        if (
+            reduce is not None
+            and uncovered_nodes
+            and not observe.allow_partial_coverage
+        ):
+            missing_groups = [
+                name for name in network.group_names if name not in observe.readouts
+            ]
+            raise ValueError(
+                "GroupObservation with reduce= must cover every graph node; "
+                f"uncovered nodes {uncovered_nodes}. Add groups {missing_groups}, "
+                "or set allow_partial_coverage=True only for a reducer you have "
+                "verified is fill-aware."
+            )
+        observation_params = Bunch(
+            {
+                name: _snapshot(observe.params.get(name, Bunch()))
+                for name in observe.readouts
+            }
+        )
+        voi_probes = Bunch(
+            {
+                name: jnp.zeros(
+                    (len(variable_names[name]), len(network.group_nodes[name])),
+                    dtype=initial_state[name].dtype,
+                )
+                for name in observe.readouts
+            }
+        )
+        observation_specs, observation_width, observation_dtypes = prepare_readouts(
+            observe.readouts,
+            observation_params,
+            probe_values=voi_probes,
+            names=variable_names,
+            group_nodes=network.group_nodes,
+            role="GroupObservation",
+            params_name="params",
+            reads="voi",
+        )
+        if len(observe.channels) != observation_width:
+            raise ValueError(
+                "GroupObservation channels length must match probed readout "
+                f"width Q={observation_width}; got {len(observe.channels)}"
+            )
+        observation_dtype = jnp.result_type(
+            *observation_dtypes, jnp.asarray(observe.fill_value).dtype
+        )
+
+    config = Bunch(
+        groups=group_config,
+        routes=route_config,
+        graph=_snapshot(network.graph),
+        initial_state=initial_state,
+        _internal=Bunch(time=Bunch(t0=t0, t1=t1, dt=dt)),
+    )
+    if observe is not None:
+        config.observation = observation_params
+    has_noise = bool(noise_specs)
+    has_externals = bool(external_specs)
+    if has_noise:
+        config._internal.noise_samples = noise_samples_init
+    if has_externals:
+        config._internal.external = external_data
+        config._internal.external_state = external_state_init
+    n_steps = len(time_steps)
+
+    def precompute_routes(config):
+        enriched = Bunch()
+        for route_name, coupling, data, *_ in route_specs:
+            enriched[route_name] = coupling.precompute(
+                data, config.routes[route_name].coupling, config.graph
+            )
+        return enriched
+
+    def compute_routes(grouped_state, route_states, config, enriched):
+        coupling_inputs = Bunch()
+        for name, dynamics, n_group_nodes, *_ in group_specs:
+            coupling_inputs[name] = Bunch(
+                {
+                    input_name: jnp.zeros(
+                        (n_dims, n_group_nodes), dtype=grouped_state[name].dtype
+                    )
+                    for input_name, n_dims in dynamics.COUPLING_INPUTS.items()
+                }
+            )
+
+        for (
+            route_name,
+            coupling,
+            _data,
+            source_width,
+            local_width,
+            signal_dtype,
+            source_specs,
+            local_specs,
+            target_specs,
+            is_delayed,
+        ) in route_specs:
+            route_params = config.routes[route_name]
+            local_signal = None
+            if local_width:
+                local_signal = pack_readouts(
+                    grouped_state,
+                    local_specs,
+                    local_width,
+                    signal_dtype,
+                    route_params.local_params,
+                    network.n_nodes,
+                )
+
+            if is_delayed:
+                transported = coupling._compute_from_history(
+                    local_signal,
+                    enriched[route_name],
+                    route_states[route_name],
+                    route_params.coupling,
+                    config.graph,
+                )
+            else:
+                source_signal = pack_readouts(
+                    grouped_state,
+                    source_specs,
+                    source_width,
+                    signal_dtype,
+                    route_params.source_params,
+                    network.n_nodes,
+                )
+                transported = coupling._compute_from_signals(
+                    source_signal,
+                    local_signal,
+                    enriched[route_name],
+                    route_params.coupling,
+                    config.graph,
+                )
+            for group_name, nodes, input_name, conversion in target_specs:
+                values = transported[:, nodes]
+                if conversion is not None:
+                    values = conversion(values, route_params.target_params[group_name])
+                coupling_inputs[group_name][input_name] = (
+                    coupling_inputs[group_name][input_name] + values
+                )
+        return coupling_inputs
+
+    delayed_route_specs = tuple(spec for spec in route_specs if spec[-1])
+    has_delays = bool(delayed_route_specs)
+
+    def initial_route_states(config):
+        states = Bunch()
+        for spec in delayed_route_specs:
+            route_name = spec[0]
+            actual_shape = tuple(config.routes[route_name].history.shape)
+            expected_shape = route_history_shapes[route_name]
+            if actual_shape != expected_shape:
+                raise ValueError(
+                    f"history for route {route_name!r} has shape {actual_shape}; "
+                    f"expected {expected_shape}"
+                )
+            state = Bunch(history=config.routes[route_name].history)
+            if "write_idx" in config.routes[route_name]:
+                state.write_idx = config.routes[route_name].write_idx
+            states[route_name] = state
+        return states
+
+    def update_route_states(route_states, grouped_state, config, enriched):
+        updated = Bunch()
+        for (
+            route_name,
+            coupling,
+            _data,
+            source_width,
+            _local_width,
+            signal_dtype,
+            source_specs,
+            _local_specs,
+            _target_specs,
+            _is_delayed,
+        ) in delayed_route_specs:
+            route_params = config.routes[route_name]
+            transmitted = pack_readouts(
+                grouped_state,
+                source_specs,
+                source_width,
+                signal_dtype,
+                route_params.source_params,
+                network.n_nodes,
+            )
+            updated[route_name] = coupling._update_history_from_signal(
+                enriched[route_name], route_states[route_name], transmitted
+            )
+        return updated
+
+    def _f(config):
+        grouped_state0 = config.initial_state.copy()
+        topology_anchor_group = network.group_names[0]
+        grouped_state0[topology_anchor_group] = validate_graph_topology(
+            prepared_topology,
+            config.graph,
+            grouped_state0[topology_anchor_group],
+        )
+        enriched = precompute_routes(config)
+        dynamics_params = Bunch(
+            {name: config.groups[name].dynamics for name in network.group_names}
+        )
+
+        streaming = (
+            has_noise
+            and solver.block_size is not None
+            and all(
+                config._internal.noise_samples[name] is None for name, *_ in noise_specs
+            )
+        )
+        noise_gen = None
+        if streaming:
+
+            def noise_gen(block_idx, block_len):
+                return Bunch(
+                    {
+                        name: jax.random.normal(
+                            jax.random.fold_in(
+                                config.groups[name].noise.key, block_idx
+                            ),
+                            (block_len, n_noise_states, n_group_nodes),
+                        )
+                        for (
+                            name,
+                            _diffusion,
+                            _indices,
+                            n_noise_states,
+                            n_group_nodes,
+                        ) in noise_specs
+                    }
+                )
+
+            noise_samples_all = None
+        elif has_noise:
+            noise_samples_all = Bunch(
+                {
+                    name: _materialize_noise(
+                        config.groups[name].noise.key,
+                        config._internal.noise_samples[name],
+                        (n_steps, n_noise_states, n_group_nodes),
+                    )
+                    for (
+                        name,
+                        _diffusion,
+                        _indices,
+                        n_noise_states,
+                        n_group_nodes,
+                    ) in noise_specs
+                }
+            )
+        else:
+            noise_samples_all = None
+
+        def compute_group_externals(t, grouped_state, external_state):
+            values = zero_externals.copy()
+            for group_name, prepared_externals in external_specs.items():
+                for input_name, external, data, static_params in prepared_externals:
+                    if external is not None:
+                        params = static_params.copy()
+                        params.update(config.groups[group_name].external[input_name])
+                        values[group_name][input_name] = external.compute(
+                            t,
+                            grouped_state[group_name],
+                            data,
+                            external_state[group_name][input_name],
+                            params,
+                        )
+            return values
+
+        def update_group_externals(external_state, grouped_state):
+            updated = Bunch()
+            for group_name, prepared_externals in external_specs.items():
+                updated[group_name] = Bunch()
+                for input_name, external, data, _static_params in prepared_externals:
+                    if external is not None:
+                        updated[group_name][input_name] = external.update_state(
+                            data,
+                            external_state[group_name][input_name],
+                            grouped_state[group_name],
+                        )
+            return updated
+
+        def grouped_dynamics(
+            t,
+            grouped_state,
+            grouped_params,
+            external_state,
+            route_states,
+            frozen_coupling_inputs=None,
+        ):
+            coupling_inputs = (
+                compute_routes(grouped_state, route_states, config, enriched)
+                if frozen_coupling_inputs is None
+                else frozen_coupling_inputs
+            )
+            derivatives = Bunch()
+            auxiliaries = Bunch()
+            external_inputs = (
+                compute_group_externals(t, grouped_state, external_state)
+                if has_externals
+                else zero_externals
+            )
+            for name, dynamics, n_group_nodes, *_ in group_specs:
+                result = dynamics.dynamics(
+                    t,
+                    grouped_state[name],
+                    grouped_params[name],
+                    coupling_inputs[name],
+                    external_inputs[name],
+                )
+                if isinstance(result, tuple):
+                    derivatives[name], auxiliaries[name] = result
+                else:
+                    derivatives[name] = result
+                    auxiliaries[name] = jnp.empty(
+                        (0, n_group_nodes), dtype=grouped_state[name].dtype
+                    )
+            return derivatives, auxiliaries
+
+        def op(carry, scan_input):
+            if has_noise:
+                t, noise_raw = scan_input
+            else:
+                t = scan_input
+
+            if has_externals or has_delays:
+                grouped_state = carry.dynamics
+                external_state = carry.external
+                route_states = carry.routes
+            else:
+                grouped_state = carry
+                external_state = Bunch()
+                route_states = Bunch()
+
+            frozen_coupling_inputs = None
+            if not solver.recompute_coupling_per_stage:
+                frozen_coupling_inputs = compute_routes(
+                    grouped_state, route_states, config, enriched
+                )
+
+            def wrapped_dynamics(t_inner, grouped_state, grouped_params):
+                return grouped_dynamics(
+                    t_inner,
+                    grouped_state,
+                    grouped_params,
+                    external_state,
+                    route_states,
+                    frozen_coupling_inputs,
+                )
+
+            noise_sample = Bunch(
+                {
+                    name: jnp.zeros_like(grouped_state[name])
+                    for name in network.group_names
+                }
+            )
+            if has_noise:
+                for (
+                    name,
+                    diffusion,
+                    state_indices_noise,
+                    n_noise_states,
+                    n_group_nodes,
+                ) in noise_specs:
+                    raw_diffusion = jnp.asarray(
+                        diffusion(t, grouped_state[name], config.groups[name].noise)
+                    )
+                    if raw_diffusion.ndim == 0:
+                        diffusion_values = jnp.full(
+                            (n_noise_states, n_group_nodes), raw_diffusion
+                        )
+                    elif raw_diffusion.ndim == 1:
+                        diffusion_values = jnp.broadcast_to(
+                            raw_diffusion[:, None],
+                            (n_noise_states, n_group_nodes),
+                        )
+                    else:
+                        diffusion_values = jnp.broadcast_to(
+                            raw_diffusion, (n_noise_states, n_group_nodes)
+                        )
+                    scaled_noise = diffusion_values * jnp.sqrt(dt) * noise_raw[name]
+                    noise_sample[name] = (
+                        noise_sample[name].at[state_indices_noise].set(scaled_noise)
+                    )
+
+            next_state, auxiliaries = solver.step(
+                wrapped_dynamics,
+                t,
+                grouped_state,
+                dt,
+                dynamics_params,
+                noise_sample,
+            )
+            output = Bunch()
+            for (
+                name,
+                _dynamics,
+                _n_group_nodes,
+                state_indices,
+                aux_indices,
+                record_aux,
+            ) in group_specs:
+                output[name] = _assemble_output(
+                    next_state[name],
+                    auxiliaries[name],
+                    state_indices,
+                    aux_indices,
+                    record_aux,
+                )
+            if observe is not None:
+                output = pack_readouts(
+                    output,
+                    observation_specs,
+                    observation_width,
+                    observation_dtype,
+                    config.observation,
+                    network.n_nodes,
+                    fill_value=observe.fill_value,
+                )
+            if has_externals or has_delays:
+                next_external = (
+                    update_group_externals(external_state, next_state)
+                    if has_externals
+                    else Bunch()
+                )
+                next_routes = (
+                    update_route_states(route_states, next_state, config, enriched)
+                    if has_delays
+                    else Bunch()
+                )
+                next_carry = Bunch(
+                    dynamics=next_state,
+                    external=next_external,
+                    routes=next_routes,
+                )
+            else:
+                next_carry = next_state
+            return next_carry, output
+
+        state0 = (
+            Bunch(
+                dynamics=grouped_state0,
+                external=(
+                    config._internal.external_state.copy() if has_externals else Bunch()
+                ),
+                routes=initial_route_states(config) if has_delays else Bunch(),
+            )
+            if has_externals or has_delays
+            else grouped_state0
+        )
+        scan_inputs = (
+            time_steps
+            if not has_noise or streaming
+            else (time_steps, noise_samples_all)
+        )
+        fold = _reduce_fold(
+            reduce,
+            observe.channels if observe is not None else (),
+            network.n_nodes,
+            n_steps,
+        )
+        final_carry, trajectories = run_scan(
+            op,
+            state0,
+            scan_inputs,
+            n_steps,
+            solver,
+            fold=fold,
+            noise_gen=noise_gen,
+        )
+        if reduce is not None:
+            _init, update, finalize = reduce
+            acc = (
+                update(fold[0], trajectories)
+                if solver.block_size is None
+                else final_carry[1]
+            )
+            return finalize(acc)
+
+        if observe is not None:
+            return wrap_native_result(
+                trajectories,
+                t0,
+                t1,
+                dt,
+                variable_names=observe.channels,
+            )
+        ts = t0 + (jnp.arange(n_steps) + 1) * dt
+        return HeterogeneousSolution(
+            ts,
+            trajectories,
+            dt=dt,
+            variable_names=variable_names,
+            group_nodes=network.group_nodes,
+            n_nodes=network.n_nodes,
+        )
+
+    return _f, config
+
+
+@dispatch
+def prepare(
+    network: HeterogeneousNetwork,
+    solver: DiffraxSolver,
+    t0: float = 0.0,
+    t1: float = 1.0,
+    dt: float = 0.1,
+    reduce=None,
+) -> Tuple[Callable, Bunch]:
+    del network, solver, t0, t1, dt, reduce
+    raise NotImplementedError(
+        "HeterogeneousNetwork currently supports native fixed-step solvers only"
+    )
 
 
 @dispatch

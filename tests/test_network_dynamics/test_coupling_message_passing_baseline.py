@@ -87,7 +87,7 @@ CASES = (
         False,
         "linear",
         Linear,
-        partial(LinearCoupling, incoming_states="x", G=0.7, b=0.1),
+        partial(LinearCoupling, source="x", G=0.7, b=0.1),
         ("x",),
     ),
     CouplingCase(
@@ -103,7 +103,7 @@ CASES = (
         False,
         "difference",
         Linear,
-        partial(DifferenceCoupling, incoming_states="x", local_states="x", G=0.7),
+        partial(DifferenceCoupling, source="x", local="x", G=0.7),
         ("x",),
     ),
     CouplingCase(
@@ -113,7 +113,7 @@ CASES = (
         Linear,
         partial(
             SigmoidCoupling,
-            incoming_states="x",
+            source="x",
             G=0.8,
             a=1.2,
             b=-0.1,
@@ -127,7 +127,7 @@ CASES = (
         False,
         "tanh",
         Linear,
-        partial(TanhCoupling, incoming_states="x", G=0.6, scale=1.1),
+        partial(TanhCoupling, source="x", G=0.6, scale=1.1),
         ("x",),
     ),
     CouplingCase(
@@ -137,7 +137,7 @@ CASES = (
         JansenRit,
         partial(
             SigmoidalJansenRit,
-            incoming_states=("y1", "y2"),
+            source=("y1", "y2"),
             G=1.1,
             cmin=0.02,
             cmax=0.8,
@@ -153,8 +153,8 @@ CASES = (
         Kuramoto,
         partial(
             KuramotoCoupling,
-            incoming_states="theta",
-            local_states="theta",
+            source="theta",
+            local="theta",
             G=0.9,
         ),
         ("theta",),
@@ -164,7 +164,7 @@ CASES = (
         True,
         "linear",
         Linear,
-        partial(DelayedLinearCoupling, incoming_states="x", G=0.7, b=0.1),
+        partial(DelayedLinearCoupling, source="x", G=0.7, b=0.1),
         ("x",),
     ),
     CouplingCase(
@@ -174,8 +174,8 @@ CASES = (
         Linear,
         partial(
             DelayedDifferenceCoupling,
-            incoming_states="x",
-            local_states="x",
+            source="x",
+            local="x",
             G=0.7,
         ),
         ("x",),
@@ -187,7 +187,7 @@ CASES = (
         Linear,
         partial(
             DelayedSigmoidCoupling,
-            incoming_states="x",
+            source="x",
             G=0.8,
             slope=0.9,
             midpoint=0.3,
@@ -201,7 +201,7 @@ CASES = (
         JansenRit,
         partial(
             DelayedSigmoidalJansenRit,
-            incoming_states=("y1", "y2"),
+            source=("y1", "y2"),
             G=1.1,
             cmin=0.02,
             cmax=0.8,
@@ -217,8 +217,8 @@ CASES = (
         Kuramoto,
         partial(
             DelayedKuramotoCoupling,
-            incoming_states="theta",
-            local_states="theta",
+            source="theta",
+            local="theta",
             G=0.9,
         ),
         ("theta",),

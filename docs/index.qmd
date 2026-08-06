@@ -93,7 +93,7 @@ target_fc = load_functional_connectivity("dk_average")
 network = Network(
     dynamics=ReducedWongWang(),                     # Neural mass model (local dynamics)
     coupling={'delayed': DelayedLinearCoupling(     # How regions communicate
-        incoming_states="S", G=0.5)},
+        source="S", G=0.5)},
     graph=DenseDelayGraph(weights, delays,          # Structural connectivity + delays
                           region_labels=labels),
     noise=AdditiveNoise(sigma=0.01,                 # Stochastic fluctuations

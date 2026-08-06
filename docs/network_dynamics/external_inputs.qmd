@@ -93,7 +93,7 @@ dynamics = Generic2dOscillator(
 
 # 3 nodes with different pulse widths
 graph = DenseGraph(jnp.eye(3))
-coupling = LinearCoupling(incoming_states='V', G=0.0)
+coupling = LinearCoupling(source='V', G=0.0)
 
 # Create Gaussian pulse with per-node widths
 gaussian_input = GaussianPulseInput(

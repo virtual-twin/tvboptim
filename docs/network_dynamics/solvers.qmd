@@ -107,7 +107,7 @@ from tvboptim.experimental.network_dynamics.solvers import Heun
 weights = jnp.array([[0.0, 1.0], [1.0, 0.0]])
 graph = DenseGraph(weights)
 dynamics = ReducedWongWang()
-coupling = LinearCoupling(incoming_states="S", G=2.0)
+coupling = LinearCoupling(source="S", G=2.0)
 
 network = Network(
     dynamics=dynamics,

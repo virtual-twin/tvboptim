@@ -30,6 +30,9 @@ class Network:
 
     Supports multiple named coupling inputs and external inputs that are automatically
     mapped to dynamics model's COUPLING_INPUTS and EXTERNAL_INPUTS specifications.
+    Each coupling-input name maps to at most one coupling; ordinary ``Network``
+    couplings are not accumulated. Duplicate dictionary keys are resolved by
+    Python before construction and therefore cannot be detected here.
 
     Args:
         dynamics: Dynamics model (must be AbstractDynamics)
@@ -96,6 +99,13 @@ class Network:
 
         # Normalize coupling input to dict format with validation
         self.coupling = self._normalize_couplings(coupling, dynamics)
+        for name, value in self.coupling.items():
+            if not value.SOURCE_STATE_NAMES and not value.LOCAL_STATE_NAMES:
+                raise ValueError(
+                    f"Coupling {name!r} requires source= or local= "
+                    "in an ordinary Network. Selector-free couplings are only "
+                    "valid inside a heterogeneous SignalRoute."
+                )
 
         # Normalize external input to dict format with validation
 

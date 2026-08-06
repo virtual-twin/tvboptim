@@ -150,7 +150,7 @@ graph = DenseDelayGraph(
     weights=jnp.asarray(weights), delays=delays, region_labels=region_labels
 )
 dynamics = ReducedWongWang(w=0.5, I_o=0.32, INITIAL_STATE=(0.3,))
-coupling = DelayedLinearCoupling(incoming_states="S", G=0.5, buffer_strategy="roll")
+coupling = DelayedLinearCoupling(source="S", G=0.5, buffer_strategy="roll")
 noise = AdditiveNoise(sigma=0.00283, apply_to="S", key=jax.random.key(0))
 network = Network(
     dynamics=dynamics, coupling={"delayed": coupling}, graph=graph, noise=noise

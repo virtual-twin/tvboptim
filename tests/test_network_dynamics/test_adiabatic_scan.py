@@ -28,7 +28,7 @@ MODELS = [
 
 def _build_network(model_class, coupling_var, n_nodes=4, seed=0):
     graph = DenseGraph.random(n_nodes=n_nodes, key=jax.random.PRNGKey(seed))
-    coupling = LinearCoupling(incoming_states=coupling_var, G=0.1)
+    coupling = LinearCoupling(source=coupling_var, G=0.1)
     return Network(
         dynamics=model_class(),
         coupling={"instant": coupling},
