@@ -206,7 +206,7 @@ The framework selects the scalable transport representation from the coupling co
 
 The `pre()` body is identical in every case: it performs only elementwise math on operands the framework has already aligned. Do not add `[:, :, None]` or `[None, :, :]` reshapes. Incoming-only `pre()` receives `local=None`; `post()` continues to receive node-shaped local states.
 
-`LinearCoupling` now uses the optimized incoming-only path directly. `FastLinearCoupling` is a deprecated compatibility wrapper that maps its historical `local=...` spelling to `LinearCoupling(source=...)`; new code should use `LinearCoupling`.
+`LinearCoupling` now uses the optimized incoming-only path directly. `FastLinearCoupling` is a deprecated compatibility wrapper that maps its historical `local_states=...` spelling to `LinearCoupling(source=...)`; new code should use `LinearCoupling`.
 
 ## Custom `pre()` migration and edge parameters
 
