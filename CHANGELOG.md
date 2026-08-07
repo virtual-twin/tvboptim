@@ -31,12 +31,35 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Added an executable heterogeneous-network tutorial covering mixed routing,
   observations and streaming reduction, sweeps, optimization, continuation,
   plotting, and fixed-work group-count benchmarks.
+- **Bundled agent skill.** `src/tvboptim/skills/tvboptim` ships an
+  agent-neutral skill in the open Agent Skills format, covering network
+  assembly and solving, heterogeneous networks, custom dynamics and coupling,
+  data and observations, and exploration and optimization. It is included in
+  the wheel and its examples are executed by the test suite.
+  - A `tvboptim` console script installs it: `tvboptim skills install --agent
+    claude-code --scope project`. `--agent` selects only the destination
+    directory, since clients share the bundle format but not their discovery
+    paths; `--destination` bypasses that mapping entirely.
+  - `tvboptim skills export`, `status`, and `uninstall` complete the workflow,
+    and `tvboptim.skills.install()` exposes the same behavior from Python.
+  - Installation is opt-in and never happens as a side effect of installing the
+    package. Installs record their version and a content hash, and refuse to
+    overwrite or remove a locally modified copy without `--force`.
+  - See `docs/basics/agent_skill.qmd` for the supported clients, the scopes,
+    the Python API, and how to place the files by hand.
 
 ### Changed
 
 - Coupling state selectors are now named `source=` and `local=`. The previous
   `incoming_states=` and `local_states=` spellings became misleading once a
   route, rather than the coupling, owns signal selection.
+- TVB-O is now imported lazily, roughly halving `import tvboptim` when the
+  optional package is installed. A fallback `prepare()` method imports TVB-O
+  and registers its dispatch the first time a TVB-O object is passed, printing
+  a short notice because that import takes seconds. Passing an unsupported type
+  no longer triggers the import and still raises `NotFoundLookupError`.
+  `HAS_TVBO` is resolved on access and now reports whether TVB-O is installed
+  rather than whether it has been imported.
 
 ### Deprecated
 

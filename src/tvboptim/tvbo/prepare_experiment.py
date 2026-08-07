@@ -1,23 +1,97 @@
 """TVBO experiment preparation with unified dispatch interface.
 
-This module extends the prepare() multimethod with support for TVBO SimulationExperiment
-objects. It uses conditional dispatch registration to make TVBO an optional dependency.
+This module extends the prepare() multimethod with support for TVBO
+SimulationExperiment objects, keeping TVBO an optional dependency.
+
+TVBO is imported lazily. Importing it costs seconds, mostly in its ontology and
+atlas modules, which is too much to pay on every ``import tvboptim`` for a
+dispatch most workflows never reach. Instead a fallback ``prepare`` method
+catches arguments no other method claims, imports TVBO only when the argument
+actually came from it, registers the real method, and re-dispatches. A
+SimulationExperiment can only exist if the caller imported TVBO already, so the
+lazy path costs them nothing they had not already spent.
 """
 
+import importlib.util
+import sys
 from typing import Any, Callable, Tuple
 
-from plum import dispatch
+from plum import NotFoundLookupError, dispatch
 
 # Import the prepare multimethod from network_dynamics to extend it
 from tvboptim.experimental.network_dynamics.solve import prepare
 
 __all__ = ["prepare", "HAS_TVBO"]
 
-# ============================================================================
-# OPTIONAL TVBO DISPATCH
-# ============================================================================
+#: Whether TVBO is available. Annotated but deliberately left unassigned so that
+#: module ``__getattr__`` resolves it on access instead of at import time.
+HAS_TVBO: bool
 
-try:
+#: Set to False to suppress the notice printed before the slow TVBO import.
+ANNOUNCE_TVBO_IMPORT = True
+
+# None until an import has been attempted, then the definitive result.
+_tvbo_loaded: bool | None = None
+
+
+def _tvbo_is_installed() -> bool:
+    """Report whether TVBO can be found, without importing it."""
+    if _tvbo_loaded is not None:
+        return _tvbo_loaded
+    try:
+        return importlib.util.find_spec("tvbo") is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def _is_tvbo_object(value: Any) -> bool:
+    """Cheap test for an object defined by TVBO, by module name only."""
+    return type(value).__module__.partition(".")[0] == "tvbo"
+
+
+def _load_tvbo() -> bool:
+    """Import TVBO and register its ``prepare`` method. Cached after the first call."""
+    global _tvbo_loaded
+    if _tvbo_loaded is not None:
+        return _tvbo_loaded
+    if not _tvbo_is_installed():
+        _tvbo_loaded = False
+        return False
+
+    # Only announce when this call is the one paying the cost.
+    if ANNOUNCE_TVBO_IMPORT and "tvbo" not in sys.modules:
+        print(
+            "Importing TVB-O (first use, this takes a few seconds) ...",
+            file=sys.stderr,
+            flush=True,
+        )
+    try:
+        _register_tvbo_prepare()
+    except ImportError:
+        _tvbo_loaded = False
+        return False
+
+    _tvbo_loaded = True
+    return True
+
+
+@dispatch
+def prepare(experiment: Any, *args, **kwargs) -> Any:
+    """Resolve a TVBO experiment, importing TVBO on first use.
+
+    Registered for arguments no other ``prepare`` method claims. Only TVBO
+    objects trigger the import, so an ordinary type error does not pay for it.
+    """
+    if _is_tvbo_object(experiment) and _tvbo_loaded is None and _load_tvbo():
+        # The real method now exists; plum picks it up on re-dispatch.
+        return prepare(experiment, *args, **kwargs)
+    # Report as plum would have, had this fallback not claimed the call.
+    target = tuple(type(value) for value in (experiment, *args))
+    raise NotFoundLookupError("prepare", target, prepare.methods)
+
+
+def _register_tvbo_prepare() -> None:
+    """Import TVBO and add its ``prepare`` method to the multimethod."""
     import jax
     import jax.numpy as jnp
     from tvbo import SimulationExperiment
@@ -142,7 +216,14 @@ try:
 
         return simulator, state
 
-    HAS_TVBO = True
 
-except ImportError:
-    HAS_TVBO = False
+def __getattr__(name: str) -> Any:
+    """Resolve ``HAS_TVBO`` on access rather than at import time.
+
+    Answers from :func:`importlib.util.find_spec` while TVBO is still unloaded,
+    so merely asking whether TVBO is available stays cheap. Once an import has
+    been attempted the cached, definitive result is returned instead.
+    """
+    if name == "HAS_TVBO":
+        return _tvbo_is_installed()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

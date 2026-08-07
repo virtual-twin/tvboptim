@@ -28,6 +28,7 @@ website:
           - file: basics/get_started.qmd
           - file: basics/parameters_and_optimization.qmd
           - file: basics/axes_and_spaces.qmd
+          - file: basics/agent_skill.qmd
       - text: "Workflows"
         menu:
           - file: workflows/RWW.qmd

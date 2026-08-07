@@ -124,6 +124,21 @@ For a complete 84-region model fitting empirical fMRI functional connectivity,
 see the [whole-brain optimization workflow](https://virtual-twin.github.io/tvboptim/workflows/RWW.html)
 or [run it in Google Colab](https://colab.research.google.com/github/virtual-twin/tvboptim/blob/main/docs/workflows/RWW.ipynb).
 
+## Agent Skill
+
+Teach your coding agent the API you actually have installed:
+
+```bash
+tvboptim skills install --agent claude-code --scope project
+```
+
+Agents then look up `Network`, `Space`, or `GridAxis` instead of guessing at
+them, and load only the part of the skill a task needs. The skill describes the
+version you have installed, so you spend less time correcting code written for
+an older release. See
+[Agent Skill](https://virtual-twin.github.io/tvboptim/basics/agent_skill.html)
+for the other clients, scopes, and the Python API.
+
 ## [Documentation](https://virtual-twin.github.io/tvboptim)
 
 - **[Get Started](https://virtual-twin.github.io/tvboptim/basics/get_started.html):** Build and simulate your first model

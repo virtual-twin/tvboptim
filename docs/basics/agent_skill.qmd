@@ -1,0 +1,173 @@
+---
+title: "Agent Skill"
+description: "Install the bundled TVB-Optim skill so coding agents write against the API you actually have installed."
+format:
+  html:
+    code-fold: false
+    toc: true
+    toc-depth: 3
+---
+
+TVB-Optim ships an agent skill: a small set of markdown documents that a coding
+agent loads on demand to work with this package. It is bundled inside the wheel
+and installed with one command.
+
+```bash
+tvboptim skills install --agent claude-code --scope project
+```
+
+Installation is opt-in. Installing the package never writes to an agent's
+configuration on its own.
+
+## Why install it
+
+An agent that has not read the skill writes TVB-Optim code from whatever it
+absorbed during training. That code tends to target an older release, invent
+plausible keyword names, and reach for the first API that looks right rather
+than the one that fits the task. The skill replaces guessing with a short,
+current description of the API, its naming conventions, and its failure modes.
+
+The bundle is organized for progressive disclosure, so this costs very little
+context:
+
+- The client keeps only the skill's name and one-paragraph description in
+  context permanently. That paragraph is what decides whether the skill is
+  relevant at all.
+- `SKILL.md` loads when a task matches. It carries the conventions that apply to
+  every TVB-Optim task and a router that names the reference for each topic.
+- A topic reference loads only when the router points at it. A network-assembly
+  task never pays for the heterogeneous-network material, and the router says
+  explicitly when not to load a reference.
+
+The practical effect is that the agent reads a page about `SignalRoute` instead
+of grepping the source tree for it, and reads it only when the task calls for
+it.
+
+## What it covers
+
+| Reference | Topics |
+|---|---|
+| `network-and-solving.md` | Network assembly, graphs, delays, noise, solvers, `solve`, `prepare`, warm starts, long simulations |
+| `heterogeneous-networks.md` | `HeterogeneousNetwork`, `NodeGroup`, `SignalRoute`, `Readout`, `GroupObservation`, `HeterogeneousSolution` |
+| `custom-dynamics-and-coupling.md` | Implementing or reviewing a dynamics model or a coupling class |
+| `exploration-and-optimization.md` | Axes, spaces, sequential and parallel execution, parameter constraints, gradients, callbacks, fitting |
+| `data-and-observations.md` | Bundled SC/FC/FCD data, monitors, BOLD, FC and FCD metrics, streaming observations |
+
+Every canonical pattern these references teach is executed by the TVB-Optim test
+suite. A change that invalidates an example fails CI rather than leaving the
+skill to rot quietly.
+
+## Where it gets installed
+
+Agent clients agree on the skill bundle format but not on where they look for
+it. `--agent` therefore selects the destination directory and nothing else: the
+copied bundle is identical for every client.
+
+| `--agent` | Directory |
+|---|---|
+| `claude-code` | `.claude/skills/tvboptim` |
+| `agents`, `codex`, `cursor`, `copilot` | `.agents/skills/tvboptim` |
+
+`--scope project` resolves that directory against `--project`, defaulting to the
+current directory. `--scope user` resolves it against your home directory, which
+installs the skill once for every project.
+
+Use `--dry-run` to print the destination without writing anything.
+
+### Clients not in the table
+
+Two escape hatches cover any client, including ones released after your version
+of TVB-Optim:
+
+```bash
+# Write to an explicit directory, bypassing the agent mapping.
+tvboptim skills install --destination ~/.config/some-agent/skills
+
+# Copy the bundle out and place it yourself.
+tvboptim skills export ./agent-skills
+```
+
+`export` writes `./agent-skills/tvboptim`. Neither form needs a TVB-Optim
+release to support a new client.
+
+### Placing the files by hand
+
+The bundle is plain markdown shipped inside the installed package, so you can
+read or copy it without going through the CLI at all. Ask the package where it
+is:
+
+```bash
+python -c "from tvboptim.skills import skill_source; print(skill_source())"
+```
+
+That directory contains `SKILL.md` and a `references/` folder, and copying it
+anywhere is a complete installation:
+
+```bash
+cp -r "$(python -c 'from tvboptim.skills import skill_source; print(skill_source())')" \
+      ~/.config/some-agent/skills/
+```
+
+The same files are browsable in the repository under
+[`src/tvboptim/skills/tvboptim`](https://github.com/virtual-twin/tvboptim/tree/main/src/tvboptim/skills/tvboptim)
+if you want to read them before installing anything.
+
+A copy placed this way carries no manifest, so `status` reports it as
+`unmanaged` and neither `install` nor `uninstall` will overwrite or delete it
+without `--force`. That is deliberate: files you placed yourself are yours to
+manage.
+
+## Managing an installation
+
+```bash
+tvboptim skills status      # where it is installed, and from which version
+tvboptim skills uninstall --agent claude-code
+```
+
+An installed bundle carries a `.tvboptim-skill.json` manifest recording the
+skill name, the package version that wrote it, a content hash, and a timestamp.
+That is what lets `status` distinguish four states:
+
+| State | Meaning |
+|---|---|
+| `installed` | Written by TVB-Optim and unchanged since |
+| `modified` | Written by TVB-Optim, then edited locally |
+| `unmanaged` | A directory of that name that TVB-Optim did not write |
+| `absent` | Nothing there |
+
+`install` and `uninstall` refuse to touch a `modified` or `unmanaged` directory
+unless you pass `--force`, so local edits and a hand-written skill of the same
+name are never silently destroyed. The bundle is copied rather than symlinked,
+because a symlink into `site-packages` breaks as soon as the package is upgraded
+or removed.
+
+After upgrading TVB-Optim, re-run `install` to refresh the copy. An unmodified
+installation is replaced in place, and the command reports the version it
+replaced.
+
+## From Python
+
+The same operations are available as functions, which is convenient in setup
+scripts and notebooks:
+
+```python
+from pathlib import Path
+
+from tvboptim.skills import install, status
+
+install(agent="claude-code", scope="project", project=Path.cwd())
+
+for item in status():
+    print(item.path, item.state)
+```
+
+`export`, `uninstall`, `available_skills`, `skill_source`, and
+`resolve_destination` are exported alongside them. All of them raise `SkillError`
+on a destination that cannot be resolved or safely written.
+
+## Format
+
+The bundle follows the open [Agent Skills](https://code.claude.com/docs/en/skills)
+format: a `SKILL.md` with YAML frontmatter, plus reference documents it links to.
+Nothing in it is specific to a vendor, so a client that adopts the format works
+with the bundle as shipped.

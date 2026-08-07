@@ -45,6 +45,9 @@ dependencies = [
 "Homepage" = "https://github.com/virtual-twin/tvboptim"
 "Bug Tracker" = "https://github.com/virtual-twin/tvboptim/issues"
 
+[project.scripts]
+tvboptim = "tvboptim.cli:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 
@@ -56,11 +59,21 @@ tvboptim = [
     "data/plotting/*/*.csv",
     "data/plotting/*/*.txt",
 ]
+# The skill bundles are data, not packages: they carry no __init__.py, so they
+# are keyed on tvboptim.skills. Listed explicitly rather than by recursive glob
+# so that a missing reference fails the wheel-content test loudly.
+"tvboptim.skills" = [
+    "*/SKILL.md",
+    "*/references/*.md",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
 pythonpath = ["src"]
+markers = [
+    "slow: builds an artifact or otherwise runs long; deselect with -m 'not slow'",
+]
 
 # uv-specific dependency groups for local development
 [dependency-groups]
