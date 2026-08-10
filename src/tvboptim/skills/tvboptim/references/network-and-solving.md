@@ -45,9 +45,7 @@ delays = jnp.array([[0.0, 2.0], [2.0, 0.0]])
 
 network = Network(
     dynamics=ReducedWongWang(w=0.7, INITIAL_STATE=(0.1,)),
-    coupling={
-        "delayed": DelayedLinearCoupling(source="S", G=0.1)
-    },
+    coupling={"delayed": DelayedLinearCoupling(source="S", G=0.1)},
     graph=DenseDelayGraph(weights=weights, delays=delays),
     noise=AdditiveNoise(sigma=1e-5, key=jax.random.key(0)),
 )

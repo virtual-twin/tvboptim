@@ -120,7 +120,7 @@ Without `observe=`, `solve_fn` returns a `HeterogeneousSolution` that preserves 
 
 ```python
 result = solve_fn(config)
-assert result.ys["cortex"].shape == (200, 6, 3)   # [time, variables, group nodes]
+assert result.ys["cortex"].shape == (200, 6, 3)  # [time, variables, group nodes]
 assert result.ys["sub"].shape == (200, 1, 3)
 assert result.variable_names["cortex"] == ("y0", "y1", "y2", "y3", "y4", "y5")
 ```

@@ -16,9 +16,11 @@ Build one pure function from prepared config to the smallest result needed by th
 ```python
 solve_fn, config = prepare(network, solver, t0=0.0, t1=1000.0, dt=1.0)
 
+
 def observation(config):
     result = solve_fn(config)
     return compute_fc(result, s_var=0, skip_t=100)
+
 
 def loss(config):
     simulated_fc = observation(config)
@@ -102,9 +104,7 @@ Replace only leaves to optimize with parameter wrappers:
 ```python
 from tvboptim.types import Parameter, SigmoidBoundedParameter, show_parameters
 
-config.dynamics.w = SigmoidBoundedParameter(
-    config.dynamics.w, low=0.0, high=1.0
-)
+config.dynamics.w = SigmoidBoundedParameter(config.dynamics.w, low=0.0, high=1.0)
 config.coupling.instant.G = Parameter(config.coupling.instant.G)
 show_parameters(config)
 ```
@@ -139,6 +139,7 @@ If the loss returns auxiliary data, configure it explicitly:
 def loss_with_aux(config):
     simulated_fc = observation(config)
     return rmse(simulated_fc, empirical_fc), simulated_fc
+
 
 optimizer = OptaxOptimizer(
     loss_with_aux,
