@@ -49,6 +49,7 @@ website:
           - file: network_dynamics/solvers.qmd
       - text: "Advanced Topics"
         menu:
+          - file: advanced/equinox_ude.qmd
           - file: advanced/buffer_strategies.qmd
           - file: advanced/gradient_checkpointing.qmd
           - file: advanced/streaming_reductions.qmd
@@ -107,6 +108,7 @@ quartodoc:
       desc: "Base class wrapping a JAX array for extra capabilities." 
       contents:
         - name: parameter.Parameter
+        - name: types.equinox_parameter.EquinoxParameter
         - name: parameter.NormalizedParameter
         - name: parameter.BoundedParameter
         - name: parameter.TransformedParameter

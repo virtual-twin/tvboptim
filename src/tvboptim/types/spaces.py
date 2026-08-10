@@ -45,8 +45,7 @@ import jax.numpy as jnp
 import numpy as np
 import pandas as pd
 
-from tvboptim.types.parameter import Parameter
-from tvboptim.types.stateutils import combine_state
+from tvboptim.types.stateutils import is_parameter_owner
 from tvboptim.utils import safe_reshape
 
 
@@ -849,6 +848,30 @@ def _reject_topology_axes(state) -> None:
                 raise ValueError(message)
 
 
+def _reject_equinox_parameter_axes(state) -> None:
+    """Reject axes nested inside a fixed Equinox parameter owner."""
+    from tvboptim.types.equinox_parameter import EquinoxParameter
+
+    owners = jax.tree.leaves(state, is_leaf=is_parameter_owner)
+    for owner in owners:
+        if not isinstance(owner, EquinoxParameter):
+            continue
+        nested = jax.tree.leaves(
+            owner, is_leaf=lambda value: isinstance(value, AbstractAxis)
+        )
+        if any(isinstance(value, AbstractAxis) for value in nested):
+            raise ValueError(
+                "An EquinoxParameter cannot contain a Space axis. Sweeping "
+                "modules or module architectures is not supported; place the "
+                "axis outside the EquinoxParameter instead."
+            )
+
+
+def _combine_space_state(axis_state, static_state):
+    """Combine a Space split while preserving fixed parameter owners."""
+    return eqx.combine(axis_state, static_state, is_leaf=is_parameter_owner)
+
+
 class Space:
     """Composable parameter space built from multiple axes.
 
@@ -931,17 +954,17 @@ class Space:
             raise ValueError(f"Mode must be 'product' or 'zip', got {mode}")
 
         _reject_topology_axes(state)
+        _reject_equinox_parameter_axes(state)
 
         # Use equinox.partition to separate axes from static values.
-        # Parameter must be a leaf here: without it, partition descends into a
-        # Parameter that is not on an axis and splits it, leaving a hollow copy
-        # (value=None) in axis_state that then wins the recombine. Treating it
-        # as a leaf sends it whole to static_state, so a state can mix swept
-        # slots with slots that are already optimisable Parameters.
+        # Parameter owners must be leaves here: without this boundary, a fixed
+        # owner is split and a hollow copy in axis_state can win recombination.
+        # Keeping it whole in static_state lets fixed trainable parameters
+        # coexist with swept slots.
         self.axis_state, self.static_state = eqx.partition(
             state,
             lambda x: isinstance(x, AbstractAxis),
-            is_leaf=lambda x: isinstance(x, (AbstractAxis, Parameter)),
+            is_leaf=lambda x: isinstance(x, AbstractAxis) or is_parameter_owner(x),
         )
         axes = jax.tree.leaves(
             self.axis_state, is_leaf=lambda x: isinstance(x, AbstractAxis)
@@ -1158,9 +1181,9 @@ class Space:
         """
         axis_values_tree = jax.tree.unflatten(axis_tree_def, flat_values)
         processed_axis_tree = _substitute_axis_values(self.axis_state, axis_values_tree)
-        # combine_state, not eqx.combine: a wrap may have put a Parameter in
-        # this slot, which must stay a leaf rather than being descended into.
-        return combine_state(processed_axis_tree, self.static_state)
+        # A wrap may have put a Parameter in this slot, while a fixed
+        # EquinoxParameter must remain one object rather than being descended into.
+        return _combine_space_state(processed_axis_tree, self.static_state)
 
     @property
     def has_wraps(self) -> bool:
@@ -1249,7 +1272,9 @@ class Space:
 
             # Create new Space in zip mode
             return Space(
-                eqx.combine(new_axis_state, self.static_state), mode="zip", key=self.key
+                _combine_space_state(new_axis_state, self.static_state),
+                mode="zip",
+                key=self.key,
             )
 
         else:
@@ -1362,7 +1387,7 @@ class Space:
 
         if combine:
             # Combine with static state
-            return eqx.combine(batched_axis_tree, self.static_state)
+            return _combine_space_state(batched_axis_tree, self.static_state)
         else:
             return batched_axis_tree, self.static_state
 

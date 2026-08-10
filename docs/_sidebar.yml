@@ -4,6 +4,7 @@ website:
     - reference/index.qmd
     - contents:
       - reference/parameter.Parameter.qmd
+      - reference/types.equinox_parameter.EquinoxParameter.qmd
       - reference/parameter.NormalizedParameter.qmd
       - reference/parameter.BoundedParameter.qmd
       - reference/parameter.TransformedParameter.qmd

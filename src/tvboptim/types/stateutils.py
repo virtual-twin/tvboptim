@@ -2,15 +2,36 @@
 import equinox as eqx
 import jax
 
+from tvboptim.types.equinox_parameter import EquinoxParameter
 from tvboptim.types.parameter import Parameter
 from tvboptim.utils import format_pytree_as_string
 
 
+def is_parameter_owner(value):
+    """Whether ``value`` explicitly owns trainable parameter leaves."""
+    return isinstance(value, (Parameter, EquinoxParameter))
+
+
+def is_partition_leaf(value):
+    """Whether state partition/combine must treat ``value`` atomically."""
+    return isinstance(value, Parameter)
+
+
+def parameter_filter(value):
+    """Build the nested differentiability filter for one parameter owner."""
+    if isinstance(value, Parameter):
+        return True
+    if isinstance(value, EquinoxParameter):
+        return jax.tree.map(eqx.is_inexact_array, value)
+    return False
+
+
 def collect_parameters(state):
-    """Extract values from Parameter objects in a state tree.
+    """Extract values and modules from parameter owners in a state tree.
 
     This function traverses a JAX PyTree state and extracts the underlying
-    values from Parameter objects while leaving other values unchanged.
+    values from ``Parameter`` objects and modules from ``EquinoxParameter``
+    objects while leaving other values unchanged.
 
     Parameters
     ----------
@@ -51,43 +72,37 @@ def collect_parameters(state):
     def _collect_parameters(leaf):
         if isinstance(leaf, Parameter):
             return leaf.__jax_array__()
+        elif isinstance(leaf, EquinoxParameter):
+            return leaf.module
         else:
             return leaf
 
     return jax.tree.map(
         lambda x: _collect_parameters(x),
         state,
-        is_leaf=lambda x: isinstance(x, Parameter),
+        is_leaf=is_parameter_owner,
     )
 
 
 # %%
 def mark_parameters(state):
-    """Mark Parameter objects for partitioning."""
-
-    def is_parameter(leaf):
-        return isinstance(leaf, Parameter)
-
-    return jax.tree.map(
-        lambda x: is_parameter(x), state, is_leaf=lambda x: isinstance(x, Parameter)
-    )
+    """Mark ordinary parameters and nested Equinox array leaves."""
+    return jax.tree.map(parameter_filter, state, is_leaf=is_parameter_owner)
 
 
 # %%
 def partition_state(state):
-    """Separate Parameter objects from static values for optimization."""
+    """Separate explicitly trainable leaves from static state."""
     param_mask = mark_parameters(state)
     diff_state, static_state = eqx.partition(
-        state, param_mask, is_leaf=lambda x: isinstance(x, Parameter)
+        state, param_mask, is_leaf=is_partition_leaf
     )
     return diff_state, static_state
 
 
 def combine_state(diff_state, static_state):
     """Recombine optimized parameters with static values."""
-    return eqx.combine(
-        diff_state, static_state, is_leaf=lambda x: isinstance(x, Parameter)
-    )
+    return eqx.combine(diff_state, static_state, is_leaf=is_partition_leaf)
 
 
 # def show_free(tree):
@@ -96,11 +111,9 @@ def combine_state(diff_state, static_state):
 #             print(leaf)
 #     jax.tree.map(_show_free, tree, is_leaf=lambda x: isinstance(x, Value))
 def show_parameters(tree):
-    """Show Parameter objects in the tree."""
+    """Show explicitly trainable parameter leaves in the tree."""
     param_mask = mark_parameters(tree)
-    diff_model, _ = eqx.partition(
-        tree, param_mask, is_leaf=lambda x: isinstance(x, Parameter)
-    )
+    diff_model, _ = eqx.partition(tree, param_mask, is_leaf=is_partition_leaf)
     print(
         format_pytree_as_string(
             diff_model, hide_none=True, name="Parameters", show_array_values=True

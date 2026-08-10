@@ -126,8 +126,9 @@ def _flatten_state(state):
     if theta0.size == 0:
         raise ValueError(
             "No Parameter leaves found in `state`. Wrap the quantities you "
-            "want analysed in tvboptim.types.Parameter(...) before calling "
-            "an identifiability function."
+            "want analysed in tvboptim.types.Parameter(...) or "
+            "tvboptim.types.EquinoxParameter(...) before calling an "
+            "identifiability function."
         )
 
     labels = _parameter_labels(diff_state)
