@@ -151,7 +151,18 @@ def cache(fname="", redo=False):
                     return compute_and_store()
                 return stored["payload"]
 
-            # Legacy unstamped pickle that loaded successfully: use as-is.
+            # Legacy unstamped pickle that loaded successfully: use as-is, but
+            # say so. Without a stamp there is nothing to check it against, so
+            # it survives library upgrades and edits to the decorated function
+            # that would invalidate a stamped cache. It can therefore hold
+            # results from source that no longer exists. Delete or rename it to
+            # force a recompute.
+            warnings.warn(
+                f"Cache '{fname}' has no environment stamp, so it cannot be "
+                f"checked for staleness and is being used as-is. It may predate "
+                f"the current source. Delete or rename {cache_file} to recompute.",
+                stacklevel=2,
+            )
             return stored
 
         return wrapper

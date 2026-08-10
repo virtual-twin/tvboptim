@@ -5,6 +5,7 @@ imported the package, so these run in a subprocess and assert on ``sys.modules``
 rather than on wall-clock time.
 """
 
+import os
 import subprocess
 import sys
 import textwrap
@@ -19,12 +20,21 @@ SRC = str(Path(__file__).parents[1] / "src")
 
 
 def run(body: str) -> subprocess.CompletedProcess:
-    """Execute ``body`` in a clean interpreter."""
+    """Execute ``body`` in a fresh interpreter importing this checkout.
+
+    Inherit the ambient environment and override only PYTHONPATH. Replacing it
+    wholesale breaks Windows: without SystemRoot, Winsock cannot initialize, and
+    jaxtyping imports unittest.mock, which imports asyncio, which imports
+    _overlapped -- so every subprocess dies with WinError 10106 before reaching
+    the assertion. Isolation here comes from the subprocess, not the env.
+    """
+    env = os.environ.copy()
+    env["PYTHONPATH"] = SRC
     result = subprocess.run(
         [sys.executable, "-c", textwrap.dedent(body)],
         capture_output=True,
         text=True,
-        env={"PYTHONPATH": SRC, "PATH": "/usr/bin:/bin"},
+        env=env,
     )
     assert result.returncode == 0, result.stderr
     return result
