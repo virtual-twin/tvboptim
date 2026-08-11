@@ -1,3 +1,4 @@
+from .equinox_parameter import EquinoxParameter
 from .parameter import (
     BoundedParameter,
     MaskedParameter,
@@ -17,6 +18,7 @@ from .stateutils import (
 
 __all__ = [
     "BoundedParameter",
+    "EquinoxParameter",
     "MaskedParameter",
     "NormalizedParameter",
     "Parameter",

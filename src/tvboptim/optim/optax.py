@@ -1,3 +1,4 @@
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import optax
@@ -189,7 +190,8 @@ class OptaxOptimizer:
             raise ValueError(
                 "No Parameter leaves to optimize: partitioning the state found "
                 "nothing differentiable, so every step would be a no-op. Wrap "
-                "the values you want optimized in a Parameter; if this state "
+                "the values you want optimized in a Parameter or "
+                "EquinoxParameter; if this state "
                 "came from a Space, the axis substituted a raw array and the "
                 "axis needs a wrap= (e.g. wrap=Parameter or an explicitly "
                 "configured functools.partial)"
@@ -215,7 +217,7 @@ class OptaxOptimizer:
             state = combine_state(diff_state, static_state)
             return self.loss(state)
 
-        _loss = jax.jit(__loss)
+        _loss = eqx.filter_jit(__loss)
 
         if mode == "rev":
 
@@ -280,7 +282,7 @@ class OptaxOptimizer:
             # Placeholder carry slots for loss/aux/grads must match the
             # pytree structure + dtypes returned by v_g_fun, or lax.scan
             # rejects the carry. eval_shape traces without computing.
-            (loss_shape, aux_shape), grads_shape = jax.eval_shape(
+            (loss_shape, aux_shape), grads_shape = eqx.filter_eval_shape(
                 v_g_fun, diff_state, static_state
             )
 

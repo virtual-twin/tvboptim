@@ -1,11 +1,5 @@
-import os
 import unittest
 
-# Set up CPU environment for testing
-cpu = True
-if cpu:
-    N = 8
-    os.environ["XLA_FLAGS"] = f"--xla_force_host_platform_device_count={N}"
 import jax.numpy as jnp
 
 from tvboptim.execution import (

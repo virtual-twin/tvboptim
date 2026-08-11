@@ -8,6 +8,11 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Added `EquinoxParameter`, allowing the inexact array leaves of an Equinox
+  module embedded in a state tree to be differentiated and updated alongside
+  ordinary `Parameter` values.
+- Added an advanced UDE tutorial demonstrating a shared neural correction in a
+  stochastic coupled FitzHugh--Nagumo network.
 - **Heterogeneous neural-mass networks on one shared connectome.**
   `HeterogeneousNetwork` partitions graph nodes into named `NodeGroup`s with
   independent dynamics, state dimensions, initial states, noise, and external
