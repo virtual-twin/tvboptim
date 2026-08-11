@@ -2,7 +2,6 @@
 
 import os
 
-
 # ParallelExecution tests exercise pmap with up to five CPU devices. Configure
 # the host device count during pytest startup; setting this in an individual test
 # module is too late when an earlier-collected module has already initialized JAX.
