@@ -35,27 +35,24 @@ except ImportError:
 ```
 
 ::: {.callout-warning title="Experimental feature"}
-The heterogeneous-network API is experimental. It supports a fixed partition
-of one square graph, one time step, and the native Euler, Heun, and Runge–Kutta
-solvers.
+The heterogeneous-network API is experimental. See
+[Current boundaries](#current-boundaries) for what it does and does not
+support yet.
 :::
 
 `HeterogeneousNetwork` assigns different neural-mass models to named subsets
 of one connectome. Each model retains its own states and parameters; explicit
 routes define the signals exchanged between groups.
 
-This example combines:
+This example combines three populations of different state widths, delayed
+bidirectional long-range activity, and an additional instantaneous
+relay-sourced signal.
 
-- a cortical Reduced Wong–Wang population with one state per node;
-- a Jansen–Rit relay population with six states per node;
-- a driven two-state oscillator receiving a group-local stimulus;
-- delayed bidirectional long-range activity; and
-- an additional instantaneous relay-to-cortex signal.
+@fig-heterogeneous-blueprint below is the structure we are aiming for. We build
+it once, then simulate, sweep it with `Space`, and optimize it through automatic
+differentiation.
 
-We prepare the network once, then simulate, sweep it with `Space`, and optimize
-it through automatic differentiation.
-
-## Imports and shared graph
+## Imports
 
 ```{python}
 #| code-fold: true
@@ -92,10 +89,258 @@ from tvboptim.experimental.network_dynamics.graph import DenseDelayGraph
 from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
 from tvboptim.experimental.network_dynamics.solvers import Heun
 from tvboptim.experimental.network_dynamics.utils import print_network
-from tvboptim.optim import OptaxOptimizer
+from tvboptim.optim import (
+    MultiCallback,
+    OptaxOptimizer,
+    SavingCallback,
+    SavingLossCallback,
+)
 from tvboptim.observations.observation import welford_cov
 from tvboptim.types import GridAxis, Parameter, Space
 ```
+
+## What we are building
+
+Three neural-mass populations occupy disjoint slices of a single nine-node
+connectome, and two `SignalRoute`s carry activity between them. Read the diagram
+in three layers:
+
+- **Groups** (middle) own their own dynamics, states, and parameters. State
+  widths differ per group and are never padded to a common size.
+- **Routes** (top and bottom) are the only paths between nodes. Each one collects
+  a readout from every source group, packs the results into one graph-ordered
+  `[channels, 9]` signal, and performs a single graph traversal. The delayed
+  route additionally keeps that packed signal in a history buffer.
+- **Local drives** (sides) never touch the graph. Noise and `external_input`
+  are evaluated in group-local node space.
+
+The arrow labels are the things you actually write in code: the readout each
+group emits into a route, and the dynamics input name each group receives it on.
+
+```{python}
+#| label: fig-heterogeneous-blueprint
+#| code-fold: true
+#| code-summary: "Show the diagram source"
+#| fig-cap: "The target network. Two routes span one shared connectome: a delayed route joining all three groups, and an instantaneous relay-sourced route. Each route performs one graph traversal no matter how many groups take part."
+
+from matplotlib.patches import Circle, FancyArrowPatch, FancyBboxPatch
+
+DELAYED_COLOR = "#0072B2"  # blue, long_range
+INSTANT_COLOR = "#D55E00"  # vermilion, fast_relay
+GROUP_FACE = "#F1F4F7"
+GROUP_EDGE = "#55616D"
+LOCAL_COLOR = "#3F3F3F"
+
+# Layout bands. The axes use an equal aspect, so one x unit and one y unit
+# are the same size on screen and the node markers stay circular.
+INSTANT_Y = (7.5, 8.25)
+GROUP_Y = (3.5, 6.2)
+DELAYED_Y = (0.25, 1.0)
+LOCAL_Y = 4.85
+
+groups = {
+    "cortex": {
+        "span": (0.35, 4.35),
+        "n_nodes": 6,
+        "model": "ReducedWongWang",
+        "detail": "graph nodes 0-5\nstate [1, 6]",
+        "emits": "S",
+    },
+    "relay": {
+        "span": (4.80, 7.70),
+        "n_nodes": 2,
+        "model": "JansenRit",
+        "detail": "graph nodes 6-7\nstate [6, 2]",
+        "emits": "pyramidal_activity",
+    },
+    "driven": {
+        "span": (8.15, 10.60),
+        "n_nodes": 1,
+        "model": "Generic2dOscillator",
+        "detail": "graph node 8\nstate [2, 1]",
+        "emits": "oscillator_activity",
+    },
+}
+
+BUS_X = (0.35, 10.60)
+
+
+def draw_arrow(ax, start, end, color, *, dashed=False):
+    ax.add_patch(
+        FancyArrowPatch(
+            start,
+            end,
+            arrowstyle="-|>",
+            mutation_scale=12,
+            linewidth=1.5,
+            linestyle=(0, (4, 2)) if dashed else "solid",
+            color=color,
+            shrinkA=0,
+            shrinkB=0,
+            zorder=3,
+        )
+    )
+
+
+def draw_label(ax, x, y, text, color, *, rotation=0, ha="center", size=8.5):
+    """Place a label centred on its anchor, so it never drifts into a box."""
+    ax.text(
+        x, y, text,
+        fontsize=size, color=color, ha=ha, va="center",
+        rotation=rotation, zorder=5,
+        bbox={"boxstyle": "round,pad=0.18", "facecolor": "white",
+              "edgecolor": "none", "alpha": 0.85},
+    )
+
+
+def draw_bus(ax, y_band, color, title, subtitle):
+    y0, y1 = y_band
+    ax.add_patch(
+        FancyBboxPatch(
+            (BUS_X[0], y0),
+            BUS_X[1] - BUS_X[0],
+            y1 - y0,
+            boxstyle="round,pad=0.01,rounding_size=0.1",
+            facecolor=color,
+            edgecolor=color,
+            alpha=0.18,
+            linewidth=1.4,
+            zorder=1,
+        )
+    )
+    ax.text(
+        BUS_X[0] + 0.25, (y0 + y1) / 2, title,
+        fontsize=9.5, fontweight="bold", color=color,
+        ha="left", va="center", zorder=4,
+    )
+    ax.text(
+        BUS_X[1] - 0.25, (y0 + y1) / 2, subtitle,
+        fontsize=8.5, color=color, ha="right", va="center", zorder=4,
+    )
+
+
+fig, ax = plt.subplots(figsize=(11, 5.9))
+
+draw_bus(
+    ax, INSTANT_Y, INSTANT_COLOR,
+    "route  fast_relay",
+    "LinearCoupling(G=0.02), instantaneous",
+)
+draw_bus(
+    ax, DELAYED_Y, DELAYED_COLOR,
+    "route  long_range",
+    "DelayedLinearCoupling(G=0.08), history buffer",
+)
+
+for name, group in groups.items():
+    x0, x1 = group["span"]
+    centre = (x0 + x1) / 2
+    ax.add_patch(
+        FancyBboxPatch(
+            (x0, GROUP_Y[0]),
+            x1 - x0,
+            GROUP_Y[1] - GROUP_Y[0],
+            boxstyle="round,pad=0.02,rounding_size=0.12",
+            facecolor=GROUP_FACE,
+            edgecolor=GROUP_EDGE,
+            linewidth=1.3,
+            zorder=2,
+        )
+    )
+    ax.text(
+        centre, GROUP_Y[1] - 0.42, name,
+        fontsize=11.5, fontweight="bold", ha="center", va="center", zorder=4,
+    )
+    ax.text(
+        centre, GROUP_Y[1] - 0.85, group["model"],
+        fontsize=9, ha="center", va="center", zorder=4,
+    )
+    ax.text(
+        centre, GROUP_Y[1] - 1.35, group["detail"],
+        fontsize=7.5, color="#55616D", ha="center", va="center",
+        linespacing=1.5, zorder=4,
+    )
+
+    # One circle per graph node the group owns.
+    offsets = [(index - (group["n_nodes"] - 1) / 2) * 0.46
+               for index in range(group["n_nodes"])]
+    for offset in offsets:
+        ax.add_patch(
+            Circle(
+                (centre + offset, GROUP_Y[0] + 0.45),
+                0.16,
+                facecolor="white",
+                edgecolor=GROUP_EDGE,
+                linewidth=1.2,
+                zorder=4,
+            )
+        )
+
+    # Downward: the readout this group emits into the delayed route.
+    delayed_mid = (GROUP_Y[0] + DELAYED_Y[1]) / 2
+    draw_arrow(
+        ax, (centre - 0.6, GROUP_Y[0]), (centre - 0.6, DELAYED_Y[1]),
+        DELAYED_COLOR,
+    )
+    draw_label(
+        ax, centre - 0.6, delayed_mid, group["emits"], DELAYED_COLOR,
+        rotation=90,
+    )
+    # Upward: every group receives the delayed signal on input "delayed".
+    draw_arrow(
+        ax, (centre + 0.6, DELAYED_Y[1]), (centre + 0.6, GROUP_Y[0]),
+        DELAYED_COLOR,
+    )
+    draw_label(
+        ax, centre + 0.6, delayed_mid, '"delayed"', DELAYED_COLOR, rotation=90,
+    )
+
+# The instantaneous route is sourced by the relay group alone.
+instant_mid = (GROUP_Y[1] + INSTANT_Y[0]) / 2
+relay_centre = sum(groups["relay"]["span"]) / 2
+draw_arrow(
+    ax, (relay_centre, GROUP_Y[1]), (relay_centre, INSTANT_Y[0]), INSTANT_COLOR
+)
+draw_label(
+    ax, relay_centre - 0.18, instant_mid, "pyramidal_activity",
+    INSTANT_COLOR, ha="right",
+)
+for target in ("cortex", "driven"):
+    target_centre = sum(groups[target]["span"]) / 2
+    draw_arrow(
+        ax, (target_centre, INSTANT_Y[0]), (target_centre, GROUP_Y[1]),
+        INSTANT_COLOR,
+    )
+    draw_label(
+        ax, target_centre + 0.18, instant_mid, '"instant"', INSTANT_COLOR,
+        ha="left",
+    )
+
+# Group-local drives: no graph transport, so they enter from the side.
+draw_arrow(ax, (-1.90, LOCAL_Y), (BUS_X[0], LOCAL_Y), LOCAL_COLOR, dashed=True)
+ax.text(
+    (-1.90 + BUS_X[0]) / 2, LOCAL_Y + 0.28, "AdditiveNoise\non S",
+    fontsize=8.5, color=LOCAL_COLOR, ha="center", va="bottom",
+    linespacing=1.5, zorder=4,
+)
+draw_arrow(
+    ax, (13.05, LOCAL_Y), (BUS_X[1], LOCAL_Y), LOCAL_COLOR, dashed=True
+)
+ax.text(
+    (13.05 + BUS_X[1]) / 2, LOCAL_Y + 0.28, 'ConstantInput\n"stimulus"',
+    fontsize=8.5, color=LOCAL_COLOR, ha="center", va="bottom",
+    linespacing=1.5, zorder=4,
+)
+
+ax.set_xlim(-2.6, 13.7)
+ax.set_ylim(0.0, 8.6)
+ax.set_aspect("equal")
+ax.axis("off")
+fig.tight_layout()
+plt.show()
+```
+
+## The shared connectome
 
 We use a small synthetic directed connectome: six cortical nodes, two relay
 nodes, and one driven oscillator. Groups share the graph and need not occupy
@@ -243,8 +488,7 @@ print_network(network)
 ```
 :::
 
-Each group keeps its natural state width: cortex `[1, 6]`, relay `[6, 2]`, and
-driven `[2, 1]`. Only the routed signal is temporarily packed as `[1, 9]`.
+Only the routed signal is temporarily packed as `[1, 9]`.
 
 ::: {.callout-note collapse="true" title="Target-specific unit conversion"}
 Target conversions adapt a transported signal to one receiver's units. For
@@ -284,8 +528,9 @@ solution = jax.jit(simulate)(config)
 ```
 
 With no `group=`, `plot()` puts each group in a column while retaining its own
-variable rows and node axis. The unequal panel counts make the different state
-dimensions visible immediately:
+variable rows and node axis. The unequal panel counts in
+@fig-heterogeneous-overview make the different state dimensions visible
+immediately:
 
 ```{python}
 #| label: fig-heterogeneous-overview
@@ -323,6 +568,27 @@ print("delayed history:", config.routes.long_range.history.shape)
 Index sequences preserve construction order; boolean masks normalize to
 ascending graph-node order. A group's `initial_state` columns must follow that
 order, or values can silently reach the wrong nodes despite matching shapes.
+
+## The prepared config is live
+
+Every numerical value in the prepared config stays live. For example:
+
+```{python}
+changed = copy.deepcopy(config)
+changed.routes.long_range.coupling.G = 0.10
+changed.groups.cortex.dynamics.w = 0.65
+changed.groups.cortex.noise.sigma = 0.003
+changed.groups.driven.external.stimulus.amplitude = 0.15
+changed.graph.delays = jnp.minimum(changed.graph.delays * 1.1, 2.0)
+
+changed_solution = jax.jit(simulate)(changed)
+```
+
+Changing shapes, group membership, sparse indices, or maximum delay capacity
+requires another `prepare()`; changing in-bounds values does not.
+
+Sweeping, fitting, and continuing a simulation below all rest on this one
+property.
 
 ## Observe a common graph-order signal
 
@@ -424,26 +690,10 @@ Without a reducer, observations may omit groups and fill their nodes with
 zero-variance or NaN covariance rows and appears as real drive to BOLD. Use
 `allow_partial_coverage=True` only with a verified fill-aware reducer.
 
-The prepared config contains all live numerical values. For example:
-
-```{python}
-changed = copy.deepcopy(config)
-changed.routes.long_range.coupling.G = 0.10
-changed.groups.cortex.dynamics.w = 0.65
-changed.groups.cortex.noise.sigma = 0.003
-changed.groups.driven.external.stimulus.amplitude = 0.15
-changed.graph.delays = jnp.minimum(changed.graph.delays * 1.1, 2.0)
-
-changed_solution = jax.jit(simulate)(changed)
-```
-
-Changing shapes, group membership, sparse indices, or maximum delay capacity
-requires another `prepare()`; changing in-bounds values does not.
-
 ## Sweep prepared leaves with `Space`
 
 Axes can target heterogeneous config paths directly. Here `Space` forms the
-Cartesian product of three delayed gains and two cortical recurrence values;
+Cartesian product of seven delayed gains and three cortical recurrence values;
 `ParallelExecution` vectorizes the prepared solve.
 
 ```{python}
@@ -457,22 +707,95 @@ def observe(cfg):
 
 
 sweep_config = copy.deepcopy(config)
-sweep_config.routes.long_range.coupling.G = GridAxis(0.04, 0.12, 3)
-sweep_config.groups.cortex.dynamics.w = GridAxis(0.5, 0.7, 2)
+sweep_config.routes.long_range.coupling.G = GridAxis(0.04, 0.12, 7)
+sweep_config.groups.cortex.dynamics.w = GridAxis(0.5, 0.7, 3)
 
 space = Space(sweep_config, mode="product")
 sweep_result = ParallelExecution(
     observe,
     space,
-    n_vmap=3,
+    n_vmap=7,
     n_pmap=1,
 ).run()
 
-sweep_result.to_dataframe()
+sweep_frame = sweep_result.to_dataframe()
 ```
 
-All six simulations share static group indices, route callables, and buffer
-capacity; only the selected numerical leaves are batched.
+`to_dataframe()` labels each row with the config path that varied, so the
+result plots directly in @fig-heterogeneous-sweep:
+
+```{python}
+#| label: fig-heterogeneous-sweep
+#| code-fold: true
+#| code-summary: "Show the sweep plot"
+#| fig-cap: "Sweep over the delayed gain at three cortical recurrence values. Each observable follows a different knob."
+
+G_COLUMN = "routes.long_range.coupling.G"
+W_COLUMN = "groups.cortex.dynamics.w"
+panels = {
+    "mean_cortical_S": "mean cortical $S$",
+    "mean_relay_voltage": "mean relay $y_1 - y_2$",
+}
+
+w_values = sorted(sweep_frame[W_COLUMN].unique())
+shades = [
+    plt.cm.Blues(0.45 + 0.45 * index / max(len(w_values) - 1, 1))
+    for index in range(len(w_values))
+]
+
+fig, axes = plt.subplots(1, 2, figsize=(10, 3.8))
+for axis, (column, label) in zip(axes, panels.items()):
+    for shade, w_value in zip(shades, w_values):
+        rows = sweep_frame[sweep_frame[W_COLUMN] == w_value]
+        rows = rows.sort_values(G_COLUMN)
+        axis.plot(
+            rows[G_COLUMN],
+            rows[column].astype(float),
+            marker="o",
+            markersize=4,
+            linewidth=2,
+            color=shade,
+            label=f"{w_value:g}",
+        )
+    axis.set_xlabel("long_range gain $G$")
+    axis.set_ylabel(label)
+    axis.grid(alpha=0.25)
+# The w curves coincide on the relay panel, so resolve them without the G trend.
+relay_pivot = sweep_frame.pivot_table(
+    index=G_COLUMN, columns=W_COLUMN, values="mean_relay_voltage"
+)
+relay_spread = relay_pivot.sub(relay_pivot.mean(axis=1), axis=0) * 1e6
+inset = axes[1].inset_axes([0.10, 0.46, 0.42, 0.34])
+for shade, w_value in zip(shades, w_values):
+    inset.plot(
+        relay_spread.index,
+        relay_spread[w_value].astype(float),
+        color=shade,
+        linewidth=1.5,
+    )
+inset.set_title(r"spread across $w$ ($10^{-6}$)", fontsize=7, pad=3)
+inset.tick_params(labelsize=6)
+inset.grid(alpha=0.25)
+
+handles, labels = axes[0].get_legend_handles_labels()
+fig.legend(
+    handles,
+    labels,
+    title="cortical $w$",
+    frameon=False,
+    ncol=len(labels),
+    loc="lower center",
+)
+fig.tight_layout(rect=(0, 0.12, 1, 1))
+plt.show()
+```
+
+All 21 simulations share static group indices, route callables, and buffer
+capacity; only the selected numerical leaves are batched. The two observables
+separate the knobs: cortical `S` tracks `w` and barely responds to `G`, while
+the relay voltage tracks `G` so closely that the three `w` curves coincide at
+plot scale. The inset removes the `G` trend to resolve the much smaller but
+systematic `w` effect that the route still transmits.
 
 ## Fit a route parameter
 
@@ -498,19 +821,71 @@ def loss(cfg):
     return 1e8 * error**2
 
 
-optimizer = OptaxOptimizer(loss, optax.adam(5e-3))
-fitted_config, _ = optimizer.run(
-    fit_config,
-    max_steps=40,
-    chunk_size=40,
+def record_gain(step, diff_state, static_state, fitting_data, aux, value, grads):
+    del step, static_state, fitting_data, aux, value, grads
+    return float(diff_state.routes.long_range.coupling.G.constrained_value)
+
+
+optimizer = OptaxOptimizer(
+    loss,
+    optax.adam(2e-3),
+    callback=MultiCallback(
+        [
+            SavingLossCallback(every=1),
+            SavingCallback(every=1, key="gain", save_fun=record_gain),
+        ]
+    ),
 )
+fitted_config, history = optimizer.run(fit_config, max_steps=120)
 
 print("target gain: 0.10")
 print(
     "fitted gain:",
     float(fitted_config.routes.long_range.coupling.G.constrained_value),
 )
-print("final loss:", float(loss(fitted_config)))
+```
+
+Callbacks record one row per step, so the run above omits `chunk_size`. That
+argument fuses several steps into one `scan` and reports only the last step of
+each chunk, which is faster but leaves nothing to plot in between.
+@fig-heterogeneous-fit shows the recorded history.
+
+```{python}
+#| label: fig-heterogeneous-fit
+#| code-fold: true
+#| code-summary: "Show the fit plot"
+#| fig-cap: "Fitting the delayed gain. The loss drops sharply each time the gain crosses the target, and the gain settles onto the value that generated it."
+
+loss_history = history["loss"]
+gain_history = history["gain"]
+
+fig, axes = plt.subplots(1, 2, figsize=(10, 3.8))
+axes[0].plot(
+    loss_history["step"].astype(float),
+    loss_history["save"].astype(float),
+    color="#0072B2",
+    linewidth=2,
+)
+axes[0].set_yscale("log")
+axes[0].set_ylabel("loss")
+
+axes[1].plot(
+    gain_history["step"].astype(float),
+    gain_history["save"].astype(float),
+    color="#0072B2",
+    linewidth=2,
+)
+axes[1].axhline(0.10, color="black", linestyle="--", linewidth=1)
+axes[1].text(
+    0.5, 0.10, " target 0.10", fontsize=8, va="bottom", ha="left",
+)
+axes[1].set_ylabel("long_range gain $G$")
+
+for axis in axes:
+    axis.set_xlabel("optimization step")
+    axis.grid(alpha=0.25)
+fig.tight_layout()
+plt.show()
 ```
 
 Only `Parameter` leaves are optimized. The graph, groups, other route, initial
@@ -598,6 +973,45 @@ Prefer, in order:
 2. a node-local parameter vector when values vary by node; and
 3. separate groups when nodes truly need different dynamics, state layouts,
    noise/external-input definitions, or signal semantics.
+
+### Solver stages multiply route work
+
+With `recompute_coupling_per_stage=False`, routes are evaluated once per step
+and held through native solver stages. With `True`, they are evaluated at every
+stage, multiplying transport work by stage count. This may improve
+instantaneous-coupling accuracy; measure both forward and reverse cost. See
+[Coupling Freezing](../advanced/coupling_freezing.qmd) for accuracy trade-offs.
+
+### Keep local drives local
+
+Noise and `external_input` belong to `NodeGroup`: they are evaluated in
+group-local node space without graph transport. Routes are for signals
+transmitted between nodes. To propagate a stimulus, drive one group locally and
+emit its resulting state through a route.
+
+Readout and conversion callables should be pure, fixed-shape JAX functions.
+Avoid data-dependent Python control flow and large dense-array reconstruction.
+Source readouts run before transport; target conversions run on the transported
+target slice.
+
+### Forward and reverse mode
+
+Reverse mode differentiates group kernels, readouts, transports, conversions,
+and solver stages. Delayed history and retained trajectories can dominate long
+simulations. Use block checkpointing, return only required variables, and
+benchmark the differentiated loss rather than only the forward solve.
+
+Streaming reduction requires a `GroupObservation` defining one graph-order
+array. With `block_size`, it folds each block instead of retaining the neural
+trajectory; without it, reduction is post-hoc and saves no forward memory.
+Omit `observe=` when short, group-specific trajectories are needed.
+
+### Current boundaries
+
+The API supports a fixed partition of one square graph, one time step, and
+the native Euler, Heun, and Runge–Kutta solvers. Diffrax, multiple clocks,
+changing membership, partial graph partitions, and networks on different node
+spaces are future work.
 
 ### Measure group-count scaling
 
@@ -1082,8 +1496,9 @@ fig.tight_layout()
 plt.show()
 ```
 
-The curve should rise as separately lowered vector fields and signal packing
-fragment the traced program, although each route still performs one transport.
+The curve in @fig-heterogeneous-group-scaling-v050 should rise as separately
+lowered vector fields and signal packing fragment the traced program, although
+each route still performs one transport.
 Its slope depends on device, JAX/XLA version, node count, and group widths. If
 only the plot changes, `@cache` reuses the measured table. Workload-option edits
 invalidate the source-stamped cache; after changing a benchmark helper, bump the
@@ -1104,39 +1519,3 @@ expected semantic advantage of heterogeneous networks. GPU fusion may behave
 differently, and the candidate change still needs broader gradient, graph, and
 backend testing before it belongs in the implementation.
 :::
-
-### Solver stages multiply route work
-
-With `recompute_coupling_per_stage=False`, routes are evaluated once per step
-and held through native solver stages. With `True`, they are evaluated at every
-stage, multiplying transport work by stage count. This may improve
-instantaneous-coupling accuracy; measure both forward and reverse cost. See
-[Coupling Freezing](../advanced/coupling_freezing.qmd) for accuracy trade-offs.
-
-### Keep local drives local
-
-Noise and `external_input` belong to `NodeGroup`: they are evaluated in
-group-local node space without graph transport. Routes are for signals
-transmitted between nodes. To propagate a stimulus, drive one group locally and
-emit its resulting state through a route.
-
-Readout and conversion callables should be pure, fixed-shape JAX functions.
-Avoid data-dependent Python control flow and large dense-array reconstruction.
-Source readouts run before transport; target conversions run on the transported
-target slice.
-
-### Forward and reverse mode
-
-Reverse mode differentiates group kernels, readouts, transports, conversions,
-and solver stages. Delayed history and retained trajectories can dominate long
-simulations. Use block checkpointing, return only required variables, and
-benchmark the differentiated loss rather than only the forward solve.
-
-Streaming reduction requires a `GroupObservation` defining one graph-order
-array. With `block_size`, it folds each block instead of retaining the neural
-trajectory; without it, reduction is post-hoc and saves no forward memory.
-Omit `observe=` when short, group-specific trajectories are needed.
-
-Current support is limited to native Euler, Heun, and Runge–Kutta solvers.
-Diffrax, multiple clocks, changing membership, partial graph partitions, and
-networks on different node spaces are future work.
