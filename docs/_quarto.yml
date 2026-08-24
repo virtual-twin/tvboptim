@@ -50,7 +50,10 @@ website:
           - file: network_dynamics/solvers.qmd
       - text: "Advanced Topics"
         menu:
-          - file: advanced/equinox_ude.qmd
+          - text: "UDEs 1: The Mechanics"
+            file: advanced/equinox_ude.qmd
+          - text: "UDEs 2: Modelling Decisions"
+            file: advanced/neural_mass_ude.qmd
           - file: advanced/buffer_strategies.qmd
           - file: advanced/gradient_checkpointing.qmd
           - file: advanced/streaming_reductions.qmd

@@ -39,6 +39,7 @@ dependencies = [
     "numpyro>=0.21.0",
     "diffrax",
     "plum-dispatch",
+    "jupyter-cache>=1.0.1",
 ]
 
 [project.urls]

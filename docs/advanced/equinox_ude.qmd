@@ -1,6 +1,6 @@
 ---
-title: "Learning Missing Neural Dynamics with an Equinox UDE"
-subtitle: "A Shared Neural Correction Inside a Mechanistic Brain Network Model"
+title: "Universal Differential Equations 1: Learning a Missing Term"
+subtitle: "A Shared Equinox Correction Inside a Mechanistic Network Model"
 format:
   html:
     code-fold: false
@@ -64,6 +64,21 @@ $$
 The same $g_\theta$ is evaluated independently at all four nodes. Their different
 initial conditions and network inputs expose it to several trajectories through
 state space, but there is still only one set of trainable MLP weights.
+
+::: {.callout-note}
+## Where this tutorial sits
+
+This page covers the mechanics end to end: marking a module trainable, getting
+gradients through the solver, fitting, and checking what was learned. The example
+is deliberately synthetic so that the correction the MLP should recover is known
+exactly.
+
+[Universal Differential Equations 2](neural_mass_ude.qmd) picks those mechanics up
+and asks the modelling questions instead: where a correction belongs, what to
+condition it on, how to make a known limit exact by construction rather than by
+fitting, and what counts as evidence that the right term was learned. Read this one
+first.
+:::
 
 ::: {.callout-note}
 ## Why retain half of the cubic term?
@@ -378,12 +393,17 @@ model's misspecification directly.
 #| echo: true
 #| output: false
 #| code-fold: true
-#| code-summary: "Define the zero-initialized MLP helper"
+#| code-summary: "Show the zero-initialized MLP helper"
 
-def make_zero_initialized_mlp(key, width_size=16, depth=2):
+def make_correction_module(key, in_size, out_size, width_size=16, depth=2):
+    """Small MLP with a zeroed final layer, so training starts from no correction.
+
+    The zeroed final layer makes the correction identically zero at step zero, so
+    the first rollout is the mechanistic model on its own.
+    """
     module = eqx.nn.MLP(
-        in_size=2,
-        out_size=1,
+        in_size=in_size,
+        out_size=out_size,
         width_size=width_size,
         depth=depth,
         activation=jax.nn.tanh,
@@ -391,15 +411,9 @@ def make_zero_initialized_mlp(key, width_size=16, depth=2):
     )
     final_layer = module.layers[-1]
     return eqx.tree_at(
-        lambda model: (
-            model.layers[-1].weight,
-            model.layers[-1].bias,
-        ),
+        lambda model: (model.layers[-1].weight, model.layers[-1].bias),
         module,
-        (
-            jnp.zeros_like(final_layer.weight),
-            jnp.zeros_like(final_layer.bias),
-        ),
+        (jnp.zeros_like(final_layer.weight), jnp.zeros_like(final_layer.bias)),
     )
 ```
 
@@ -407,7 +421,7 @@ def make_zero_initialized_mlp(key, width_size=16, depth=2):
 #| echo: true
 
 correction = EquinoxParameter(
-    make_zero_initialized_mlp(jax.random.key(7))
+    make_correction_module(jax.random.key(7), in_size=2, out_size=1)
 )
 ude_solve, ude_config = prepare_network(
     UDEFitzHughNagumo(correction=correction)
@@ -674,11 +688,17 @@ plt.tight_layout()
 ```
 
 The nonzero sensitivity shows that the fitted MLP does use `W`, despite the true
-missing term depending only on `V`. This is compatible with an accurate
-trajectory fit because the observed states occupy a narrow, correlated part of
-the phase plane. Recovering the intended mechanism would require stronger
-information, such as restricting the correction's inputs, sampling more of the
-phase plane, or regularizing unwanted state dependence.
+missing term depending only on `V`. This is compatible with an accurate trajectory
+fit because the observed states occupy a narrow, correlated part of the phase
+plane. Recovering the intended mechanism would require stronger information, such
+as restricting the correction's inputs, sampling more of the phase plane, or
+regularizing unwanted state dependence.
+
+That is a general diagnostic, not a quirk of this example. Whenever the true term
+depends on fewer variables than the network is handed, the surplus dependence is
+measurable, and it is the cheapest sign that a good trajectory fit is not the same
+thing as a recovered mechanism. [Tutorial 2](neural_mass_ude.qmd) measures the same
+thing a different way, as the width of a loop in the learned residual.
 
 ## Validation Initial Conditions
 
@@ -797,8 +817,10 @@ capacity_results = []
 for width in WIDTHS:
     module_key = jax.random.fold_in(jax.random.key(101), width)
     candidate_correction = EquinoxParameter(
-        make_zero_initialized_mlp(
+        make_correction_module(
             module_key,
+            in_size=2,
+            out_size=1,
             width_size=width,
             depth=SWEEP_DEPTH,
         )
@@ -1086,10 +1108,14 @@ Only the number of training segments differs.
 
 segment_module_key = jax.random.key(151)
 single_correction = EquinoxParameter(
-    make_zero_initialized_mlp(segment_module_key, width_size=SELECTED_WIDTH)
+    make_correction_module(
+        segment_module_key, in_size=2, out_size=1, width_size=SELECTED_WIDTH
+    )
 )
 multi_correction = EquinoxParameter(
-    make_zero_initialized_mlp(segment_module_key, width_size=SELECTED_WIDTH)
+    make_correction_module(
+        segment_module_key, in_size=2, out_size=1, width_size=SELECTED_WIDTH
+    )
 )
 
 segment_solve, single_segment_config = prepare_network(
@@ -1260,12 +1286,15 @@ and the solver's `grad_horizon` option.
 ::: {.callout-warning}
 ## Interpretation and identifiability
 
-Trajectory agreement does not prove that the MLP discovered a unique physical
-law. A flexible correction can compensate for errors in fixed parameters,
-coupling, observations, or initial conditions. Here those quantities are held at
-their known synthetic values specifically so that the residual has an
-interpretable target. In real data, compare alternative parameterizations,
-inspect identifiability, and validate on held-out conditions.
+Trajectory agreement does not prove that the MLP discovered a unique physical law.
+A flexible correction can compensate for errors in fixed parameters, coupling,
+observations, or initial conditions, all of which are held at their known synthetic
+values here precisely so that the residual has an interpretable target.
+
+[Tutorial 2](neural_mass_ude.qmd) treats this as the central question rather than a
+closing caveat: it works in a case where the missing term is known in closed form,
+and sets out what to measure, what to hold out, and which comparisons to run before
+crediting a network with a discovery.
 :::
 
 ::: {.callout-note}
@@ -1299,9 +1328,13 @@ This tutorial demonstrated the complete UDE workflow in TVB-Optim:
 8. A vectorized multi-segment loss aggregated gradients from a longer signal
    into one shared correction and substantially improved temporal validation.
 
-The essential modeling choice is separation of responsibilities: known coupling
-and slow recovery dynamics remain mechanistic, while the MLP learns only the
-local voltage residual placed explicitly in the equations.
+The essential modeling choice is separation of responsibilities: known coupling and
+slow recovery dynamics remain mechanistic, while the MLP learns only the local
+voltage residual placed explicitly in the equations.
+
+Where those choices themselves come from, and how to tell a useful correction from
+a merely well-fitted one, is the subject of
+[Universal Differential Equations 2](neural_mass_ude.qmd).
 
 ## References
 
