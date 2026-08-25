@@ -66,7 +66,9 @@ jobs:
           XLA_FLAGS: --xla_force_host_platform_device_count=8
 
       # Note: Notebook conversion is done locally and .ipynb files are committed
-      # This enables Google Colab integration via GitHub raw URLs
+      # This enables Google Colab integration via GitHub raw URLs.
+      # Rebuild them with: python scripts/build_notebooks.py
+      # Verify without writing: python scripts/build_notebooks.py --check
 
       - name: Setup Pages
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'

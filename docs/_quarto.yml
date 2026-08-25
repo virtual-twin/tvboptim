@@ -58,7 +58,10 @@ website:
           - file: advanced/gradient_checkpointing.qmd
           - file: advanced/streaming_reductions.qmd
           - file: advanced/coupling_freezing.qmd
-          - file: advanced/subspace_coupling.qmd
+          - text: "Coupling 1: Surface Simulations"
+            file: advanced/subspace_coupling.qmd
+          - text: "Coupling 2: Short-Term Plasticity"
+            file: advanced/stateful_edge_coupling.qmd
       - text: "Reference"
         file: reference/index.qmd
   # sidebar:

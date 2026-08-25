@@ -1,5 +1,5 @@
 ---
-title: "Extending Coupling - Surface Simulations"
+title: "Extending Coupling 1: Surface Simulations"
 subtitle: "Recreating TVB's Surface Simulations with Subspace Coupling"
 format:
   html:
@@ -21,13 +21,13 @@ Try this notebook interactively:
 
 # Introduction
 
-Subspace coupling enables **hierarchical network interactions** where fine-grained nodes are organized into coarser regions. This pattern is fundamental in brain network modeling for cortical surface simulations, where thousands of vertices belong to anatomical parcels that communicate via long-range white matter tracts.
+Subspace coupling evaluates a network interaction at a coarser resolution than the one the network is simulated at. Fine-grained nodes are grouped into regions, and the long-range coupling acts between regions rather than between individual nodes. Cortical surface models are the canonical case: tens of thousands of vertices carry the local dynamics, while white matter tracts connect a few hundred anatomical parcels.
 
-The key idea: instead of coupling all nodes directly, we **aggregate node states to regions, apply coupling at the regional level, then distribute results back to nodes**. This three-stage pattern is implemented through the standard coupling API: `prepare()`, `compute()`, and `update_state()`.
+The construction has three stages. Node states are **aggregated** to regions, the inner coupling is **applied** on the regional graph, and the result is **distributed** back to the nodes. `SubspaceCoupling` implements this through the ordinary coupling interface, `prepare()`, `precompute()`, `compute()` and `update_state()`, so a hierarchical coupling is assembled and solved like any other.
 
 ## Use Case: Surface Simulations
 
-In The Virtual Brain (TVB), surface simulations model cortical activity at the vertex level (10 thousands of vertices) while maintaining regional connectivity via structural connectomes (hundreds of regions). This creates a two-level hierarchy:
+In The Virtual Brain (TVB), surface simulations resolve cortical activity at the vertex level while carrying long-range connectivity at the resolution of a structural connectome. That gives a two-level hierarchy:
 
 - **Node level**: Fine-grained cortical vertices with local connectivity
 - **Regional level**: Coarse anatomical parcels with long-range delayed connectivity
@@ -49,18 +49,23 @@ except ImportError:
 #| code-fold: true
 #| code-summary: "Environment Setup and Imports"
 
+import time
+
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
-import time
+
 from tvboptim.experimental.network_dynamics import Network, solve
+from tvboptim.experimental.network_dynamics.coupling import (
+    DelayedLinearCoupling,
+    LinearCoupling,
+    SubspaceCoupling,
+)
 from tvboptim.experimental.network_dynamics.dynamics.tvb import ReducedWongWang
-from tvboptim.experimental.network_dynamics.coupling.linear import LinearCoupling, DelayedLinearCoupling
-from tvboptim.experimental.network_dynamics.coupling.subspace import SubspaceCoupling
 from tvboptim.experimental.network_dynamics.graph import SparseGraph, DenseDelayGraph
 from tvboptim.experimental.network_dynamics.solvers import Euler
-
+from tvboptim.experimental.network_dynamics.utils import print_network
 ```
 
 # The Subspace Coupling Pattern
@@ -92,40 +97,65 @@ $$
 
 ## Implementation: The Coupling API
 
-Let's see how this pattern maps to the three-phase coupling API. We'll show conceptual code snippets that capture the essence of `SubspaceCoupling`.
+The snippets below are condensed from `SubspaceCoupling`, with validation and the sparse code path removed. They show where each stage lands in the coupling interface.
 
-### Phase 1: `prepare()` - Precompute Regional Structures
+### Phase 1: `prepare()` - Build the Regional Structures
 
 ```python
 def prepare(self, network, dt, t0, t1):
-    """Precompute aggregation matrices and prepare inner coupling."""
+    """Build the aggregation matrix and prepare the inner coupling."""
 
-    # Build normalized aggregation matrix [n_nodes, n_regions]
-    # Each node contributes 1/|region| to its region's mean
+    # Normalized aggregation matrix [n_nodes, n_regions].
+    # Each node contributes 1/|region| to its region's mean.
     region_one_hot = jnp.eye(self.n_regions)[self.region_mapping]
     region_counts = jnp.sum(region_one_hot, axis=0)
-    region_one_hot_normalized = region_one_hot / region_counts[None, :]
 
-    # Create regional network context for inner coupling
-    # This provides a Network-like interface for the regional graph
+    coupling_data = Bunch(
+        region_one_hot_normalized=region_one_hot / region_counts[None, :],
+        region_mapping=self.region_mapping,
+    )
+
+    # A Network-like view of the regional graph, so the inner coupling can be
+    # prepared without knowing that it sits inside a hierarchy.
     regional_context = self._create_regional_context(network, ...)
-
-    # Prepare inner coupling (e.g., DelayedLinearCoupling on regional graph)
     inner_data, inner_state = self.inner_coupling.prepare(
         regional_context, dt, t0, t1
     )
+    coupling_data.inner_data = inner_data
 
-    # Compute initial aggregated state for caching
-    initial_regional_state = self.aggregate(
-        network.initial_state, region_one_hot_normalized
+    # Seed the cache, so the first compute() has a regional state to read.
+    coupling_state = Bunch(
+        inner_state=inner_state,
+        cached_regional_state=self.aggregate(network.initial_state, coupling_data),
     )
-
     return coupling_data, coupling_state
 ```
 
-**Key insight**: We precompute the aggregation matrix once, avoiding repeated computation. For sparse mappings (many nodes, few regions), we use sparse matrices.
+The aggregation matrix is built once here rather than rebuilt per step. When nodes greatly outnumber regions the matrix is overwhelmingly zero, so it is stored in sparse BCOO format by default (`use_sparse=True`).
 
-### Phase 2: `compute()` - Three-Stage Computation
+### Phase 2: `precompute()` - Hand the Inner Coupling Its Own Data
+
+```python
+def precompute(self, coupling_data, params, graph):
+    """Run the inner coupling's own per-call setup on the regional graph."""
+    coupling_data = coupling_data.copy()
+    inner_data = coupling_data.inner_data.copy()
+
+    # The solver writes its stage-time fields into the outer coupling_data.
+    # The inner coupling never sees them unless they are forwarded.
+    for field in ("stage_time_centroid", "recompute_coupling_per_stage"):
+        if field in coupling_data:
+            inner_data[field] = coupling_data[field]
+
+    coupling_data.inner_data = self.inner_coupling.precompute(
+        inner_data, self.inner_coupling.params, self.regional_graph
+    )
+    return coupling_data
+```
+
+This phase is not optional for a delayed inner coupling. A `DelayedCoupling` resolves its delay read indices in `precompute()`, not in `prepare()`, so forwarding the call is what keeps `compute()` from receiving unresolved data. Forwarding the stage-time fields gives the inner coupling the same stage-time correction the node-level couplings get, discussed in [Coupling Freezing and Solver Order](coupling_freezing.qmd).
+
+### Phase 3: `compute()` - Aggregate, Couple, Distribute
 
 ```python
 def compute(self, t, state, coupling_data, coupling_state, params, graph):
@@ -148,26 +178,22 @@ def compute(self, t, state, coupling_data, coupling_state, params, graph):
     # Shape: [n_coupling_inputs, n_regions]
 
     # Stage 3: Distribute regional coupling to nodes (broadcast)
-    node_coupling = self.distribute(
-        regional_coupling, coupling_data.region_mapping
-    )
+    node_coupling = self.distribute(regional_coupling, coupling_data)
     # Shape: [n_coupling_inputs, n_nodes]
 
     return node_coupling
 ```
 
-**Performance optimization**: We cache the aggregated state from the previous timestep, avoiding redundant aggregation in `compute()`.
+`compute()` never aggregates. It reads the regional state that `update_state()` already cached at the end of the previous step, which is why the `state` argument goes unused.
 
-### Phase 3: `update_state()` - Update and Cache
+### Phase 4: `update_state()` - Advance and Cache
 
 ```python
 def update_state(self, coupling_data, coupling_state, new_state):
     """Update inner coupling state and cache new aggregated state."""
 
     # Aggregate new node state to regional state
-    regional_state = self.aggregate(
-        new_state, coupling_data.region_one_hot_normalized
-    )
+    regional_state = self.aggregate(new_state, coupling_data)
 
     # Update inner coupling (e.g., delay buffer with regional states)
     new_inner_state = self.inner_coupling.update_state(
@@ -183,11 +209,11 @@ def update_state(self, coupling_data, coupling_state, new_state):
     )
 ```
 
-**Temporal optimization**: The aggregated state computed here is reused in the next `compute()` call, eliminating duplicate aggregation operations.
+Aggregating here rather than in `compute()` means one aggregation per step instead of one per solver stage, and the cached result is what the next `compute()` reads.
 
 ## Aggregate and Distribute Methods
 
-These customizable methods implement the projection between node and regional spaces:
+These two methods define the projection between node and regional space, and are the intended override points:
 
 ```python
 def aggregate(self, node_state, coupling_data):
@@ -211,11 +237,13 @@ def distribute(self, regional_coupling, coupling_data):
     return node_coupling
 ```
 
-**Customization**: Override these methods for alternative strategies (weighted aggregation, scaled distribution, etc.).
+Override them for other strategies, such as area-weighted aggregation or a distribution that scales each node by its share of the parcel. Both receive the whole `coupling_data`, so an override may read anything `prepare()` stored.
 
 # Practical Example: Mixed Coupling
 
 Let's create a realistically sized surface simulation with both local and regional coupling:
+
+The connectivity below is synthetic. In particular `region_mapping` assigns each vertex to a region at random, whereas an anatomical parcellation assigns contiguous patches of surface. That difference does not affect the mechanics shown here, but it does make the regional means far less correlated than in a real surface model, so do not read the dynamics as representative.
 
 ```{python}
 # Network dimensions
@@ -266,7 +294,7 @@ coupling_delayed = SubspaceCoupling(
 
 # Multi-coupling network
 network = Network(
-    dynamics=ReducedWongWang(I_o = 0.1),
+    dynamics=ReducedWongWang(I_o=0.1),
     coupling={
         'instant': coupling_instant,   # Local vertices
         'delayed': coupling_delayed    # Regional subspace
@@ -282,11 +310,20 @@ print(network)
 ## Simulation
 
 ```{python}
-start = time.time()
+# First call compiles and runs; block_until_ready defeats JAX's async dispatch
+# so that the timing covers execution rather than only the dispatch.
+start = time.perf_counter()
 result = solve(network, Euler(), t0=t0, t1=t1, dt=dt)
-elapsed = time.time() - start
+jax.block_until_ready(result.ys)
+first_call = time.perf_counter() - start
 
-print(f"\nSimulation: {elapsed:.2f} seconds")
+start = time.perf_counter()
+result = solve(network, Euler(), t0=t0, t1=t1, dt=dt)
+jax.block_until_ready(result.ys)
+warm_call = time.perf_counter() - start
+
+print(f"First call (compile + run): {first_call:.2f} s")
+print(f"Warm call (run only):       {warm_call:.2f} s")
 print(f"Result shape: {result.ys.shape}")
 print(f"Time points: [{result.ts[0]:.1f}, {result.ts[-1]:.1f}] ms")
 ```
@@ -296,23 +333,14 @@ print(f"Time points: [{result.ts[0]:.1f}, {result.ts[-1]:.1f}] ms")
 The network printer reveals the hierarchical structure:
 
 ```{python}
-from tvboptim.experimental.network_dynamics.utils.printer import print_network
-
 print_network(network)
 ```
 
-**Notice**:
-- Coupling 1 (`instant`): Operates on node graph (16,000 nodes, sparse)
-- Coupling 2 (`delayed`): Shows regional structure (76 regions, aggregation/distribution)
-- Max delay: ~50 ms for long-range regional connections
+The printer reports each coupling at the scale it acts on: `instant` on the sparse node graph, `delayed` on the 76-region graph together with its aggregation and distribution steps, and the maximum delay carried by the regional connectome.
 
-# History Management for Regional Coupling
+# History for a Delayed Regional Coupling
 
-When delayed regional coupling is used, the system needs history buffers at the regional level. The `_RegionalNetworkContext` handles this by aggregating node-level history to regional history.
-
-## Continuing Simulations
-
-If you set custom history on the network (e.g., continuing from a previous simulation), the regional coupling automatically aggregates it:
+A delayed inner coupling needs a history buffer, and that buffer lives at the regional scale. Node-level history is therefore aggregated before it is written, which happens without any action on your part: continuing a simulation from a previous one works exactly as it does for a flat network.
 
 ```{python}
 # Run initial simulation
@@ -326,14 +354,20 @@ print(f"First simulation:  {sim1.ys.shape}")
 print(f"Second simulation: {sim2.ys.shape}")
 ```
 
-The regional coupling's `get_history()` method aggregates the node-level history to create appropriate regional delay buffers. This happens transparently via the shared history extraction utility.
+`update_history()` stores the node-level trajectory, and the regional context aggregates it into the regional delay buffer when the next solve prepares. The plot below zooms on the junction at $t = 500$: the two runs meet without a step, which is what a correctly reconstructed history buffer looks like.
 
 ## Visualize Continued Simulation
 
 ```{python}
 #| code-fold: true
 #| code-summary: "Visualization: Continuity at Simulation Boundary"
-fig, axes = plt.subplots(2, 1, figsize=(8, 4.5), dpi = 200)
+fig, axes = plt.subplots(2, 1, figsize=(8, 4.5), dpi=200)
+# tight_layout cannot lay out the inset axes below, so spacing is set here.
+fig.subplots_adjust(hspace=0.5)
+
+# The two simulations meet at t = 500, so the zoom window spans both.
+zoom1 = slice(479, 500)   # sim1: t = 480 .. 500
+zoom2 = slice(0, 20)      # sim2: t = 501 .. 520
 
 # Sample 100 vertices
 sample_indices = jnp.linspace(0, n_nodes-1, 100, dtype=int)
@@ -357,8 +391,12 @@ axins0.plot(sim2.ts, sim2.ys[:, 0, sample_indices[:]],
             alpha=0.8, linewidth=1, color='coral')
 axins0.axvline(500, color='black', linestyle='--', linewidth=0.5, alpha=0.5)
 axins0.set_xlim(480, 520)
-axins0.set_ylim(sim1.ys[480:520, 0, sample_indices[:]].min() - 0.01,
-                sim1.ys[480:520, 0, sample_indices[:]].max() + 0.01)
+axins0.set_ylim(
+    min(sim1.ys[zoom1, 0, sample_indices].min(),
+        sim2.ys[zoom2, 0, sample_indices].min()) - 0.01,
+    max(sim1.ys[zoom1, 0, sample_indices].max(),
+        sim2.ys[zoom2, 0, sample_indices].max()) + 0.01,
+)
 axins0.grid(True, alpha=0.3, linewidth=0.5)
 axins0.tick_params(labelsize=7)
 mark_inset(axes[0], axins0, loc1=2, loc2=4, fc="none", ec="0.5", linestyle='--', linewidth=0.5)
@@ -394,47 +432,25 @@ axins1.plot(sim2.ts, regional_activity_sim2[:, :10],
             alpha=0.8, linewidth=1.5, color='coral')
 axins1.axvline(500, color='black', linestyle='--', linewidth=0.5, alpha=0.5)
 axins1.set_xlim(480, 520)
-axins1.set_ylim(regional_activity_sim1[480:520, 0:10].min() - 0.005,
-                regional_activity_sim1[480:520, 0:10].max() + 0.005)
+axins1.set_ylim(
+    min(regional_activity_sim1[zoom1, :10].min(),
+        regional_activity_sim2[zoom2, :10].min()) - 0.005,
+    max(regional_activity_sim1[zoom1, :10].max(),
+        regional_activity_sim2[zoom2, :10].max()) + 0.005,
+)
 axins1.grid(True, alpha=0.3, linewidth=0.5)
 axins1.tick_params(labelsize=7)
 mark_inset(axes[1], axins1, loc1=2, loc2=4, fc="none", ec="0.5", linestyle='--', linewidth=0.5)
 
-plt.tight_layout()
 plt.show()
 ```
 
-# Key Implementation Insights
+# What Makes the Pattern Work
 
-## 1. Hierarchical State Management
+**Two state representations.** The coupling holds node states `[n_states, n_nodes]` for the full surface and regional states `[n_states, n_regions]` for the parcels, and moves between them by a single matrix product against the aggregation matrix built in `prepare()`.
 
-The coupling maintains two state representations:
-- **Node states**: `[n_states, n_nodes]` - full cortical surface
-- **Regional states**: `[n_states, n_regions]` - aggregated parcels
+**Three costs avoided.** The aggregation matrix is built once rather than per step; the aggregated state is cached in `update_state()` rather than recomputed in `compute()`; and the matrix is stored as BCOO whenever nodes greatly outnumber regions, which is the regime the pattern exists for.
 
-Aggregation happens via matrix multiplication with precomputed sparse/dense matrices.
+**Composition rather than a special case.** `SubspaceCoupling` wraps any inner coupling, instantaneous or delayed, and the inner coupling only ever sees the regional graph. It cannot tell that it sits inside a hierarchy, which is what allows local and regional couplings to be mixed freely in one network, or several regional couplings to run with different parameters.
 
-## 2. Performance Optimizations
-
-**Temporal caching**: Avoid redundant aggregation by caching the aggregated state from `update_state()` for use in next `compute()`.
-
-**Spatial caching**: Precompute aggregation matrices in `prepare()` rather than rebuilding each timestep.
-
-**Sparse operations**: Use BCOO sparse format when `n_nodes >> n_regions` (enabled by default).
-
-## 3. Nested Coupling Architecture
-
-`SubspaceCoupling` wraps any inner coupling (instantaneous or delayed). The inner coupling sees only the regional graph, unaware it's part of a hierarchical system. This composition enables:
-
-- Local + regional coupling combinations
-- Delayed regional coupling with instantaneous local coupling
-- Multiple regional couplings with different parameters
-
-## 4. Network Context Pattern
-
-The `_RegionalNetworkContext` provides a minimal Network-like interface for the inner coupling's `prepare()` method. It implements:
-- `graph`: Regional graph
-- `dynamics`: For state name resolution
-- `get_history()`: Aggregates node history to regional history
-
-This duck-typing pattern avoids creating full Network objects while maintaining API compatibility.
+**A minimal network view.** The inner coupling's `prepare()` expects a `Network`. Rather than construct one, `SubspaceCoupling` passes a small internal context object exposing only what `prepare()` reads: the regional graph, the dynamics for state-name resolution, and a `get_history()` that aggregates node history to regional history.
