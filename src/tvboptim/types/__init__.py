@@ -4,6 +4,7 @@ from .parameter import (
     MaskedParameter,
     NormalizedParameter,
     Parameter,
+    RescaledParameter,
     SigmoidBoundedParameter,
     TransformedParameter,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "MaskedParameter",
     "NormalizedParameter",
     "Parameter",
+    "RescaledParameter",
     "SigmoidBoundedParameter",
     "TransformedParameter",
     "AbstractAxis",
