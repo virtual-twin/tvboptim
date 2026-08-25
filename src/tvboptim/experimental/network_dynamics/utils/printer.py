@@ -495,7 +495,7 @@ class DynamicsFormatter:
             if (
                 func_def.body
                 and isinstance(func_def.body[0], ast.Expr)
-                and isinstance(func_def.body[0].value, (ast.Str, ast.Constant))
+                and isinstance(func_def.body[0].value, ast.Constant)
             ):
                 # Get the docstring node
                 docstring_node = func_def.body[0]

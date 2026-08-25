@@ -55,3 +55,17 @@ def test_print_network_still_renders_homogeneous_network():
     rendered = format_network(network)
     assert "Network Dynamics Network System" in rendered
     assert "PrinterDynamics" in rendered
+
+
+def test_print_network_renders_dynamics_equations():
+    """The equations block degrades to a comment if source parsing raises.
+
+    DynamicsFormatter.format() swallows every exception, so a parse failure is
+    invisible unless asserted on directly.
+    """
+    graph = DenseGraph(jnp.array([[0.0, 1.0], [1.0, 0.0]]))
+    network = Network(PrinterDynamics(), LinearCoupling(source="x"), graph)
+    rendered = format_network(network)
+    assert "Dynamics Equations" in rendered
+    assert "Could not parse source" not in rendered
+    assert "params.decay" in rendered
