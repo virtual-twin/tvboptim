@@ -12,6 +12,7 @@ pattern, supporting both stateless and stateful inputs.
 from abc import ABC, abstractmethod
 from typing import Tuple
 
+import jax
 import jax.numpy as jnp
 
 from ..core.bunch import Bunch
@@ -194,12 +195,13 @@ class AbstractExternalInput(ABC):
         state = jnp.zeros((1, n_nodes))
 
         ts = jnp.arange(t0, t1, dt)
-        signals = jnp.stack(
-            [
-                self.compute(float(t), state, input_data, input_state, self.params)
-                for t in ts
-            ]
-        )  # [T, N_OUTPUT_DIMS, n_nodes]
+        # Sampled in one traced call rather than a Python loop: inputs that
+        # build their signal from params (DataInput rebuilds an interpolator)
+        # would otherwise pay that construction once per sample.
+        sample = jax.jit(
+            lambda t: self.compute(t, state, input_data, input_state, self.params)
+        )
+        signals = jax.vmap(sample)(ts)  # [T, N_OUTPUT_DIMS, n_nodes]
 
         n_dims = signals.shape[1]
         if ax is None:

@@ -46,7 +46,11 @@ class DataInput(AbstractExternalInput):
 
     Attributes:
         N_OUTPUT_DIMS: Inferred from data shape (1 for scalar/per-node, n_dims for multi-dim)
-        DEFAULT_PARAMS: Contains times, data, interpolation_type for reference
+        DEFAULT_PARAMS: Contains times, data, interpolation_type
+
+    ``times`` and ``data`` are live config leaves like any other parameter:
+    ``config.external.<name>.data`` can be edited between calls, differentiated
+    through, vmapped over, or wrapped as a trainable ``Parameter``.
     """
 
     def __init__(
@@ -99,7 +103,7 @@ class DataInput(AbstractExternalInput):
 
         self.N_OUTPUT_DIMS = n_output_dims
 
-        # Store data as parameters (for reference, not optimization)
+        # These are read at every step by compute(), not frozen at prepare().
         self.DEFAULT_PARAMS = Bunch(
             times=times,
             data=data,
@@ -110,44 +114,19 @@ class DataInput(AbstractExternalInput):
         super().__init__(**kwargs)
 
     def prepare(self, network, dt: float):
-        """Prepare interpolation object for simulation.
-
-        Creates Diffrax interpolation object based on interpolation type.
+        """Nothing to precompute: the signal is rebuilt from params each step.
 
         Args:
-            network: Network instance (used to get n_nodes)
-            dt: Integration time step
+            network: Unused. Accepted for the AbstractExternalInput signature,
+                which lets this input also run on the bare-dynamics path where
+                no network exists.
+            dt: Unused.
 
         Returns:
-            Tuple of (input_data, input_state)
-            - input_data: Bunch with interpolator and metadata
-            - input_state: Empty Bunch (stateless)
+            Tuple of (input_data, input_state), both empty.
         """
-        times = self.params.times
-        data = self.params.data
-        interp_type = self.params.interpolation_type
-
-        # Create interpolation object
-        if interp_type == "linear":
-            interpolator = diffrax.LinearInterpolation(ts=times, ys=data)
-        else:  # cubic
-            # Compute cubic spline coefficients
-            coeffs = diffrax.backward_hermite_coefficients(ts=times, ys=data)
-            interpolator = diffrax.CubicInterpolation(ts=times, coeffs=coeffs)
-
-        # Store interpolator and metadata
-        input_data = Bunch(
-            interpolator=interpolator,
-            n_nodes=network.graph.n_nodes,
-            data_shape=tuple(
-                data.shape
-            ),  # Original data shape for broadcasting logic (as tuple)
-        )
-
-        # Stateless - no state to track
-        input_state = Bunch()
-
-        return input_data, input_state
+        del network, dt
+        return Bunch(), Bunch()
 
     def compute(
         self,
@@ -159,52 +138,46 @@ class DataInput(AbstractExternalInput):
     ) -> jnp.ndarray:
         """Compute interpolated input at time t.
 
+        The interpolation is built here rather than in ``prepare()`` so that
+        ``times`` and ``data`` stay live config leaves. Building it per step is
+        free: a ``LinearInterpolation`` only wraps the two arrays, and the cubic
+        coefficients do not depend on ``t``, so XLA hoists them out of the
+        integration loop. Freezing an interpolator at prepare time instead would
+        make the config values inert, the gradient with respect to them zero,
+        and a vmap over a batch of signals return one trajectory repeatedly.
+
         Args:
             t: Current time
-            state: Network state [n_state_vars, n_nodes] (unused for stateless input)
-            input_data: Bunch with interpolator and metadata
+            state: Network state [n_state_vars, n_nodes], read for the node count
+            input_data: Empty Bunch (nothing is precomputed)
             input_state: Empty Bunch (stateless)
             params: Parameters with times, data, interpolation_type
 
         Returns:
             Input array [n_dims, n_nodes] with interpolated values
         """
-        interpolator = input_data.interpolator
-        n_nodes = input_data.n_nodes
-        data_shape = input_data.data_shape
+        del input_data, input_state
 
-        # Evaluate interpolation at time t
+        times, data = params.times, params.data
+        if params.interpolation_type == "linear":
+            interpolator = diffrax.LinearInterpolation(ts=times, ys=data)
+        else:  # cubic
+            coeffs = diffrax.backward_hermite_coefficients(ts=times, ys=data)
+            interpolator = diffrax.CubicInterpolation(ts=times, coeffs=coeffs)
+
         interpolated = interpolator.evaluate(t)
 
-        # Handle broadcasting based on original data shape
-        if len(data_shape) == 1:
+        # Broadcast on the data layout. The node count comes from the state, as
+        # it does for the parametric inputs, so prepare() needs no network.
+        if data.ndim == 1:
             # [n_times] → scalar → broadcast to [1, n_nodes]
-            return jnp.full((1, n_nodes), interpolated)
-        elif len(data_shape) == 2:
+            return jnp.full((1, state.shape[1]), interpolated)
+        elif data.ndim == 2:
             # [n_times, n_nodes] → [n_nodes] → [1, n_nodes]
             return interpolated[None, :]
         else:
             # [n_times, n_dims, n_nodes] → [n_dims, n_nodes]
             return interpolated
-
-    def _plot_prepare(self, n_nodes, dt):
-        """Build interpolator for the plot path without a network."""
-        times = self.params.times
-        data = self.params.data
-        interp_type = self.params.interpolation_type
-
-        if interp_type == "linear":
-            interpolator = diffrax.LinearInterpolation(ts=times, ys=data)
-        else:
-            coeffs = diffrax.backward_hermite_coefficients(ts=times, ys=data)
-            interpolator = diffrax.CubicInterpolation(ts=times, coeffs=coeffs)
-
-        input_data = Bunch(
-            interpolator=interpolator,
-            n_nodes=n_nodes,
-            data_shape=tuple(data.shape),
-        )
-        return input_data, Bunch()
 
     def update_state(
         self, input_data: Bunch, input_state: Bunch, new_state: jnp.ndarray

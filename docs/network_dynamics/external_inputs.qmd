@@ -341,9 +341,13 @@ network = Network(
 
 The external input system automatically:
 1. Validates input names match `EXTERNAL_INPUTS` declarations
-2. Prepares interpolators (for `DataInput`)
-3. Handles broadcasting based on parameter shapes
-4. Pre-compiles computations for performance
+2. Handles broadcasting based on parameter shapes
+3. Pre-compiles computations for performance
+
+Every input reads its parameters from the prepared config at each step, so
+`config.external.<name>.*` stays live: edit it between calls, differentiate
+through it, or `vmap` over a batch of values without re-running `prepare()`.
+For `DataInput` that includes `times` and `data` themselves.
 
 # Tips and Best Practices
 
@@ -358,6 +362,8 @@ The external input system automatically:
 - When you have experimental recordings
 - For complex temporal patterns that are hard to parameterize
 - When you need to replay specific stimulus sequences
+- When the samples themselves are what you want to fit or sweep, since
+  `config.external.<name>.data` is an ordinary differentiable leaf
 
 ## Choosing Interpolation
 

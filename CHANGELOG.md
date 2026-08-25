@@ -66,6 +66,23 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `HAS_TVBO` is resolved on access and now reports whether TVB-O is installed
   rather than whether it has been imported.
 
+### Fixed
+
+- **`DataInput` parameters are now live on the prepared config.** `prepare()`
+  built a diffrax interpolator from `times` and `data` and closed it over the
+  step function, so `config.external.<name>.data` was published but never read.
+  Editing it had no effect, its gradient was exactly zero, and `vmap` over a
+  batch of signals returned the same trajectory for every element, all without
+  an error. `compute()` now interpolates from `params` like every other
+  external input, so the samples are an ordinary differentiable, sweepable
+  leaf. Rebuilding the interpolation per step costs nothing: the cubic
+  coefficients do not depend on `t`, so XLA hoists them out of the integration
+  loop.
+- `DataInput` now runs on the bare-dynamics path. `prepare()` read
+  `network.graph.n_nodes` for broadcasting and raised `AttributeError` when
+  `solve`/`prepare` passed no network. The node count now comes from the state,
+  as it already did for the parametric inputs.
+
 ### Deprecated
 
 - Deprecated `incoming_states=` and `local_states=` on couplings, removed in
