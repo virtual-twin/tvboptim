@@ -65,6 +65,14 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   no longer triggers the import and still raises `NotFoundLookupError`.
   `HAS_TVBO` is resolved on access and now reports whether TVB-O is installed
   rather than whether it has been imported.
+- **`MontbrioPazoRoxin` scales its r-coupling by `tau`.** The voltage equation
+  now reads `... + I + tau * cr * c_coup_r + cv * c_coup_V`. The `tau` converts
+  a firing rate into the voltage-like units of `V**2`, `eta` and `I`, exactly
+  as the recurrent term `J * tau * r` does; coupling through `V` is already a
+  voltage and correctly takes none. Without it the effective coupling strength
+  depended on the population time constant. At the default `tau = 1.0` this is
+  a no-op, so existing results and TVB parity are unaffected; only runs with
+  `tau != 1` change.
 
 ### Fixed
 
@@ -82,6 +90,27 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `network.graph.n_nodes` for broadcasting and raised `AttributeError` when
   `solve`/`prepare` passed no network. The node count now comes from the state,
   as it already did for the parametric inputs.
+- **Corrected model equations in the API reference.** An audit of all 13
+  dynamics classes against their implementations found three documented
+  equations that did not match the code, in every case because the docstring
+  was wrong rather than the model. `CoombesByrne2D` documented a rate damping
+  term cubic in `r` where the conductance `g = k pi r` makes it quadratic
+  (`- g r`, matching TVB). `Generic2dOscillator` omitted the `gamma` scaling on
+  the instantaneous coupling and the external stimulus term entirely, and now
+  states that the stimulus is added outside the `d tau` factor, as TVB's
+  integrator does. `Kuramoto` documented a sinusoidal transform of the
+  instantaneous coupling that the code never applied.
+- **Removed dead code in `Kuramoto.dynamics()`.** A local-coupling term was
+  computed as `sin(0 * theta)`, identically zero for every input, ported from
+  TVB where the factor is the surface-local connectivity kernel that tvboptim
+  does not have. The phase interaction is supplied by `KuramotoCoupling` and
+  `DelayedKuramotoCoupling`; applying a second sine here would transform it
+  twice. Behaviour is unchanged.
+- Documented the `LarterBreakspear` state equations and ionic currents, which
+  were previously absent from its docstring, and noted that `CoombesByrne2D`
+  and `MontbrioPazoRoxin` inherit different time conventions from TVB, so
+  comparing them requires `tau = 1`.
+
 
 ### Deprecated
 

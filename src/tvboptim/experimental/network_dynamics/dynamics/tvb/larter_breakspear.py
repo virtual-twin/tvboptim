@@ -44,6 +44,35 @@ class LarterBreakspear(AbstractDynamics):
     - $0.55 < d_V < 0.59$: Limit cycle attractors
     - $d_V > 0.59$: Chaotic attractors
 
+    **State equations:**
+
+    $$
+    \\begin{aligned}
+    \\frac{dV}{dt} &= t_{\\text{scale}} \\left(-I_{\\text{Ca}} - I_K - I_L - I_{\\text{Na}}
+        - a_{ie} Z Q_Z + a_{ne} I_{\\text{ext}}\\right) \\\\
+    \\frac{dW}{dt} &= t_{\\text{scale}} \\frac{\\phi (m_K - W)}{\\tau_K} \\\\
+    \\frac{dZ}{dt} &= t_{\\text{scale}} \\, b \\left(a_{ni} I_{\\text{ext}} + a_{ei} V Q_V\\right)
+    \\end{aligned}
+    $$
+
+    **Ionic currents:**
+
+    $$
+    \\begin{aligned}
+    I_{\\text{Ca}} &= \\left(g_{\\text{Ca}} + (1 - C) r_{\\text{NMDA}} a_{ee} (Q_V + c_{\\text{instant}})
+        + C r_{\\text{NMDA}} a_{ee} c_{\\text{delayed}}\\right) m_{\\text{Ca}} (V - V_{\\text{Ca}}) \\\\
+    I_K &= g_K W (V - V_K) \\\\
+    I_L &= g_L (V - V_L) \\\\
+    I_{\\text{Na}} &= \\left(g_{\\text{Na}} m_{\\text{Na}} + (1 - C) a_{ee} (Q_V + c_{\\text{instant}})
+        + C a_{ee} c_{\\text{delayed}}\\right) (V - V_{\\text{Na}})
+    \\end{aligned}
+    $$
+
+    The ratio $C$ splits excitatory drive between local ($c_{\\text{instant}}$,
+    together with the node's own firing rate $Q_V$) and long-range
+    ($c_{\\text{delayed}}$) contributions. Note that $dZ/dt$ carries no decay
+    term, following the original formulation.
+
     **Auxiliary variables:**
 
     $$

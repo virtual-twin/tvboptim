@@ -36,10 +36,15 @@ class Generic2dOscillator(AbstractDynamics):
 
     $$
     \\begin{aligned}
-    \\frac{dV}{dt} &= d \\tau (-f V^3 + e V^2 + g V + \\alpha W + \\gamma I + \\gamma c_{\\text{delayed}} + c_{\\text{instant}}) \\\\
+    \\frac{dV}{dt} &= d \\tau (-f V^3 + e V^2 + g V + \\alpha W + \\gamma I + \\gamma c_{\\text{delayed}} + \\gamma c_{\\text{instant}}) + I_{\\text{stim}} \\\\
     \\frac{dW}{dt} &= \\frac{d}{\\tau} (a + b V + c V^2 - \\beta W)
     \\end{aligned}
     $$
+
+    The parameter drive $I$ is scaled by $d \\tau$ along with the rest of the
+    vector field, while the external input $I_{\\text{stim}}$ is added outside
+    it, in raw derivative units. This mirrors TVB, where the stimulus is applied
+    by the integrator rather than inside the model.
 
     **Parameter regimes:**
 

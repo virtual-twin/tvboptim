@@ -27,17 +27,18 @@ class Kuramoto(AbstractDynamics):
 
     **State equation:**
 
-    $$\\frac{d\\theta}{dt} = \\omega + c_{\\text{delayed}} + \\sin(c_{\\text{instant}} \\cdot \\theta)$$
+    $$\\frac{d\\theta}{dt} = \\omega + c_{\\text{delayed}} + c_{\\text{instant}}$$
 
     where:
 
     - $\\theta$: Phase angle $[0, 2\\pi]$
     - $\\omega$: Natural frequency of oscillation
-    - $c_{\\text{instant}}$: Local coupling (phase-dependent via sinusoidal transformation)
+    - $c_{\\text{instant}}$: Local coupling (additive)
     - $c_{\\text{delayed}}$: Long-range delayed coupling (additive)
 
-    The local coupling uses a sinusoidal transformation capturing the phase-dependent
-    interaction characteristic of Kuramoto-type coupling.
+    Both coupling channels enter additively. The characteristic
+    $\\sin(\\theta_j - \\theta_i)$ phase interaction is supplied by
+    `KuramotoCoupling` or `DelayedKuramotoCoupling`, not by the dynamics.
 
     Attributes
     ----------
@@ -100,20 +101,20 @@ class Kuramoto(AbstractDynamics):
         derivatives : jnp.ndarray
             Phase velocity with shape ``[1, n_nodes]``
         """
-        # Unpack state
-        theta = state[0]  # Phase angle
+        # The phase velocity does not depend on the node's own phase: the
+        # sin(theta_j - theta_i) difference is formed by the coupling, so
+        # `state` is unused here.
+        del state
 
         # Unpack coupling
         c_instant = coupling.instant[0]  # Local coupling
         c_delayed = coupling.delayed[0]  # Long-range coupling
 
-        # Phase dynamics with Kuramoto-style local coupling
-        # Local coupling is phase-dependent via sinusoidal transformation
-        local_coupling = 0
-        local_range_coupling = jnp.sin(local_coupling * theta)
-
-        # Phase update: natural frequency + long-range + local coupling
-        dtheta_dt = params.omega + c_delayed + c_instant + local_range_coupling
+        # Phase update: natural frequency + long-range + local coupling.
+        # Both coupling channels enter additively. The sin(theta_j - theta_i)
+        # phase interaction belongs to KuramotoCoupling / DelayedKuramotoCoupling,
+        # so applying a second sine here would transform it twice.
+        dtheta_dt = params.omega + c_delayed + c_instant
 
         # Package results
         derivatives = jnp.array([dtheta_dt])

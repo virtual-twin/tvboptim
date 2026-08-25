@@ -40,7 +40,7 @@ class CoombesByrne2D(AbstractDynamics):
 
     $$
     \\begin{aligned}
-    \\frac{dr}{dt} &= \\frac{\\Delta}{\\pi} + 2Vr - gr^2 \\\\
+    \\frac{dr}{dt} &= \\frac{\\Delta}{\\pi} + 2Vr - gr \\\\
     \\frac{dV}{dt} &= V^2 - (\\pi r)^2 + \\eta + (v_{\\text{syn}} - V)g + c_{\\text{coup}}
     \\end{aligned}
     $$
@@ -50,6 +50,10 @@ class CoombesByrne2D(AbstractDynamics):
     The conductance $g = \\kappa \\pi r$ creates a quadratic nonlinearity in the
     firing rate equation, leading to different dynamical regimes compared to the
     standard Montbrio-Pazo-Roxin model.
+
+    Both conventions are inherited from TVB: this model has no explicit time
+    scale, while `MontbrioPazoRoxin` carries a $\\tau$. Comparing the two
+    vector fields therefore requires setting $\\tau = 1$ there.
 
     Attributes
     ----------

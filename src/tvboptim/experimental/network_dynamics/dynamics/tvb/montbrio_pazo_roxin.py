@@ -32,7 +32,7 @@ class MontbrioPazoRoxin(AbstractDynamics):
     $$
     \\begin{aligned}
     \\frac{dr}{dt} &= \\frac{1}{\\tau} \\left(\\frac{\\Delta}{\\pi \\tau} + 2Vr\\right) \\\\
-    \\frac{dV}{dt} &= \\frac{1}{\\tau} \\left(V^2 - (\\pi \\tau r)^2 + \\eta + J\\tau r + I + c_r c_{\\text{coup},r} + c_v c_{\\text{coup},V}\\right)
+    \\frac{dV}{dt} &= \\frac{1}{\\tau} \\left(V^2 - (\\pi \\tau r)^2 + \\eta + J\\tau r + I + \\tau c_r c_{\\text{coup},r} + c_v c_{\\text{coup},V}\\right)
     \\end{aligned}
     $$
 
@@ -41,6 +41,10 @@ class MontbrioPazoRoxin(AbstractDynamics):
 
     The model has 2-dimensional coupling allowing independent coupling through firing
     rate (r) and membrane potential (V).
+
+    Both conventions are inherited from TVB: this model carries an explicit
+    time scale $\\tau$, while `CoombesByrne2D` does not. Comparing the two
+    vector fields therefore requires setting $\\tau = 1$ here.
 
     Attributes
     ----------
@@ -110,8 +114,11 @@ class MontbrioPazoRoxin(AbstractDynamics):
         c_delayed_r = coupling.delayed[0]  # Long-range r-coupling
         c_delayed_V = coupling.delayed[1]  # Long-range V-coupling
 
-        # Total coupling for each variable
-        coupling_r = params.cr * (c_instant_r + c_delayed_r)
+        # Total coupling for each variable. The r-coupling carries the same
+        # tau factor as the recurrent term J*tau*r: both convert a firing rate
+        # into the voltage-like units of the V equation. The V-coupling is
+        # already a voltage and takes no tau.
+        coupling_r = params.tau * params.cr * (c_instant_r + c_delayed_r)
         coupling_V = params.cv * (c_instant_V + c_delayed_V)
 
         # Mean field dynamics
