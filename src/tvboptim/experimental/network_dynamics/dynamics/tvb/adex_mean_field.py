@@ -7,15 +7,14 @@ References:
     Neural computation, 31(4):653-690.
 """
 
-from ..base import AbstractDynamics
+from typing import Tuple
 
 import jax.numpy as jnp
 import jax.scipy as jsp
 import jax
 
-from typing import Tuple
-
-from tvboptim.experimental.network_dynamics.core import Bunch
+from ...core.bunch import Bunch
+from ..base import AbstractDynamics
 
 class AdExMF1stOrder(AbstractDynamics):
     """
