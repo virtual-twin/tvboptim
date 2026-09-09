@@ -62,16 +62,16 @@ then scales as `O(n_steps/K + K)` instead of `O(n_steps)`, for a modest gradient
 overhead (one extra forward recompute, small next to an already heavier backward).
 Forward time is unchanged, and memory is minimised near `K ≈ √n_steps`.
 
-`block_size` is the solver's single block unit for all streaming features. Two
-consequences matter here:
+`block_size` is the solver's single block unit for checkpointed and observed
+execution. Two consequences matter here:
 
 - On a **stochastic** network it also switches noise to per-block generation, which
   reseeds the realization. To keep a clean checkpointing benchmark (common random
   numbers, bit-exact across `block_size`), we inject one fixed noise tensor so the
-  block path uses it verbatim. Streaming-noise memory is a separate axis; see
-  [Streaming Reductions](streaming_reductions.qmd).
-- It is also the grain for online `reduce` statistics (e.g. streamed FC), not
-  covered here.
+  block path uses it verbatim. Prepared-observation memory is a separate axis;
+  see [Prepared Observations for Long Simulations](streaming_reductions.qmd).
+- It is also the execution grain when `observe=` computes a temporal monitor
+  inside solver blocks; that forward-output concern is not covered here.
 
 ::: {.callout-note}
 ## Scope and limitations

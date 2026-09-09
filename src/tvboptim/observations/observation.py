@@ -1,3 +1,5 @@
+import warnings
+
 import jax
 import jax.numpy as jnp
 
@@ -51,6 +53,13 @@ def welford_cov(s_var=0):
         s_var: Index into the variables-of-interest axis (axis 1 of the stacked
             trajectory), matching ``compute_fc``'s ``s_var``.
     """
+    warnings.warn(
+        "welford_cov is deprecated with the reduce= API in 0.5.0 and will be "
+        "removed in 0.6.0. Return a temporal signal with observe= and call "
+        "compute_fc on the result.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     def init(template, n_steps):
         # template is one step's output [n_vois, n_nodes]; size from the

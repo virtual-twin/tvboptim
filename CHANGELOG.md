@@ -24,8 +24,7 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     selected variables of interest (`voi`). Role-specific parameter mappings
     remain live after `prepare()` for sweeps and differentiation.
   - `GroupObservation` transforms group outputs into a common graph-order
-    signal for returned trajectories and existing reducers. With blockwise
-    execution, streaming reduction bounds forward trajectory memory.
+    signal for returned trajectories and temporal monitors.
   - `HeterogeneousSolution` preserves natural group shapes and provides named
     selection, graph projection, single-group plots, and a multi-group overview.
   - Dense and sparse graphs, delayed history and continuation, native fixed-step
@@ -34,8 +33,24 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `format_network()` and `print_network()` describe groups, routes, readouts,
     targets, coupling inputs, and graph structure.
 - Added an executable heterogeneous-network tutorial covering mixed routing,
-  observations and streaming reduction, sweeps, optimization, continuation,
+  observations, sweeps, optimization, continuation,
   plotting, and fixed-work group-count benchmarks.
+- **Prepared temporal observations for native solvers.** Passing
+  `observe=SubSampling(...)`, `TemporalAverage(...)`,
+  `BalloonWindkesselBold(...)`, or `HRFBold(...)` computes and returns that
+  scientific time series inside integration blocks, avoiding retention of the
+  full-rate neural output. Results remain `NativeSolution` objects with sampled
+  timestamps, intervals, and channel names.
+  - Heterogeneous networks accept exactly
+    `observe=(GroupObservation(...), monitor)`, applying the common graph-order
+    readout before the temporal monitor. Readout and monitor parameters remain
+    separate under `config.observation` and `config.monitor`.
+  - Sampling and temporal averaging now share integer-grid implementations
+    between prepared and post-hoc execution. BOLD implementations share their
+    input resampling, hemodynamic, convolution, history, and readout operations.
+  - Prepared observations work with checkpoint blocks, aligned truncated
+    gradient windows, streaming noise, JIT, vmap, parameter-partitioned
+    differentiation, and `Space` axes.
 - **Bundled agent skill.** `src/tvboptim/skills/tvboptim` ships an
   agent-neutral skill in the open Agent Skills format, covering network
   assembly and solving, heterogeneous networks, custom dynamics and coupling,
@@ -76,6 +91,16 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Prepared Balloon-Windkessel observations now infer the dtype of the actual
+  selected solver output through prepared coupling and external computations,
+  including auxiliary values, and initialize their state from live monitor
+  parameter dtypes on every invocation. Float64 drives and parameters therefore
+  remain usable after preparing a float32 model.
+- Preserved the positional `BalloonWindkesselBold` constructor slots for `voi`
+  and `downsample`; the new `k3` parameter is keyword-only.
+- HRF valid convolution now chooses between direct endpoint evaluation for
+  sparse output and FFT convolution for dense output, avoiding the dense-grid
+  slowdown while retaining the low-workspace sparse path.
 - **`DataInput` parameters are now live on the prepared config.** `prepare()`
   built a diffrax interpolator from `times` and `data` and closed it over the
   step function, so `config.external.<name>.data` was published but never read.
@@ -114,6 +139,10 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Deprecated
 
+- Deprecated the temporary `reduce=` solver keyword and the `welford_cov` and
+  `streaming_hrf_bold` factories in 0.5.0. They remain operational for this
+  compatibility release and are scheduled for removal in 0.6.0. Use
+  `observe=` to return a temporal signal and compute statistics post-hoc.
 - Deprecated `incoming_states=` and `local_states=` on couplings, removed in
   1.0. Both remain accepted as aliases and emit a `DeprecationWarning`; passing
   a name and its alias together is an error. Use `source=` and `local=`.
@@ -122,9 +151,9 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Networks use one fixed square graph, an exhaustive static node partition, one
   time step, native fixed-step solvers, and `PrePostCoupling` routes.
-- Heterogeneous reduction requires an explicit `GroupObservation`; reducer
-  observations must cover every graph node unless a fill-aware reducer opts
-  into partial coverage.
+- A heterogeneous temporal observation requires an explicit
+  `GroupObservation`; it must cover every graph node unless the user explicitly
+  opts into treating the configured fill as real monitor input.
 - Heterogeneous Diffrax execution, changing group membership after `prepare()`,
   multiple clocks or node spaces, shared readout parameters, and route-signal
   recording are not yet supported.

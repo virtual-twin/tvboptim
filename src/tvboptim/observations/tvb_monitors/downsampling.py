@@ -4,11 +4,84 @@ This module provides different methods for reducing the temporal resolution
 of simulation outputs, commonly used before BOLD signal computation.
 """
 
+import math
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import numpy as np
 
+from tvboptim.experimental.network_dynamics.core.bunch import Bunch
+from tvboptim.experimental.network_dynamics.core.observation import (
+    PreparedObservation,
+    SimulationGrid,
+    prepare_observation,
+)
 from tvboptim.experimental.network_dynamics.result import NativeSolution
+
+
+def _selection_indices(voi, n_variables):
+    """Resolve a NumPy/JAX-style variable selection to concrete indices."""
+    try:
+        selected = np.arange(n_variables)[voi]
+    except (IndexError, TypeError) as exc:
+        raise ValueError(
+            f"Invalid variable selection {voi!r} for {n_variables} input channels"
+        ) from exc
+    indices = np.asarray(selected)
+    if indices.ndim == 0:
+        indices = indices.reshape(1)
+    indices = tuple(int(index) for index in indices.tolist())
+    if not indices:
+        raise ValueError("Temporal observation variable selection must not be empty")
+    return indices
+
+
+def _resolve_selection(voi, n_variables, variable_names):
+    """Resolve selected indices and their corresponding channel names."""
+    indices = _selection_indices(voi, n_variables)
+    names = tuple(variable_names[index] for index in indices)
+    return indices, names
+
+
+def _integer_stride(period, dt, *, label="period"):
+    """Validate a positive period and return its integer number of steps."""
+    period = float(period)
+    dt = float(dt)
+    if not math.isfinite(period) or period <= 0.0:
+        raise ValueError(f"{label} must be finite and positive; got {period!r}")
+    if not math.isfinite(dt) or dt <= 0.0:
+        raise ValueError(f"Simulation dt must be finite and positive; got {dt!r}")
+    ratio = period / dt
+    stride = round(ratio)
+    if stride < 1 or not math.isclose(ratio, stride, rel_tol=1e-9, abs_tol=1e-9):
+        raise ValueError(
+            f"{label} {period:g} must be an integer multiple of simulation "
+            f"dt={dt:g}; got {ratio:g} steps"
+        )
+    return int(stride)
+
+
+def _validate_monitor_input(sample, variable_names):
+    """Validate the common per-step monitor input description."""
+    if len(sample.shape) != 2:
+        raise ValueError(
+            "Temporal observations require per-step input shaped "
+            f"[channels, nodes]; got {sample.shape}"
+        )
+    if len(variable_names) != sample.shape[0]:
+        raise ValueError(
+            "variable_names must describe the monitor input channel axis; "
+            f"got {len(variable_names)} names for {sample.shape[0]} channels"
+        )
+
+
+def _window_average(values, samples_per_window):
+    """Average complete, disjoint windows along the leading axis."""
+    n_windows = values.shape[0] // samples_per_window
+    trimmed = values[: n_windows * samples_per_window]
+    windows = trimmed.reshape((n_windows, samples_per_window) + values.shape[1:])
+    return jnp.mean(windows, axis=1)
 
 
 def _slice_variable_names(sol, voi):
@@ -17,8 +90,9 @@ def _slice_variable_names(sol, voi):
     if names is None:
         return None
     try:
-        return tuple(names)[voi]
-    except (TypeError, IndexError):
+        indices = _selection_indices(voi, len(names))
+        return tuple(names[index] for index in indices)
+    except (TypeError, ValueError):
         return None
 
 
@@ -131,15 +205,47 @@ class SubSampling(AbstractMonitor):
         ts, ys = sol.ts, sol.ys
         # Use sol.dt from auxiliary data and convert with Python int()
         # This keeps sample_step concrete during JIT compilation
-        sample_step = int(round(self.period / self._resolve_dt(sol)))
+        sample_step = _integer_stride(
+            self.period, self._resolve_dt(sol), label="SubSampling period"
+        )
+        indices = _selection_indices(self.voi, ys.shape[1])
         # Select indices at regular intervals
         sample_indices = jnp.arange(sample_step - 1, ts.shape[0], sample_step)
         return NativeSolution(
             ts=ts[sample_indices] + t_offset,
-            ys=ys[sample_indices, self.voi, ...],
+            ys=ys[sample_indices][:, jnp.asarray(indices), ...],
             dt=self.period,
             variable_names=_slice_variable_names(sol, self.voi),
         )
+
+
+def _subsampling_update(data, state, block, params):
+    """Select completed cadence endpoints from one aligned raw block."""
+    del params
+    selected = block[:, data.indices, :]
+    return state, selected[data.stride - 1 :: data.stride]
+
+
+@prepare_observation.dispatch
+def _prepare_subsampling(
+    monitor: SubSampling,
+    grid: SimulationGrid,
+    sample: jax.ShapeDtypeStruct,
+    variable_names: tuple,
+) -> PreparedObservation:
+    """Prepare point sampling for an aligned native-solver grid."""
+    _validate_monitor_input(sample, variable_names)
+    stride = _integer_stride(monitor.period, grid.dt, label="SubSampling period")
+    indices, names = _resolve_selection(monitor.voi, sample.shape[0], variable_names)
+    return PreparedObservation(
+        data=Bunch(indices=jnp.asarray(indices, dtype=int), stride=stride),
+        state0=None,
+        params=Bunch(),
+        update=_subsampling_update,
+        period=float(monitor.period),
+        first_sample_offset=float(monitor.period),
+        variable_names=names,
+    )
 
 
 class TemporalAverage(AbstractMonitor):
@@ -179,43 +285,48 @@ class TemporalAverage(AbstractMonitor):
         Returns:
             NativeSolution with temporally averaged timeseries
         """
-        ts, ys = sol.ts, sol.ys
-
-        # Apply voi slicing first
-        ys_sliced = ys[:, self.voi, ...]
-
-        # Number of samples per averaging window
-        # Use sol.dt from auxiliary data and convert with Python int()
+        indices = _selection_indices(self.voi, sol.ys.shape[1])
         dt = self._resolve_dt(sol)
-        samples_per_window = int(round(self.period / dt))
-
-        # Map time points to sample indices
-        time_indices = (ts[::samples_per_window] / dt).astype(int)
-
-        def average_window(start_idx):
-            """Compute average over a temporal window."""
-            # Define slice starting point for all dimensions
-            start_indices = (start_idx,) + (0,) * (ys_sliced.ndim - 1)
-            # Define slice size based on the sliced array shape
-            slice_sizes = (samples_per_window,) + ys_sliced.shape[1:]
-
-            # Extract window and compute mean over time axis
-            return jnp.mean(
-                jax.lax.dynamic_slice(ys_sliced, start_indices, slice_sizes),
-                axis=0,
-            )
-
-        # Vectorized averaging over all windows
-        averaged_trace = jax.vmap(average_window)(time_indices)
-
-        # Create time indices centered in each window
-        # Offset by half window to center timestamps
-        center_offset = (samples_per_window - 2) // 2
-        centered_indices = jnp.arange(center_offset, ts.shape[0], samples_per_window)
+        samples_per_window = _integer_stride(
+            self.period, dt, label="TemporalAverage period"
+        )
+        averaged_trace = _window_average(
+            sol.ys[:, jnp.asarray(indices), :], samples_per_window
+        )
+        centered_times = _window_average(sol.ts, samples_per_window)
 
         return NativeSolution(
-            ts=ts[centered_indices],
-            ys=averaged_trace[: centered_indices.shape[0], ...],
+            ts=centered_times,
+            ys=averaged_trace,
             dt=self.period,
             variable_names=_slice_variable_names(sol, self.voi),
         )
+
+
+def _temporal_average_update(data, state, block, params):
+    """Average complete windows from one aligned raw block."""
+    del params
+    selected = block[:, data.indices, :]
+    return state, _window_average(selected, data.stride)
+
+
+@prepare_observation.dispatch
+def _prepare_temporal_average(
+    monitor: TemporalAverage,
+    grid: SimulationGrid,
+    sample: jax.ShapeDtypeStruct,
+    variable_names: tuple,
+) -> PreparedObservation:
+    """Prepare complete-window averaging for an aligned native grid."""
+    _validate_monitor_input(sample, variable_names)
+    stride = _integer_stride(monitor.period, grid.dt, label="TemporalAverage period")
+    indices, names = _resolve_selection(monitor.voi, sample.shape[0], variable_names)
+    return PreparedObservation(
+        data=Bunch(indices=jnp.asarray(indices, dtype=int), stride=stride),
+        state0=None,
+        params=Bunch(),
+        update=_temporal_average_update,
+        period=float(monitor.period),
+        first_sample_offset=float((monitor.period + grid.dt) / 2.0),
+        variable_names=names,
+    )

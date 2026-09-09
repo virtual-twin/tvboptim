@@ -95,7 +95,8 @@ from tvboptim.optim import (
     SavingCallback,
     SavingLossCallback,
 )
-from tvboptim.observations.observation import welford_cov
+from tvboptim.observations import compute_fc
+from tvboptim.observations.tvb_monitors import HRFBold
 from tvboptim.types import GridAxis, Parameter, Space
 ```
 
@@ -661,34 +662,45 @@ Readout parameters use their position-specific live mappings:
 `source_params`/`local_params` on routes and `GroupObservation.params` for
 observations. Shared `config.readouts` parameters are not yet supported.
 
-### Stream FC and BOLD without retaining the neural trajectory
+### Observe BOLD without retaining the neural trajectory
 
-Existing reducers consume the graph-order observation directly:
+Compose the graph-order readout with exactly one temporal monitor. Preparation
+keeps the two parameter namespaces separate: readout parameters live under
+`config.observation`, and monitor parameters live under `config.monitor`.
 
 ```{python}
-fc_simulation, fc_config = prepare(
+bold_simulation, bold_config = prepare(
     network,
-    Heun(block_size=25),
+    Heun(block_size=100),
     t0=0.0,
-    t1=10.0,
+    t1=100.0,
     dt=0.1,
-    observe=common_activity,
-    reduce=welford_cov(),
+    observe=(common_activity, HRFBold(period=10.0, downsample_period=1.0)),
 )
-fc = fc_simulation(fc_config)
+bold = bold_simulation(bold_config)
+fc = compute_fc(bold)
+print(bold.ys.shape)
 print(fc.shape)
 ```
 
-`observe=` plus `reduce=` bounds forward memory only when `block_size` is set.
-Otherwise the full `[time, channels, nodes]` trajectory is materialized before
-reduction, and preparation warns. Differentiated FC has a separate backward
-memory cost of `O(n_steps / block_size + block_size)`, described in
-[Streaming Reductions](../advanced/streaming_reductions.qmd).
+The tuple has fixed roles: `GroupObservation` first, then one supported temporal
+monitor. It is not a general pipeline or a request for independent outputs.
+Regular blocks must contain complete monitor periods. The returned time series
+can be inspected and reused for FC or another post-hoc statistic. Exact reverse
+mode still retains checkpoint carries at block boundaries; the memory model is
+described in [Prepared Observations for Long
+Simulations](../advanced/streaming_reductions.qmd).
 
-Without a reducer, observations may omit groups and fill their nodes with
-`fill_value`. Reduction requires full coverage because constant fill causes
-zero-variance or NaN covariance rows and appears as real drive to BOLD. Use
-`allow_partial_coverage=True` only with a verified fill-aware reducer.
+A bare `GroupObservation` may omit groups and fill their nodes with `fill_value`.
+Before a temporal monitor, full node coverage is required by default because
+the fill becomes real monitor input. Set `allow_partial_coverage=True` only when
+that input is scientifically deliberate; the flag does not make BOLD or later
+FC fill-aware.
+
+The temporary `reduce=` API is deprecated in 0.5.0 and scheduled for removal in
+0.6.0. Existing readout-plus-reducer code continues to work during the
+compatibility release, but new code should use the tuple above and ordinary
+post-hoc statistics.
 
 ## Sweep prepared leaves with `Space`
 
