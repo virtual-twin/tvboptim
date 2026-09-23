@@ -94,8 +94,7 @@ def test_data_input_runs_without_a_network():
         n_nodes=1,
         externals={"stimulus": DataInput(TIMES, DATA)},
     )
-    run = jax.jit(simulate)
-    baseline = run(config).ys
-    edited = run(_with(config, "data", 5.0 * jnp.ones_like(TIMES))).ys
+    baseline = simulate(config).ys
+    edited = simulate(_with(config, "data", 5.0 * jnp.ones_like(TIMES))).ys
     assert jnp.all(jnp.isfinite(baseline))
     assert not jnp.allclose(baseline, edited)
