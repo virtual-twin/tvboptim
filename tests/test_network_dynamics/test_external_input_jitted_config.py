@@ -3,16 +3,18 @@
 `prepare` returns a pure function of its config, so the documented way to run it is under `jax.jit`. Every parameter of an external input went into that config, and a string is not a valid JAX type there, so an input carrying construction metadata raised on its first traced call. `DataInput` carries `interpolation_type`, which made it unusable under `jit` on every ungrouped path; the grouped (heterogeneous) path already partitioned its parameters. The partition must not cost an input its liveness: what stays in the config is still read every step, still differentiable, and still overrides what the input object holds.
 """
 
+import diffrax
 import jax
 import jax.numpy as jnp
 import pytest
 
-import diffrax
-
 from tvboptim.experimental.network_dynamics import DenseGraph, Network, prepare
 from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
 from tvboptim.experimental.network_dynamics.dynamics.tvb import Generic2dOscillator
-from tvboptim.experimental.network_dynamics.external_input import ConstantInput, DataInput
+from tvboptim.experimental.network_dynamics.external_input import (
+    ConstantInput,
+    DataInput,
+)
 from tvboptim.experimental.network_dynamics.solvers import DiffraxSolver, Heun
 
 N_NODES = 2
@@ -24,7 +26,9 @@ SAVE_AT = jnp.linspace(0.0, 1.0, 21)
 # An explicit `saveat` keeps diffrax from padding `ys` to `max_steps` with inf, which no assertion about the trajectory could survive.
 SOLVERS = {
     "native": lambda: Heun(),
-    "diffrax": lambda: DiffraxSolver(diffrax.Euler(), saveat=diffrax.SaveAt(ts=SAVE_AT)),
+    "diffrax": lambda: DiffraxSolver(
+        diffrax.Euler(), saveat=diffrax.SaveAt(ts=SAVE_AT)
+    ),
 }
 
 
@@ -53,7 +57,9 @@ def _prepared(external, solver, on_network):
 
 
 PATHS = [
-    pytest.param(solver, on_network, id=f"{'network' if on_network else 'dynamics'}-{kind}")
+    pytest.param(
+        solver, on_network, id=f"{'network' if on_network else 'dynamics'}-{kind}"
+    )
     for kind, solver in SOLVERS.items()
     for on_network in (True, False)
 ]
