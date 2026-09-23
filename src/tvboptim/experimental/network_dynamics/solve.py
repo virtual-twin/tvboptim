@@ -1673,9 +1673,10 @@ def prepare(
     for name, coupling in network.coupling.items():
         config.coupling[name] = _snapshot(coupling.params)
 
-    # Add external input params
+    # Add external input params. Only the array-compatible ones may be leaves of a jitted config; `compute` merges the rest back off the input, as the grouped path does.
     for name, external in network.externals.items():
-        config.external[name] = _snapshot(external.params)
+        live_params, _ = _partition_jax_params(external.params)
+        config.external[name] = _snapshot(live_params)
 
     # Add noise params and (optional) sample-injection slot if stochastic.
     # By default the full Brownian-increment tensor is materialised inside
@@ -1813,8 +1814,9 @@ def prepare(
             else:
                 # Compute external input using pre-fetched data
                 state_data = external_state_dict[name]
+                params = Bunch(external_obj.params, **config.external[name])
                 external_inputs[name] = external_obj.compute(
-                    t, network_state, data, state_data, config.external[name]
+                    t, network_state, data, state_data, params
                 )
 
         return external_inputs
@@ -2147,9 +2149,10 @@ def prepare(
     for name, coupling in network.coupling.items():
         config.coupling[name] = _snapshot(coupling.params)
 
-    # Add external input params
+    # Add external input params. Only the array-compatible ones may be leaves of a jitted config; `compute` merges the rest back off the input, as the grouped path does.
     for name, external in network.externals.items():
-        config.external[name] = _snapshot(external.params)
+        live_params, _ = _partition_jax_params(external.params)
+        config.external[name] = _snapshot(live_params)
 
     # Add noise params if present
     if network.noise is not None:
@@ -2243,8 +2246,9 @@ def prepare(
             else:
                 # Compute external input (stateless - pass empty state)
                 empty_state = Bunch()
+                params = Bunch(external_obj.params, **config.external[name])
                 external_inputs[name] = external_obj.compute(
-                    t, network_state, data, empty_state, config.external[name]
+                    t, network_state, data, empty_state, params
                 )
 
         return external_inputs
@@ -2467,7 +2471,8 @@ def prepare(
         for name in dynamics.EXTERNAL_INPUTS.keys():
             if name in externals:
                 ext_obj = externals[name]
-                config.external[name] = _snapshot(ext_obj.params)
+                live_params, _ = _partition_jax_params(ext_obj.params)
+                config.external[name] = _snapshot(live_params)
                 # Pass None as network — parametric externals don't use it
                 ext_data, ext_state = ext_obj.prepare(None, dt)
                 external_data_dict[name] = ext_data
@@ -2490,8 +2495,9 @@ def prepare(
                     external_inputs[name] = jnp.zeros((n_dims, n_nodes))
                 else:
                     state_data = external_state_dict[name]
+                    params = Bunch(ext_obj.params, **config.external[name])
                     external_inputs[name] = ext_obj.compute(
-                        t, state, data, state_data, config.external[name]
+                        t, state, data, state_data, params
                     )
             return external_inputs
 
@@ -2731,7 +2737,8 @@ def prepare(
         for name in dynamics.EXTERNAL_INPUTS.keys():
             if name in externals:
                 ext_obj = externals[name]
-                config.external[name] = _snapshot(ext_obj.params)
+                live_params, _ = _partition_jax_params(ext_obj.params)
+                config.external[name] = _snapshot(live_params)
                 ext_data, _ = ext_obj.prepare(None, dt)
                 external_data_dict[name] = ext_data
                 external_list.append((name, ext_obj, ext_data))
@@ -2748,8 +2755,9 @@ def prepare(
                     external_inputs[name] = jnp.zeros((n_dims, n_nodes))
                 else:
                     empty_state = Bunch()
+                    params = Bunch(ext_obj.params, **config.external[name])
                     external_inputs[name] = ext_obj.compute(
-                        t, state, data, empty_state, config.external[name]
+                        t, state, data, empty_state, params
                     )
             return external_inputs
     else:

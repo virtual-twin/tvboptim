@@ -76,6 +76,7 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **An external input carrying a non-array parameter now runs under `jit` on every path.** `prepare()` snapshotted every parameter of an external input into the config it returns, and a string is not a valid JAX type there, so jitting the returned solve function raised `TypeError: ... The problematic value is of type <class 'str'> and was passed to the function at path config['external'][...]['interpolation_type']`. `DataInput` always carries `interpolation_type`, so it could not be jitted on any of the four ungrouped paths — a `Network` or bare dynamics, each with a native or a Diffrax solver. All four now partition their parameters the way the heterogeneous path already did: array-compatible values stay live config leaves, and `compute()` merges the rest back off the input.
 - **`DataInput` parameters are now live on the prepared config.** `prepare()`
   built a diffrax interpolator from `times` and `data` and closed it over the
   step function, so `config.external.<name>.data` was published but never read.
