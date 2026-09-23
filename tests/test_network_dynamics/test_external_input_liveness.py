@@ -53,7 +53,8 @@ def _prepared(external):
         graph=DenseGraph(jnp.zeros((N_NODES, N_NODES))),
         external_input={"stimulus": external},
     )
-    return prepare(network, Heun(), t0=0.0, t1=1.0, dt=0.05)
+    simulate, config = prepare(network, Heun(), t0=0.0, t1=1.0, dt=0.05)
+    return jax.jit(simulate), config
 
 
 def _with(config, leaf, value):
@@ -93,7 +94,8 @@ def test_data_input_runs_without_a_network():
         n_nodes=1,
         externals={"stimulus": DataInput(TIMES, DATA)},
     )
-    baseline = simulate(config).ys
-    edited = simulate(_with(config, "data", 5.0 * jnp.ones_like(TIMES))).ys
+    run = jax.jit(simulate)
+    baseline = run(config).ys
+    edited = run(_with(config, "data", 5.0 * jnp.ones_like(TIMES))).ys
     assert jnp.all(jnp.isfinite(baseline))
     assert not jnp.allclose(baseline, edited)

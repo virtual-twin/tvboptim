@@ -46,7 +46,8 @@ class DataInput(AbstractExternalInput):
 
     Attributes:
         N_OUTPUT_DIMS: Inferred from data shape (1 for scalar/per-node, n_dims for multi-dim)
-        DEFAULT_PARAMS: Contains times, data, interpolation_type
+        DEFAULT_PARAMS: Contains times, data
+        interpolation: 'linear' or 'cubic', fixed at construction and kept off ``params`` because a string cannot be a leaf of a jitted config.
 
     ``times`` and ``data`` are live config leaves like any other parameter:
     ``config.external.<name>.data`` can be edited between calls, differentiated
@@ -107,8 +108,8 @@ class DataInput(AbstractExternalInput):
         self.DEFAULT_PARAMS = Bunch(
             times=times,
             data=data,
-            interpolation_type=interpolation,
         )
+        self.interpolation = interpolation
 
         # Initialize base class
         super().__init__(**kwargs)
@@ -151,7 +152,7 @@ class DataInput(AbstractExternalInput):
             state: Network state [n_state_vars, n_nodes], read for the node count
             input_data: Empty Bunch (nothing is precomputed)
             input_state: Empty Bunch (stateless)
-            params: Parameters with times, data, interpolation_type
+            params: Parameters with times, data
 
         Returns:
             Input array [n_dims, n_nodes] with interpolated values
@@ -159,7 +160,7 @@ class DataInput(AbstractExternalInput):
         del input_data, input_state
 
         times, data = params.times, params.data
-        if params.interpolation_type == "linear":
+        if self.interpolation == "linear":
             interpolator = diffrax.LinearInterpolation(ts=times, ys=data)
         else:  # cubic
             coeffs = diffrax.backward_hermite_coefficients(ts=times, ys=data)
