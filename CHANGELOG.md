@@ -76,6 +76,7 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`DataInput` runs under `jit`.** Its interpolation kind was a string in `params`, which `prepare()` copies into the jitted config. It is now the attribute `DataInput.interpolation`.
 - **`DataInput` parameters are now live on the prepared config.** `prepare()`
   built a diffrax interpolator from `times` and `data` and closed it over the
   step function, so `config.external.<name>.data` was published but never read.
