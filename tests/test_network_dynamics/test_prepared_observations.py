@@ -13,6 +13,7 @@ from tvboptim.experimental.network_dynamics.core.bunch import Bunch
 from tvboptim.experimental.network_dynamics.core.observation import (
     PreparedObservation,
     SimulationGrid,
+    observation_alignment_steps,
     prepare_observation,
 )
 from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
@@ -121,20 +122,21 @@ def _posthoc_and_online(*, block_size=4, t0=10.0, t1=12.75, dt=0.25):
 
 
 def test_subsampling_preparation_resolves_static_execution_recipe():
+    grid = SimulationGrid(t0=10.0, dt=0.25, n_steps=11)
     prepared = prepare_observation(
         SubSampling(period=0.5, voi=1),
-        SimulationGrid(t0=10.0, dt=0.25, n_steps=11),
+        grid,
         jax.ShapeDtypeStruct((2, 3), jnp.float32),
         ("slow", "fast"),
     )
 
     assert isinstance(prepared, PreparedObservation)
-    assert prepared.data.stride == 2
-    assert prepared.state0 is None
+    assert observation_alignment_steps(prepared, grid) == 2
+    assert prepared.init(prepared.params) is None
     assert prepared.params == {}
-    assert prepared.period == 0.5
-    assert prepared.first_sample_offset == 0.5
-    assert prepared.variable_names == ("fast",)
+    assert prepared.output.period == 0.5
+    assert prepared.output.first_sample_offset == 0.5
+    assert prepared.output.variable_names == ("fast",)
 
 
 def test_online_subsampling_matches_posthoc_through_blocks_and_tail():
@@ -364,11 +366,7 @@ def test_stateful_observation_truncation_matches_detached_combined_carry_referen
             )
             return jnp.sum(chunks**2), chunks
 
-        observation_state = (
-            prepared.state0
-            if prepared.initialize is None
-            else prepared.initialize(prepared.data, prepared.state0, params)
-        )
+        observation_state = prepared.init(params)
         carry = (simulation_state0, observation_state)
         output_chunks = []
         for start in range(0, n_steps, window_size):
@@ -380,12 +378,7 @@ def test_stateful_observation_truncation_matches_detached_combined_carry_referen
                 simulation_state,
                 scan_inputs[start : start + window_size],
             )
-            observation_state, chunk = prepared.update(
-                prepared.data,
-                observation_state,
-                raw,
-                params,
-            )
+            observation_state, chunk = prepared.update(observation_state, raw, params)
             carry = (simulation_state, observation_state)
             output_chunks.append(chunk)
         chunks = jnp.concatenate(output_chunks)
@@ -643,7 +636,7 @@ def test_invalid_grid_selection_and_unsupported_combinations_fail_at_prepare():
             dt=0.25,
             observe=SubSampling(period=0.5, voi=slice(0, 0)),
         )
-    with pytest.raises(TypeError, match="Unsupported temporal observation"):
+    with pytest.raises(TypeError, match="has no streaming preparation method"):
         prepare(RampDynamics(), Euler(block_size=4), observe=object())
     with pytest.raises(ValueError, match="cannot be combined"):
         prepare(
@@ -677,22 +670,22 @@ def test_posthoc_subsampling_now_preserves_selected_variable_names():
 
 def test_balloon_windkessel_preparation_has_four_vector_carry_and_live_params():
     monitor = BalloonWindkesselBold(period=8.0, dt_bw=1.0, voi=1, TE=0.05)
+    grid = SimulationGrid(t0=10.0, dt=1.0, n_steps=19)
     prepared = prepare_observation(
         monitor,
-        SimulationGrid(t0=10.0, dt=1.0, n_steps=19),
+        grid,
         jax.ShapeDtypeStruct((2, 3), jnp.float32),
         ("slow", "fast"),
     )
 
-    assert tuple(value.shape for value in prepared.state0) == ((3,),) * 4
+    state = prepared.init(prepared.params)
+    assert tuple(value.shape for value in state) == ((3,),) * 4
     assert prepared.params.TE == 0.05
     assert prepared.params.Eo == monitor.Eo
-    assert prepared.data.repeat == 1
-    assert prepared.data.decimate == 1
-    assert prepared.data.save_every == 8
-    assert prepared.period == 8.0
-    assert prepared.first_sample_offset == 8.0
-    assert prepared.variable_names == ("BOLD(fast)",)
+    assert observation_alignment_steps(prepared, grid) == 8
+    assert prepared.output.period == 8.0
+    assert prepared.output.first_sample_offset == 8.0
+    assert prepared.output.variable_names == ("BOLD(fast)",)
 
 
 def test_balloon_windkessel_resampling_uses_repetition_and_window_end_decimation():
@@ -1161,16 +1154,16 @@ def test_hrf_preparation_resolves_default_averaging_and_history_shape():
         ("slow", "fast"),
     )
 
-    assert prepared.state0.shape == (2, 1, 3)
-    assert prepared.state0.dtype == prepared.data.hrf.dtype
-    assert jnp.array_equal(
-        prepared.state0, jnp.zeros((2, 1, 3), dtype=prepared.state0.dtype)
-    )
-    assert prepared.data.final_stride == 2
+    history = prepared.init(prepared.params)
+    assert history.shape == (2, 1, 3)
+    block = jnp.zeros((4, 2, 3), dtype=jnp.float32)
+    next_history, bold = prepared.update(history, block, prepared.params)
+    assert history.dtype == next_history.dtype == bold.dtype
+    assert jnp.array_equal(history, jnp.zeros((2, 1, 3), dtype=history.dtype))
     assert prepared.params == {"k_1": 5.6, "V_0": 0.02}
-    assert prepared.period == 4.0
-    assert prepared.first_sample_offset == 4.0
-    assert prepared.variable_names == ("BOLD(fast)",)
+    assert prepared.output.period == 4.0
+    assert prepared.output.first_sample_offset == 4.0
+    assert prepared.output.variable_names == ("BOLD(fast)",)
 
 
 @pytest.mark.parametrize(
@@ -1343,7 +1336,7 @@ def test_hrf_history_is_front_padded_or_suffix_trimmed(history, expected):
         ("slow", "fast"),
     )
 
-    assert jnp.array_equal(prepared.state0[:, 0, 0], expected)
+    assert jnp.array_equal(prepared.init(prepared.params)[:, 0, 0], expected)
 
 
 def test_hrf_solution_history_is_downsampled_selected_and_normalized():
@@ -1374,7 +1367,8 @@ def test_hrf_solution_history_is_downsampled_selected_and_normalized():
     )
 
     assert jnp.array_equal(
-        prepared.state0[:, 0, :], jnp.array([[0.0, 0.0], [15.0, 17.0]])
+        prepared.init(prepared.params)[:, 0, :],
+        jnp.array([[0.0, 0.0], [15.0, 17.0]]),
     )
 
 

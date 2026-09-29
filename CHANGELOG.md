@@ -41,16 +41,45 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   scientific time series inside integration blocks, avoiding retention of the
   full-rate neural output. Results remain `NativeSolution` objects with sampled
   timestamps, intervals, and channel names.
-  - Heterogeneous networks accept exactly
-    `observe=(GroupObservation(...), monitor)`, applying the common graph-order
-    readout before the temporal monitor. Readout and monitor parameters remain
-    separate under `config.observation` and `config.monitor`.
+  - Heterogeneous networks accept
+    `observe=GroupObservation(..., monitor=monitor)`, applying the common
+    graph-order readout before the temporal monitor. The equivalent
+    `observe=(GroupObservation(...), monitor)` tuple is also accepted. Readout
+    and monitor parameters remain separate under `config.observation` and
+    `config.monitor`.
   - Sampling and temporal averaging now share integer-grid implementations
     between prepared and post-hoc execution. BOLD implementations share their
     input resampling, hemodynamic, convolution, history, and readout operations.
   - Prepared observations work with checkpoint blocks, aligned truncated
     gradient windows, streaming noise, JIT, vmap, parameter-partitioned
     differentiation, and `Space` axes.
+  - Added an experimental public authoring contract through
+    `SampledMonitor`, `StreamingMonitor`, `SimulationGrid`,
+    `ObservationOutput`, `PreparedObservation`, `prepare_observation`,
+    `apply_observation`, and `sampling_stride`. `SampledMonitor` turns a
+    per-sample `init`/`step` pair into a monitor whose non-static fields are
+    live parameters. Block algorithms implement `prepare`, optionally by
+    subclassing `StreamingMonitor`; `isinstance(m, StreamingMonitor)` is
+    structural and also holds for the built-ins. Subclasses customize
+    preparation through ordinary method resolution, and foreign types are
+    wrapped rather than registered. Every monitor shares one numerical
+    update between native solver execution and post-hoc application, with
+    common shape, cadence, state, dtype, and alignment diagnostics.
+    `SimulationGrid.output` computes output timestamps for last-input,
+    window-center, and period-end labels.
+  - Migration from pre-release drafts: `TemporalMonitor` is now
+    `StreamingMonitor`, and `@prepare_observation.dispatch` has been removed in
+    favor of instance `prepare` methods or explicit wrappers. There is no
+    compatibility shim; update copied code.
+  - Added `JointObservation` for one shared temporal preprocessing stage feeding
+    flat named monitor branches. Each branch returns its own `NativeSolution`
+    grid, while state and live parameters use `preprocess` and `outputs`
+    namespaces. `Identity` retains an incoming stage unchanged and can bypass
+    the default internal resampling in HRF and Balloon-Windkessel monitors.
+  - Published the experimental authoring guide and API reference for sampled
+    monitors, block recipes, live parameters, named results, shared-stage composition, grid
+    alignment, and current scope limits. The candidate remains experimental
+    while external use informs later stabilization.
 - **Bundled agent skill.** `src/tvboptim/skills/tvboptim` ships an
   agent-neutral skill in the open Agent Skills format, covering network
   assembly and solving, heterogeneous networks, custom dynamics and coupling,
@@ -91,6 +120,21 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Valid-mode post-hoc `HRFBold` again accepts existing callable custom
+  downsamplers, including subclasses that override a built-in implementation,
+  while prepared online execution continues to reject downsamplers outside its
+  exact registered causal implementations.
+- Post-hoc `BalloonWindkesselBold` preserves overridden downsampling behavior
+  in customized subclasses, including the original timestamp origin. Prepared
+  execution rejects those subclasses instead of silently using their base
+  implementation.
+- The deprecated `streaming_hrf_bold` reducer now resolves solution-valued warm
+  history on its configured downsampling grid before dtype and support
+  normalization.
+- Live temporal-monitor parameter validation now covers every distinct regular,
+  truncation-window, and final-tail length that a solve executes. Tail-only
+  state, output, key, channel, count, and dtype inconsistencies therefore fail
+  during tracing instead of producing malformed result lengths.
 - Prepared Balloon-Windkessel observations now infer the dtype of the actual
   selected solver output through prepared coupling and external computations,
   including auxiliary values, and initialize their state from live monitor

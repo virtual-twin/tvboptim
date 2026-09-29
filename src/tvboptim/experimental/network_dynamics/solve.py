@@ -21,7 +21,12 @@ from .core.network import Network
 from .core.observation import (
     GroupObservation,
     SimulationGrid,
+    observation_alignment_steps,
+    observation_result,
     prepare_observation,
+    validate_observation_input,
+    validate_observation_invocation,
+    validate_prepared_observation,
 )
 from .core.readout import pack_history_readouts, pack_readouts, prepare_readouts
 from .coupling.base import DelayedCoupling, InstantaneousCoupling
@@ -31,7 +36,6 @@ from .graph.topology import prepare_graph_topology, validate_graph_topology
 from .result import (
     DiffraxSolution,
     HeterogeneousSolution,
-    NativeSolution,
     wrap_native_result,
 )
 from .solvers.diffrax import DiffraxSolver
@@ -351,7 +355,9 @@ def _composed_scan(
     return _blocked_scan(run_window, carry0, scan_inputs, n_steps, window_size)
 
 
-def _observation_block(op, prepared, monitor_params, noise_gen=None):
+def _observation_block(
+    op, prepared, monitor_params, input_sample=None, monitor_name=None, noise_gen=None
+):
     """Build the checkpointed integrate-then-observe operation for one block."""
     if noise_gen is not None:
 
@@ -362,11 +368,10 @@ def _observation_block(op, prepared, monitor_params, noise_gen=None):
             simulation_state, raw_block = jax.lax.scan(
                 op, simulation_state, (time_chunk, noise)
             )
+            if input_sample is not None:
+                validate_observation_input(monitor_name, input_sample, raw_block)
             observation_state, chunk = prepared.update(
-                prepared.data,
-                observation_state,
-                raw_block,
-                monitor_params,
+                observation_state, raw_block, monitor_params
             )
             return (simulation_state, observation_state, counter + 1), chunk
 
@@ -376,11 +381,10 @@ def _observation_block(op, prepared, monitor_params, noise_gen=None):
     def step(carry, block_inputs):
         simulation_state, observation_state = carry
         simulation_state, raw_block = jax.lax.scan(op, simulation_state, block_inputs)
+        if input_sample is not None:
+            validate_observation_input(monitor_name, input_sample, raw_block)
         observation_state, chunk = prepared.update(
-            prepared.data,
-            observation_state,
-            raw_block,
-            monitor_params,
+            observation_state, raw_block, monitor_params
         )
         return (simulation_state, observation_state), chunk
 
@@ -395,17 +399,25 @@ def _run_observed_scan(
     solver,
     prepared,
     monitor_params,
+    input_sample=None,
+    monitor_name=None,
     *,
     window_size=None,
     noise_gen=None,
 ):
     """Integrate and transform raw output inside each execution block."""
-    block_step = _observation_block(op, prepared, monitor_params, noise_gen)
-    observation_state0 = (
-        prepared.state0
-        if prepared.initialize is None
-        else prepared.initialize(prepared.data, prepared.state0, monitor_params)
+    if input_sample is not None:
+        validate_observation_invocation(
+            monitor_name,
+            prepared,
+            monitor_params,
+            input_sample,
+            _observation_execution_lengths(n_steps, solver.block_size, window_size),
+        )
+    block_step = _observation_block(
+        op, prepared, monitor_params, input_sample, monitor_name, noise_gen
     )
+    observation_state0 = prepared.init(monitor_params)
     carry0 = (
         (state0, observation_state0, jnp.array(0))
         if noise_gen is not None
@@ -541,6 +553,20 @@ def _positive_step_count(value, name):
     return value
 
 
+def _observation_execution_lengths(n_steps, block_size, window_size):
+    """Return the distinct observation chunk lengths the scan will execute."""
+    chunk_size = block_size if block_size is not None else window_size
+    if chunk_size is None:
+        return (int(n_steps),)
+    lengths = [int(chunk_size)] if n_steps >= chunk_size else []
+    remainder = n_steps % chunk_size
+    if remainder:
+        lengths.append(int(remainder))
+    if not lengths:
+        lengths.append(int(n_steps))
+    return tuple(dict.fromkeys(lengths))
+
+
 def _prepare_temporal_observation(
     observe,
     *,
@@ -552,13 +578,14 @@ def _prepare_temporal_observation(
     solver,
 ):
     """Prepare a monitor and validate the solver's regular chunk boundaries."""
-    grid = SimulationGrid(t0=float(t0), dt=float(dt), n_steps=int(n_steps))
-    prepared = prepare_observation(observe, grid, sample, tuple(variable_names))
-    cadence_steps = int(round(prepared.period / dt))
+    grid = SimulationGrid(t0=t0, dt=float(dt), n_steps=int(n_steps))
+    names = None if variable_names is None else tuple(variable_names)
+    prepared = prepare_observation(observe, grid, sample, names)
 
     block_size = solver.block_size
     window_size = solver.grad_horizon
     monitor_name = type(observe).__name__
+    alignment_steps = observation_alignment_steps(prepared, grid)
     if block_size is None:
         warnings.warn(
             f"observe={monitor_name}(...) is enabled without block_size. The "
@@ -569,41 +596,40 @@ def _prepare_temporal_observation(
         )
         if window_size is not None:
             window_size = _positive_step_count(window_size, "grad_horizon")
-            if window_size % cadence_steps:
+            if window_size % alignment_steps:
                 raise ValueError(
-                    f"{monitor_name} period {prepared.period:g} is "
-                    f"{cadence_steps} steps at dt={dt:g}. "
                     f"grad_horizon={window_size} does not contain complete "
-                    "observation periods. Use a multiple of "
-                    f"{cadence_steps} steps."
+                    "observation alignment intervals. Use a multiple of "
+                    f"{alignment_steps} steps."
                 )
     else:
         block_size = _positive_step_count(block_size, "block_size")
-        if block_size % cadence_steps:
-            example = cadence_steps * max(1, round(block_size / cadence_steps))
+        if block_size % alignment_steps:
+            example = alignment_steps * max(1, round(block_size / alignment_steps))
             raise ValueError(
-                f"{monitor_name} period {prepared.period:g} is "
-                f"{cadence_steps} steps at dt={dt:g}. block_size={block_size} "
-                "does not contain complete observation periods. Use a multiple "
-                f"of {cadence_steps} steps, for example {example}."
+                f"block_size={block_size} does not contain complete observation "
+                "alignment intervals. Use a multiple of "
+                f"{alignment_steps} steps, for example {example}."
             )
         if window_size is not None:
             window_size = _positive_step_count(window_size, "grad_horizon")
             window_size = _snap_window(window_size, block_size)
 
-    return prepared, window_size
+    block_lengths = _observation_execution_lengths(n_steps, block_size, window_size)
+    validate_prepared_observation(
+        observe,
+        grid,
+        sample,
+        prepared,
+        block_lengths=block_lengths,
+    )
+
+    return prepared, window_size, sample
 
 
 def _wrap_observation_result(chunks, t0, prepared):
-    """Construct the uniform NativeSolution described by a prepared monitor."""
-    n_samples = chunks.shape[0]
-    ts = t0 + prepared.first_sample_offset + jnp.arange(n_samples) * prepared.period
-    return NativeSolution(
-        ts=ts,
-        ys=chunks,
-        dt=prepared.period,
-        variable_names=prepared.variable_names,
-    )
+    """Construct the solution or named solutions described by a recipe."""
+    return observation_result(chunks, t0, prepared)
 
 
 def _reduce_fold(reduce, variable_names, n_nodes, n_steps):
@@ -999,11 +1025,13 @@ def _split_heterogeneous_observe(observe):
     if observe is None:
         return None, None
     if isinstance(observe, GroupObservation):
-        return observe, None
+        return observe, observe.monitor
     if not isinstance(observe, tuple):
         raise TypeError(
-            "Heterogeneous observe must be a GroupObservation, a "
-            "(GroupObservation, temporal_monitor) tuple, or None"
+            "Heterogeneous observe must be a GroupObservation or None. A "
+            "heterogeneous network needs an explicit common readout before a "
+            "temporal monitor: observe=GroupObservation({...}, "
+            "channels=(...), monitor=monitor)"
         )
     if len(observe) != 2:
         raise TypeError(
@@ -1020,6 +1048,12 @@ def _split_heterogeneous_observe(observe):
     ):
         raise TypeError(
             "The second heterogeneous observe tuple item must be a temporal monitor"
+        )
+    if group_observation.monitor is not None:
+        raise ValueError(
+            "The temporal monitor is specified twice: in GroupObservation.monitor "
+            "and in the observe tuple. Provide it in exactly one place, "
+            "preferably GroupObservation(..., monitor=monitor)."
         )
     return group_observation, temporal_observation
 
@@ -1041,9 +1075,10 @@ def prepare(
             reduction requires ``observe`` and runs in bounded forward memory
             only when ``solver.block_size`` is set.
         observe: Optional :class:`GroupObservation` projecting accepted
-            per-step group variables of interest to common graph-order channels,
-            or ``(GroupObservation, temporal_monitor)`` to transform that common
-            signal within solver blocks.
+            per-step group variables of interest to common graph-order channels.
+            Its ``monitor`` transforms that common signal within solver blocks.
+            The equivalent ``(GroupObservation, temporal_monitor)`` tuple
+            remains supported.
     """
     unsupported_routes = [
         name
@@ -1425,19 +1460,22 @@ def prepare(
         config.observation = observation_params
     prepared_temporal_observation = None
     temporal_observation_window = None
+    temporal_observation_sample = None
     if temporal_observation is not None:
-        prepared_temporal_observation, temporal_observation_window = (
-            _prepare_temporal_observation(
-                temporal_observation,
-                t0=t0,
-                dt=dt,
-                n_steps=n_steps,
-                sample=jax.ShapeDtypeStruct(
-                    (observation_width, network.n_nodes), observation_dtype
-                ),
-                variable_names=group_observation.channels,
-                solver=solver,
-            )
+        (
+            prepared_temporal_observation,
+            temporal_observation_window,
+            temporal_observation_sample,
+        ) = _prepare_temporal_observation(
+            temporal_observation,
+            t0=t0,
+            dt=dt,
+            n_steps=n_steps,
+            sample=jax.ShapeDtypeStruct(
+                (observation_width, network.n_nodes), observation_dtype
+            ),
+            variable_names=group_observation.channels,
+            solver=solver,
         )
         config.monitor = _snapshot(prepared_temporal_observation.params)
     has_noise = bool(noise_specs)
@@ -1847,6 +1885,8 @@ def prepare(
                 solver,
                 prepared_temporal_observation,
                 config.monitor,
+                temporal_observation_sample,
+                type(temporal_observation).__name__,
                 window_size=temporal_observation_window,
                 noise_gen=noise_gen,
             )
@@ -2200,6 +2240,7 @@ def prepare(
     noise_samples_shape = (n_steps, n_noise_states, n_nodes)
     prepared_observation = None
     observation_window = None
+    observation_sample = None
     if observe is not None:
         probe_state = config.initial_state
         probe_time = jnp.asarray(t0, dtype=time_steps.dtype)
@@ -2243,14 +2284,16 @@ def prepare(
             aux_voi_indices=aux_voi_indices,
             record_auxiliaries=record_auxiliaries,
         )
-        prepared_observation, observation_window = _prepare_temporal_observation(
-            observe,
-            t0=t0,
-            dt=dt,
-            n_steps=n_steps,
-            sample=output_sample,
-            variable_names=variable_names,
-            solver=solver,
+        prepared_observation, observation_window, observation_sample = (
+            _prepare_temporal_observation(
+                observe,
+                t0=t0,
+                dt=dt,
+                n_steps=n_steps,
+                sample=output_sample,
+                variable_names=variable_names,
+                solver=solver,
+            )
         )
         config.monitor = _snapshot(prepared_observation.params)
 
@@ -2419,6 +2462,8 @@ def prepare(
                 solver,
                 prepared_observation,
                 config.monitor,
+                observation_sample,
+                type(observe).__name__,
                 window_size=observation_window,
                 noise_gen=noise_gen,
             )
@@ -2941,6 +2986,7 @@ def prepare(
     noise_samples_shape = (n_steps, n_noise_states, n_nodes) if has_noise else None
     prepared_observation = None
     observation_window = None
+    observation_sample = None
     if observe is not None:
         probe_state = config.initial_state.dynamics if has_externals else state0
 
@@ -2975,14 +3021,16 @@ def prepare(
             aux_voi_indices=aux_voi_indices,
             record_auxiliaries=record_auxiliaries,
         )
-        prepared_observation, observation_window = _prepare_temporal_observation(
-            observe,
-            t0=t0,
-            dt=dt,
-            n_steps=n_steps,
-            sample=output_sample,
-            variable_names=variable_names,
-            solver=solver,
+        prepared_observation, observation_window, observation_sample = (
+            _prepare_temporal_observation(
+                observe,
+                t0=t0,
+                dt=dt,
+                n_steps=n_steps,
+                sample=output_sample,
+                variable_names=variable_names,
+                solver=solver,
+            )
         )
         config.monitor = _snapshot(prepared_observation.params)
 
@@ -3087,6 +3135,8 @@ def prepare(
                 solver,
                 prepared_observation,
                 config.monitor,
+                observation_sample,
+                type(observe).__name__,
                 window_size=observation_window,
                 noise_gen=noise_gen,
             )

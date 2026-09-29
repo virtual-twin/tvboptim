@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import pytest
 from jax.extend import core as jax_core
 
+from docs.advanced.low_pass_monitor import LowPass
 from tvboptim.execution import ParallelExecution
 from tvboptim.experimental.network_dynamics import (
     Bunch,
@@ -25,6 +26,7 @@ from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
 from tvboptim.experimental.network_dynamics.dynamics.base import AbstractDynamics
 from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
 from tvboptim.experimental.network_dynamics.solvers import Euler
+from tvboptim.observations import Identity, JointObservation
 from tvboptim.observations.observation import compute_fc, welford_cov
 from tvboptim.observations.tvb_monitors import (
     BalloonWindkesselBold,
@@ -431,6 +433,87 @@ def test_group_observation_then_temporal_monitor_matches_posthoc(monitor):
     assert actual.variable_names == expected.variable_names
 
 
+def test_external_temporal_monitor_composes_with_heterogeneous_readout():
+    observation = _observe_y()
+    monitor = LowPass(period=0.2, tau=0.3)
+    raw = solve(_network(), Euler(block_size=4), t1=0.9, dt=0.1, observe=observation)
+    actual = solve(
+        _network(),
+        Euler(block_size=4),
+        t1=0.9,
+        dt=0.1,
+        observe=(observation, monitor),
+    )
+    expected = monitor(raw)
+
+    assert jnp.allclose(actual.ys, expected.ys)
+    assert jnp.allclose(actual.ts, expected.ts)
+    assert actual.variable_names == ("activity",)
+
+
+def test_joint_observation_composes_after_heterogeneous_readout():
+    observation = _observe_y()
+    monitor = JointObservation(
+        preprocess=TemporalAverage(period=0.2),
+        outputs={
+            "averaged": Identity(),
+            "coarse": SubSampling(period=0.4),
+        },
+    )
+    projected = solve(
+        _network(), Euler(block_size=4), t1=0.9, dt=0.1, observe=observation
+    )
+    expected = monitor(projected)
+    actual = solve(
+        _network(),
+        Euler(block_size=4),
+        t1=0.9,
+        dt=0.1,
+        observe=(observation, monitor),
+    )
+
+    assert set(actual) == {"averaged", "coarse"}
+    for name in actual:
+        assert jnp.allclose(actual[name].ys, expected[name].ys)
+        assert jnp.allclose(actual[name].ts, expected[name].ts)
+        assert actual[name].variable_names == ("activity",)
+
+
+@pytest.mark.parametrize("injected", [False, True])
+def test_heterogeneous_joint_matches_same_generated_or_injected_noise(injected):
+    observation = _observe_y()
+    monitor = JointObservation(
+        preprocess=TemporalAverage(period=0.2),
+        outputs={
+            "averaged": Identity(),
+            "coarse": SubSampling(period=0.4),
+        },
+    )
+    kwargs = dict(t1=0.8, dt=0.1)
+    projected_fn, projected_config = prepare(
+        _network(noise=True),
+        Euler(block_size=4),
+        observe=observation,
+        **kwargs,
+    )
+    joint_fn, joint_config = prepare(
+        _network(noise=True),
+        Euler(block_size=4),
+        observe=(observation, monitor),
+        **kwargs,
+    )
+    if injected:
+        samples = jax.random.normal(jax.random.key(11), (8, 2, 2))
+        projected_config._internal.noise_samples.a = samples
+        joint_config._internal.noise_samples.a = samples
+
+    expected = monitor(projected_fn(projected_config))
+    actual = joint_fn(joint_config)
+    for name in actual:
+        assert jnp.array_equal(actual[name].ys, expected[name].ys)
+        assert jnp.array_equal(actual[name].ts, expected[name].ts)
+
+
 @pytest.mark.parametrize("inject_noise", [False, True])
 def test_heterogeneous_temporal_monitor_matches_posthoc_with_noise(inject_noise):
     observation = _observe_y()
@@ -489,7 +572,7 @@ def test_heterogeneous_temporal_observe_validates_tuple_roles():
         prepare(_network(), Euler(block_size=2), observe=(observation, None))
     with pytest.raises(TypeError, match="Heterogeneous observe must"):
         prepare(_network(), Euler(block_size=2), observe=monitor)
-    with pytest.raises(TypeError, match="Unsupported temporal observation"):
+    with pytest.raises(TypeError, match="has no streaming preparation method"):
         prepare(
             _network(),
             Euler(block_size=2),
@@ -530,7 +613,7 @@ def test_temporal_monitor_requires_coverage_unless_fill_is_explicitly_allowed():
     assert jnp.all(result.ys[:, 0, jnp.array([1, 3])] == -7.0)
 
 
-def _scaled_observation():
+def _scaled_observation(**kwargs):
     def scaled(voi, params):
         return params.gain * voi[0:1]
 
@@ -538,6 +621,7 @@ def _scaled_observation():
         {"a": scaled, "b": scaled},
         params={"a": Bunch(gain=1.0), "b": Bunch(gain=1.0)},
         channels=("activity",),
+        **kwargs,
     )
 
 
@@ -656,3 +740,91 @@ def test_heterogeneous_temporal_jaxpr_has_only_block_sized_common_signal():
     assert (8, 1, 4) not in shapes
     assert (2, 1, 4) in shapes
     assert model(config).ys.shape == (4, 1, 4)
+
+
+NAMED_SLOT_MONITORS = {
+    "hrf": _identity_hrf,
+    "joint": lambda: JointObservation(
+        preprocess=TemporalAverage(period=0.2),
+        outputs={"low": LowPass(period=0.4, tau=0.3), "raw": Identity()},
+    ),
+}
+
+
+@pytest.mark.parametrize("noise", [False, True])
+@pytest.mark.parametrize("name", NAMED_SLOT_MONITORS)
+def test_named_monitor_slot_matches_tuple_form(name, noise):
+    build = NAMED_SLOT_MONITORS[name]
+    kwargs = dict(t1=0.8, dt=0.1)
+    tuple_fn, tuple_config = prepare(
+        _network(noise=noise),
+        Euler(block_size=4),
+        observe=(_scaled_observation(), build()),
+        **kwargs,
+    )
+    slot_fn, slot_config = prepare(
+        _network(noise=noise),
+        Euler(block_size=4),
+        observe=_scaled_observation(monitor=build()),
+        **kwargs,
+    )
+    assert slot_config.monitor == tuple_config.monitor
+    assert slot_config.observation == tuple_config.observation
+
+    def loss(model, config, monitor, gain):
+        current = config.copy()
+        current.monitor = monitor
+        current.observation.a.gain = gain
+        result = model(current)
+        results = result.values() if isinstance(result, dict) else (result,)
+        return sum(jnp.sum(item.ys**2) for item in results), result
+
+    arguments = (tuple_config.monitor, jnp.array(1.2))
+    grad = jax.grad(loss, argnums=(2, 3), has_aux=True)
+    expected_grads, expected = grad(tuple_fn, tuple_config, *arguments)
+    actual_grads, actual = grad(slot_fn, slot_config, *arguments)
+    for left, right in zip(
+        jax.tree.leaves(actual_grads), jax.tree.leaves(expected_grads)
+    ):
+        assert jnp.allclose(left, right)
+    assert jax.tree.structure(actual) == jax.tree.structure(expected)
+    for left, right in zip(jax.tree.leaves(actual), jax.tree.leaves(expected)):
+        assert jnp.array_equal(left, right)
+    if isinstance(actual, dict):
+        for key in actual:
+            assert actual[key].variable_names == expected[key].variable_names
+            assert actual[key].dt == expected[key].dt
+    else:
+        assert actual.variable_names == expected.variable_names
+        assert actual.dt == expected.dt
+
+
+def test_named_monitor_slot_keeps_partial_coverage_rule():
+    monitor = SubSampling(period=0.2)
+    partial = GroupObservation({"a": "y"}, channels=("activity",), monitor=monitor)
+    with pytest.raises(ValueError, match=r"temporal monitor.*uncovered nodes"):
+        prepare(_network(), Euler(block_size=2), observe=partial)
+
+    allowed = GroupObservation(
+        {"a": "y"},
+        channels=("activity",),
+        fill_value=-7.0,
+        allow_partial_coverage=True,
+        monitor=monitor,
+    )
+    result = solve(_network(), Euler(block_size=2), t1=0.4, dt=0.1, observe=allowed)
+    assert jnp.all(result.ys[:, 0, jnp.array([1, 3])] == -7.0)
+
+
+def test_named_monitor_slot_rejects_ambiguous_or_missing_readout():
+    monitor = SubSampling(period=0.2)
+    with pytest.raises(ValueError, match="specified twice"):
+        prepare(
+            _network(),
+            Euler(block_size=2),
+            observe=(_observe_y(monitor=monitor), monitor),
+        )
+    with pytest.raises(TypeError, match=r"GroupObservation\(.*monitor=monitor\)"):
+        prepare(_network(), Euler(block_size=2), observe=monitor)
+    with pytest.raises(TypeError, match="must be a temporal monitor"):
+        _observe_y(monitor=_observe_y())

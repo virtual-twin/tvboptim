@@ -9,9 +9,16 @@ import matplotlib.pyplot as plt
 
 from tvboptim.experimental.network_dynamics.core.bunch import Bunch
 from tvboptim.experimental.network_dynamics.core.observation import (
+    Identity,
+    ObservationOutput,
     PreparedObservation,
     SimulationGrid,
+    apply_observation,
+    observation_alignment_steps,
+    observation_result,
     prepare_observation,
+    prepared_single_output_sample,
+    validate_prepared_observation,
 )
 from tvboptim.experimental.network_dynamics.result import NativeSolution
 
@@ -21,7 +28,6 @@ from .downsampling import (
     TemporalAverage,
     _integer_stride,
     _resolve_selection,
-    _selection_indices,
     _slice_variable_names,
     _validate_monitor_input,
 )
@@ -46,6 +52,8 @@ def _bold_variable_names(sol, voi=None):
 
 def _bold_names(names):
     """Wrap already-resolved source channel names as BOLD names."""
+    if names is None:
+        return None
     return tuple(f"BOLD({name})" for name in names)
 
 
@@ -402,6 +410,22 @@ def _hrf_dtype(input_dtype, hrf, history, params):
     return jnp.result_type(*leaves)
 
 
+def _hrf_history_values(history, downsample, input_dt):
+    """Resolve solution-valued history on the effective convolution grid."""
+    if history is None or not (hasattr(history, "ys") and hasattr(history, "ts")):
+        return history
+    resolved = downsample(history)
+    resolved_dt = getattr(resolved, "dt", None)
+    if resolved_dt is None or not math.isclose(
+        float(resolved_dt), float(input_dt), rel_tol=1e-9, abs_tol=1e-9
+    ):
+        raise ValueError(
+            "HRFBold solution history must resolve to the convolution-input "
+            f"interval {input_dt:g}; got {resolved_dt!r}"
+        )
+    return resolved.ys
+
+
 def _convolve_hrf(signal, hrf, mode):
     """Convolve time for every channel/node pair."""
 
@@ -463,12 +487,16 @@ def _hrf_params(monitor):
     return Bunch(k_1=monitor.k_1, V_0=monitor.V_0)
 
 
-def _hrf_update(data, history, block, params):
-    """Apply nested sampling and causal HRF convolution to one solver block."""
-    _, downsampled = data.downsample_update(
-        data.downsample_data, None, block, data.downsample_params
-    )
-    return _hrf_valid_block(history, downsampled, data.hrf, data.final_stride, params)
+def _hrf_update(downsample, hrf, final_stride):
+    """Build nested sampling and causal HRF convolution for one solver block."""
+
+    def update(history, block, params):
+        _, downsampled = downsample.update(
+            downsample.init(downsample.params), block, downsample.params
+        )
+        return _hrf_valid_block(history, downsampled, hrf, final_stride, params)
+
+    return update
 
 
 class HRFBold(AbstractMonitor):
@@ -478,6 +506,21 @@ class HRFBold(AbstractMonitor):
     1. Downsampling the neural activity
     2. Convolving with a hemodynamic response function kernel
     3. Downsampling to the final BOLD sampling period
+
+    Calling the monitor applies it to a stored solution. Passing it through a
+    native solver's ``observe=`` keyword computes the same valid causal
+    convolution block-wise; online execution requires
+    ``convolution_mode="valid"`` and an exact built-in ``Identity``,
+    ``SubSampling``, or ``TemporalAverage`` downsampler. Other callable
+    downsamplers, including customized subclasses, remain supported post-hoc for
+    compatibility. By default the convolution input is a
+    ``TemporalAverage`` at ``downsample_period``. Pass ``downsample=Identity()``
+    to use the actual incoming grid without another averaging stage.
+
+    Warm history may be an already-downsampled array or a solution on the
+    monitor's pre-downsampling input grid. In a joint branch, that input is the
+    shared stage's output; raw history is not replayed through the shared stage
+    automatically.
     """
 
     # BOLD model parameters
@@ -494,7 +537,7 @@ class HRFBold(AbstractMonitor):
     convolution_mode: str = eqx.field(static=True)
 
     # History buffer for continuous monitoring
-    history: jax.Array = None
+    history: object = None
 
     def __init__(
         self,
@@ -547,38 +590,13 @@ class HRFBold(AbstractMonitor):
             if hasattr(downsample, "period"):
                 self.downsample_period = downsample.period
 
-        # Process history buffer
-        self.history = self._process_history(history)
+        # Preserve the original history until the effective convolution grid is
+        # known. Preparation and post-hoc execution normalize it on that grid.
+        self.history = history
 
-    def _process_history(self, history):
-        """Process history input into standardized buffer.
-
-        Args:
-            history: None (default to zeros), jax.Array, or Solution object (Native or Diffrax)
-
-        Returns:
-            Processed history array or None
-        """
-        if history is None:
-            return None
-        elif hasattr(history, "ys") and hasattr(history, "ts"):
-            # Duck typing: any solution-like object with .ys and .ts attributes
-            # Works with both NativeSolution and Diffrax solutions
-            # Downsample the history first
-            downsampled_history = self.downsample(history)
-            hist = downsampled_history.ys
-            hrf = _build_hrf_kernel(self.kernel, self.downsample_period)
-            dtype = jnp.result_type(hist.dtype, hrf.dtype)
-            return _normalize_hrf_history(
-                hist,
-                hrf.shape[0],
-                hist.shape[1],
-                hist.shape[2],
-                dtype,
-            )
-        else:
-            # Assume it's already a jax.Array
-            return history
+    def prepare(self, grid, sample, variable_names):
+        """Prepare causal valid-mode HRF convolution for block-wise execution."""
+        return _prepare_hrf_bold(self, grid, sample, variable_names)
 
     def __call__(self, sol, t_offset=0.0):
         """Apply BOLD monitor to simulation results.
@@ -591,6 +609,13 @@ class HRFBold(AbstractMonitor):
         Returns:
             NativeSolution with BOLD signal timeseries
         """
+        if self.convolution_mode == "valid" and type(self.downsample) in (
+            Identity,
+            SubSampling,
+            TemporalAverage,
+        ):
+            return apply_observation(self, sol, t_offset=t_offset)
+
         dt = self._resolve_dt(sol)
         # sol.ts follows the native-solver convention where ts[0] = t0 + dt
         # (post-step state); recover the simulation start t0 to anchor BOLD
@@ -601,12 +626,14 @@ class HRFBold(AbstractMonitor):
         downsampled = self.downsample(sol)
         ys_downsampled = downsampled.ys
 
-        hrf = _build_hrf_kernel(self.kernel, self.downsample_period)
+        input_dt = self._resolve_dt(downsampled)
+        hrf = _build_hrf_kernel(self.kernel, input_dt)
         params = _hrf_params(self)
-        dtype = _hrf_dtype(ys_downsampled.dtype, hrf, self.history, params)
+        history_values = _hrf_history_values(self.history, self.downsample, input_dt)
+        dtype = _hrf_dtype(ys_downsampled.dtype, hrf, history_values, params)
         hrf = hrf.astype(dtype)
         history = _normalize_hrf_history(
-            self.history,
+            history_values,
             hrf.shape[0],
             ys_downsampled.shape[1],
             ys_downsampled.shape[2],
@@ -618,7 +645,7 @@ class HRFBold(AbstractMonitor):
         _integer_stride(self.period, dt, label="BOLD period")
         final_idx_step = _integer_stride(
             self.period,
-            self.downsample_period,
+            input_dt,
             label="BOLD period",
         )
 
@@ -648,12 +675,11 @@ class HRFBold(AbstractMonitor):
         )
 
 
-@prepare_observation.dispatch
 def _prepare_hrf_bold(
-    monitor: HRFBold,
+    monitor,
     grid: SimulationGrid,
     sample: jax.ShapeDtypeStruct,
-    variable_names: tuple,
+    variable_names: tuple | None,
 ) -> PreparedObservation:
     """Prepare causal valid-mode HRF convolution on aligned solver blocks."""
     _validate_monitor_input(sample, variable_names)
@@ -662,18 +688,22 @@ def _prepare_hrf_bold(
             "Prepared HRFBold supports convolution_mode='valid'; "
             f"got {monitor.convolution_mode!r}"
         )
-    if not isinstance(monitor.downsample, (SubSampling, TemporalAverage)):
+    if type(monitor.downsample) not in (Identity, SubSampling, TemporalAverage):
         raise ValueError(
-            "Prepared HRFBold downsample must be SubSampling or TemporalAverage"
+            "Prepared HRFBold downsample must be an exact built-in Identity, "
+            "SubSampling, or TemporalAverage"
         )
 
     _integer_stride(monitor.period, grid.dt, label="BOLD period")
     prepared_downsample = prepare_observation(
         monitor.downsample, grid, sample, variable_names
     )
-    input_dt = prepared_downsample.period
+    if not isinstance(prepared_downsample.output, ObservationOutput):
+        raise ValueError("HRFBold downsample must produce one time series")
+    downsample_output = prepared_downsample.output
+    input_dt = downsample_output.period
     _integer_stride(monitor.period, input_dt, label="BOLD period")
-    if not math.isclose(
+    if not isinstance(monitor.downsample, Identity) and not math.isclose(
         float(monitor.downsample_period),
         float(input_dt),
         rel_tol=1e-9,
@@ -686,12 +716,16 @@ def _prepare_hrf_bold(
 
     hrf = _build_hrf_kernel(monitor.kernel, input_dt)
     params = _hrf_params(monitor)
-    dtype = _hrf_dtype(sample.dtype, hrf, monitor.history, params)
+    history_values = _hrf_history_values(monitor.history, monitor.downsample, input_dt)
+    downsample_alignment = observation_alignment_steps(prepared_downsample, grid)
+    downsample_sample = prepared_single_output_sample(
+        prepared_downsample, sample, downsample_alignment
+    )
+    dtype = _hrf_dtype(downsample_sample.dtype, hrf, history_values, params)
     hrf = hrf.astype(dtype)
-    n_channels = len(prepared_downsample.variable_names)
-    n_nodes = sample.shape[1]
+    n_channels, n_nodes = downsample_sample.shape
     history = _normalize_hrf_history(
-        monitor.history,
+        history_values,
         hrf.shape[0],
         n_channels,
         n_nodes,
@@ -700,19 +734,19 @@ def _prepare_hrf_bold(
     final_stride = _integer_stride(monitor.period, input_dt, label="BOLD period")
 
     return PreparedObservation(
-        data=Bunch(
-            downsample_data=prepared_downsample.data,
-            downsample_params=prepared_downsample.params,
-            downsample_update=prepared_downsample.update,
-            hrf=hrf,
-            final_stride=final_stride,
-        ),
-        state0=history,
         params=params,
-        update=_hrf_update,
-        period=float(monitor.period),
-        first_sample_offset=float(monitor.period),
-        variable_names=_bold_names(prepared_downsample.variable_names),
+        # Warm history is prepared state, not a live parameter.
+        init=lambda params: history,
+        update=_hrf_update(prepared_downsample, hrf, final_stride),
+        output=grid.output(
+            monitor.period,
+            label="period_end",
+            variable_names=_bold_names(downsample_output.variable_names),
+        ),
+        alignment_steps=math.lcm(
+            downsample_alignment,
+            _integer_stride(monitor.period, grid.dt, label="BOLD period"),
+        ),
     )
 
 
@@ -763,6 +797,9 @@ def streaming_hrf_bold(monitor, dt):
     period_in_steps = ds_steps * final_idx_step
     hrf = _build_hrf_kernel(kernel, ds_period)
     kernel_samples = hrf.shape[0]
+    warm_history_values = _hrf_history_values(
+        warm_history, monitor.downsample, ds_period
+    )
 
     def init(template, n_steps):
         t_sel = template[voi, :]  # [n_voi, n_nodes]
@@ -770,9 +807,9 @@ def streaming_hrf_bold(monitor, dt):
         # SubSampling emits these indices; n_bold matches HRFBold's bold_indices.
         n_ds = len(range(ds_steps - 1, n_steps, ds_steps))
         n_bold = len(range(final_idx_step, n_ds + 1, final_idx_step))
-        dtype = _hrf_dtype(template.dtype, hrf, warm_history, params)
+        dtype = _hrf_dtype(template.dtype, hrf, warm_history_values, params)
         ring0 = _normalize_hrf_history(
-            warm_history,
+            warm_history_values,
             kernel_samples,
             n_voi,
             n_nodes,
@@ -885,23 +922,36 @@ def _bw_params(monitor):
     )
 
 
-def _bw_initialize(data, state0, params):
-    """Promote the four-vector carry for the invocation's live parameters."""
-    del data
-    dtype = jnp.result_type(state0[0].dtype, *jax.tree.leaves(params))
-    return tuple(value.astype(dtype) for value in state0)
+def _bw_init(input_shape):
+    """Build the resting four-vector carry for the live parameter dtype."""
+    n_nodes = input_shape.shape[1]
 
-
-def _bw_update(data, state, block, params):
-    """Observe one aligned native-solver block with a four-vector carry."""
-    if data.downsample_update is not None:
-        _, block = data.downsample_update(
-            data.downsample_data, None, block, data.downsample_params
+    def init(params):
+        dtype = jnp.result_type(input_shape.dtype, *jax.tree.leaves(params))
+        return (
+            jnp.zeros(n_nodes, dtype=dtype),
+            jnp.ones(n_nodes, dtype=dtype),
+            jnp.ones(n_nodes, dtype=dtype),
+            jnp.ones(n_nodes, dtype=dtype),
         )
-    drive = block[:, data.indices, :].squeeze(axis=1)
-    drive = _resample_bw_input(drive, data.repeat, data.decimate)
-    state, bold = _integrate_bw(state, drive, params, data.dt_bw)
-    return state, bold[data.save_every - 1 :: data.save_every, None, :]
+
+    return init
+
+
+def _bw_update(downsample, indices, repeat, decimate, save_every, dt_bw):
+    """Build BW observation of one aligned block with a four-vector carry."""
+
+    def update(state, block, params):
+        if downsample is not None:
+            _, block = downsample.update(
+                downsample.init(downsample.params), block, downsample.params
+            )
+        drive = block[:, indices, :].squeeze(axis=1)
+        drive = _resample_bw_input(drive, repeat, decimate)
+        state, bold = _integrate_bw(state, drive, params, dt_bw)
+        return state, bold[save_every - 1 :: save_every, None, :]
+
+    return update
 
 
 class BalloonWindkesselBold(AbstractMonitor):
@@ -914,6 +964,12 @@ class BalloonWindkesselBold(AbstractMonitor):
     The user-facing interface uses milliseconds for time parameters (period,
     dt_bw). Internally the BW ODE is integrated in seconds, matching the
     standard reference implementation (Friston 2000, Deco 2014).
+
+    The monitor supports both stored solutions and native ``observe=``
+    execution. Pass ``downsample=Identity()`` to drive it directly on the actual
+    incoming grid, including the output grid of a shared joint stage.
+    Customized downsampler subclasses retain their post-hoc ``__call__``
+    behavior; prepared execution accepts only exact built-in downsamplers.
 
     Parameters (user-facing, in ms)
     --------------------------------
@@ -1016,6 +1072,10 @@ class BalloonWindkesselBold(AbstractMonitor):
         """Intravascular coefficient derived from the live Eo and TE values."""
         return 25.0 * self.Eo * self.TE
 
+    def prepare(self, grid, sample, variable_names):
+        """Prepare stateful BW integration for block-wise execution."""
+        return _prepare_balloon_windkessel(self, grid, sample, variable_names)
+
     def __call__(self, sol, t_offset=0.0):
         """Apply Balloon-Windkessel BOLD model to simulation results.
 
@@ -1033,93 +1093,94 @@ class BalloonWindkesselBold(AbstractMonitor):
         NativeSolution
             BOLD signal with shape [T_bold, 1, N], timestamps in ms.
         """
-        raw_dt = self._resolve_dt(sol)
-        # The origin is irrelevant for an empty result, but keeping this branch
-        # shape-static lets post-hoc monitoring mirror a zero-step online solve.
-        t0 = sol.ts[0] - raw_dt if sol.ts.shape[0] else 0.0
-
-        if self.downsample is not None:
-            if not isinstance(self.downsample, (SubSampling, TemporalAverage)):
-                raise ValueError(
-                    "BalloonWindkesselBold downsample must be SubSampling or "
-                    "TemporalAverage"
-                )
-            sol = self.downsample(sol)
-
-        indices = _selection_indices(self.voi, sol.ys.shape[1])
-        names = _slice_variable_names(sol, self.voi)
-        if len(indices) != 1:
-            raise ValueError(
-                "BalloonWindkesselBold requires exactly one input channel after "
-                f"downsampling; selected {len(indices)}"
+        builtins = (Identity, SubSampling, TemporalAverage)
+        if (
+            isinstance(self.downsample, builtins)
+            and type(self.downsample) not in builtins
+        ):
+            # Preserve custom __call__ behavior without reconstructing the
+            # original origin from potentially centered downsampled labels.
+            raw_dt = self._resolve_dt(sol)
+            _integer_stride(self.period, raw_dt, label="BOLD period")
+            t0 = sol.ts[0] - raw_dt if sol.ts.shape[0] else 0.0
+            downsampled = self.downsample(sol)
+            input_dt = self._resolve_dt(downsampled)
+            sample = jax.ShapeDtypeStruct(
+                downsampled.ys.shape[1:], downsampled.ys.dtype
             )
-        drive = sol.ys[:, jnp.asarray(indices), :].squeeze(axis=1)
-        input_dt = self._resolve_dt(sol)
-        repeat, decimate = _bw_resampling_factors(input_dt, self.dt_bw)
-        _integer_stride(self.period, raw_dt, label="BOLD period")
-        _integer_stride(self.period, input_dt, label="BOLD period")
-        save_every = _integer_stride(self.period, self.dt_bw, label="BOLD period")
-        drive = _resample_bw_input(drive, repeat, decimate)
-
-        dtype = jnp.result_type(drive.dtype, *jax.tree.leaves(_bw_params(self)))
-        n_nodes = drive.shape[1]
-        state0 = (
-            jnp.zeros(n_nodes, dtype=dtype),
-            jnp.ones(n_nodes, dtype=dtype),
-            jnp.ones(n_nodes, dtype=dtype),
-            jnp.ones(n_nodes, dtype=dtype),
-        )
-        _, bold_all = _integrate_bw(state0, drive, _bw_params(self), self.dt_bw)
-
-        bold_signal = bold_all[save_every - 1 :: save_every]  # [T_bold, N]
-        bold_signal = bold_signal[:, jnp.newaxis, :]  # [T_bold, 1, N]
-
-        n_bold = bold_signal.shape[0]
-        bold_ts = t0 + (jnp.arange(n_bold) + 1) * self.period + t_offset
-
-        return NativeSolution(
-            ts=bold_ts,
-            ys=bold_signal,
-            dt=self.period,
-            variable_names=_bold_names(names) if names is not None else None,
-        )
+            prepared = _prepare_bw_drive(
+                self, input_dt, sample, getattr(downsampled, "variable_names", None)
+            )
+            grid = SimulationGrid(t0, input_dt, downsampled.ys.shape[0])
+            validate_prepared_observation(self, grid, sample, prepared)
+            state = prepared.init(prepared.params)
+            _, values = prepared.update(state, downsampled.ys, prepared.params)
+            return observation_result(values, t0, prepared, t_offset=t_offset)
+        return apply_observation(self, sol, t_offset=t_offset)
 
 
-@prepare_observation.dispatch
 def _prepare_balloon_windkessel(
-    monitor: BalloonWindkesselBold,
+    monitor,
     grid: SimulationGrid,
     sample: jax.ShapeDtypeStruct,
-    variable_names: tuple,
+    variable_names: tuple | None,
 ) -> PreparedObservation:
     """Prepare stateful BW integration for aligned native-solver blocks."""
     _validate_monitor_input(sample, variable_names)
     _integer_stride(monitor.period, grid.dt, label="BOLD period")
 
+    prepared_downsample = None
+    alignment_steps = None
     if monitor.downsample is None:
-        downsample_data = None
-        downsample_params = Bunch()
-        downsample_update = None
         input_dt = grid.dt
         input_shape = sample
         input_names = variable_names
     else:
-        if not isinstance(monitor.downsample, (SubSampling, TemporalAverage)):
+        if type(monitor.downsample) not in (Identity, SubSampling, TemporalAverage):
             raise ValueError(
-                "BalloonWindkesselBold downsample must be SubSampling or "
-                "TemporalAverage"
+                "Prepared BalloonWindkesselBold downsample must be an exact built-in Identity, "
+                "SubSampling, or TemporalAverage"
             )
         prepared_downsample = prepare_observation(
             monitor.downsample, grid, sample, variable_names
         )
-        downsample_data = prepared_downsample.data
-        downsample_params = prepared_downsample.params
-        downsample_update = prepared_downsample.update
-        input_dt = prepared_downsample.period
-        input_shape = jax.ShapeDtypeStruct(
-            (len(prepared_downsample.variable_names), sample.shape[1]), sample.dtype
+        if not isinstance(prepared_downsample.output, ObservationOutput):
+            raise ValueError(
+                "BalloonWindkesselBold downsample must produce one time series"
+            )
+        downsample_output = prepared_downsample.output
+        input_dt = downsample_output.period
+        downsample_alignment = observation_alignment_steps(prepared_downsample, grid)
+        input_shape = prepared_single_output_sample(
+            prepared_downsample, sample, downsample_alignment
         )
-        input_names = prepared_downsample.variable_names
+        input_names = downsample_output.variable_names
+        alignment_steps = math.lcm(
+            downsample_alignment,
+            _integer_stride(monitor.period, grid.dt, label="BOLD period"),
+        )
+
+    return _prepare_bw_drive(
+        monitor,
+        input_dt,
+        input_shape,
+        input_names,
+        downsample=prepared_downsample,
+        alignment_steps=alignment_steps,
+    )
+
+
+def _prepare_bw_drive(
+    monitor,
+    input_dt,
+    input_shape,
+    input_names,
+    *,
+    downsample=None,
+    alignment_steps=None,
+):
+    """Prepare BW numerics on the resolved drive grid, shared by both paths."""
+    _validate_monitor_input(input_shape, input_names)
 
     indices, names = _resolve_selection(monitor.voi, input_shape.shape[0], input_names)
     if len(indices) != 1:
@@ -1131,33 +1192,23 @@ def _prepare_balloon_windkessel(
     _integer_stride(monitor.period, input_dt, label="BOLD period")
     repeat, decimate = _bw_resampling_factors(input_dt, monitor.dt_bw)
     save_every = _integer_stride(monitor.period, monitor.dt_bw, label="BOLD period")
-    params = _bw_params(monitor)
-    dtype = jnp.result_type(sample.dtype, *jax.tree.leaves(params))
-    n_nodes = sample.shape[1]
-    state0 = (
-        jnp.zeros(n_nodes, dtype=dtype),
-        jnp.ones(n_nodes, dtype=dtype),
-        jnp.ones(n_nodes, dtype=dtype),
-        jnp.ones(n_nodes, dtype=dtype),
-    )
     return PreparedObservation(
-        data=Bunch(
-            downsample_data=downsample_data,
-            downsample_params=downsample_params,
-            downsample_update=downsample_update,
-            indices=jnp.asarray(indices, dtype=int),
-            repeat=repeat,
-            decimate=decimate,
-            save_every=save_every,
-            dt_bw=float(monitor.dt_bw),
+        params=_bw_params(monitor),
+        init=_bw_init(input_shape),
+        update=_bw_update(
+            downsample,
+            jnp.asarray(indices, dtype=int),
+            repeat,
+            decimate,
+            save_every,
+            float(monitor.dt_bw),
         ),
-        state0=state0,
-        params=params,
-        update=_bw_update,
-        period=float(monitor.period),
-        first_sample_offset=float(monitor.period),
-        variable_names=_bold_names(names),
-        initialize=_bw_initialize,
+        output=ObservationOutput(
+            period=float(monitor.period),
+            first_sample_offset=float(monitor.period),
+            variable_names=_bold_names(names),
+        ),
+        alignment_steps=alignment_steps,
     )
 
 

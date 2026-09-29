@@ -26,6 +26,12 @@ Try this notebook interactively:
 for the backward pass. A prepared observation addresses a separate forward
 cost: the full neural trajectory that a solver would otherwise return.
 
+If the raw trajectory fits in memory, prefer post-hoc observation: calling a
+monitor on a stored solution is the most flexible and usually the fastest route,
+and it allows arbitrary analysis afterwards. Use `observe=` when retaining the
+trajectory is the bottleneck, keep the streaming monitor to the reduction that
+removes it, and do further analysis post-hoc on the reduced output.
+
 Pass a supported monitor through `observe=` and the native solver computes that
 signal inside each integration block. A low-rate BOLD result can then be
 inspected, reused for several losses, or transformed with ordinary functions
@@ -61,14 +67,111 @@ not constant in simulation duration.
 
 - Prepared temporal observations currently require a native solver.
 - `SubSampling`, `TemporalAverage`, `BalloonWindkesselBold`, and `HRFBold` are
-  supported.
+  built in. Experimental custom monitors implement the public preparation
+  contract described below.
 - Sampling periods must be integer multiples of the input interval. Every
   regular block and truncation window must contain complete observation periods.
 - Only an incomplete final tail may be dropped. A run shorter than one period
   returns an empty `NativeSolution` with the correct shape and metadata.
-- `HRFBold` supports its default temporal averaging and explicit point sampling;
-  online convolution currently requires `convolution_mode="valid"`.
+- `HRFBold` supports its default temporal averaging, explicit point sampling,
+  and `Identity()` to use the incoming grid directly; online convolution
+  currently requires `convolution_mode="valid"`.
 :::
+
+## Custom temporal monitors (experimental)
+
+A custom regular causal monitor prepares one recipe and can then run through
+both `observe=` and its post-hoc `__call__`. A per-sample recurrence subclasses
+`SampledMonitor`; a block algorithm implements `prepare`, usually by
+subclassing `StreamingMonitor`; a type you do not own is wrapped in a small
+`StreamingMonitor` subclass. The supported authoring imports are:
+
+```python
+from tvboptim.observations import (
+    SampledMonitor,
+    StreamingMonitor,
+    SimulationGrid,
+    ObservationOutput,
+    PreparedObservation,
+    prepare_observation,
+    apply_observation,
+    sampling_stride,
+)
+```
+
+Preparation receives the simulation grid, an abstract `[channels, nodes]` input
+sample, and optional channel names. It returns live parameters, an
+`init(params)` callback, a block update, and output metadata. The update has
+this signature:
+
+```python
+next_state, samples = update(state, block, params)
+```
+
+Here `block` is `[input_samples, channels, nodes]`, while `samples` must be
+`[input_samples // stride, output_channels, nodes]`. Regular block boundaries
+must align with the declared cadence; an incomplete final tail is dropped.
+The external `LowPass` implementation in `docs/advanced/low_pass_monitor.py`
+demonstrates a `SampledMonitor` with state, a live parameter, and dtype
+promotion without importing solver internals.
+
+The complete [Authoring Temporal Observations](custom_observations.qmd)
+tutorial builds that monitor, differentiates its live parameter, composes named
+outputs, and documents the callback contract and current publication limits.
+
+## Named observations with shared preprocessing
+
+`JointObservation` applies one optional shared monitor once, then feeds its
+single output to a flat mapping of named monitors. Each result is its own
+`NativeSolution`, so branches can use different periods and retain different
+numbers of samples:
+
+```python
+from tvboptim.observations import Identity, JointObservation
+from tvboptim.observations.tvb_monitors import HRFBold, TemporalAverage
+
+observations = JointObservation(
+    preprocess=TemporalAverage(period=4.0, voi=0),
+    outputs={
+        "neural": Identity(),
+        "bold": HRFBold(period=1000.0, downsample=Identity()),
+    },
+)
+
+result = solve(
+    network,
+    Heun(block_size=2000),
+    t0=0.0,
+    t1=60_000.0,
+    dt=1.0,
+    observe=observations,
+)
+neural = result["neural"]  # dt == 4 ms
+bold = result["bold"]       # dt == 1000 ms
+```
+
+Omitting `preprocess` passes the raw monitor input to every branch. `Identity()`
+preserves the incoming values, interval, timestamp phase, names, and dtype. It
+also explicitly bypasses the default internal averaging in `HRFBold`; the HRF
+kernel and warm history are then resolved on the actual incoming interval.
+
+The composite block alignment is the least common multiple of the shared and
+branch requirements in raw integration steps. For independent 6-step and
+10-step branches, for example, `block_size` must be a multiple of 30. An
+incomplete final tail is handled independently for every branch, without
+padding coarse outputs.
+
+After `prepare`, live parameters use explicit namespaces:
+
+```python
+config.monitor.preprocess
+config.monitor.outputs.neural
+config.monitor.outputs.bold
+```
+
+The shared and branch states initialize once per model call. Gradients from
+several branch losses add through the shared operation. Nested joints and
+mapping-valued preprocessors or branches are outside this bounded composition.
 
 ```{python}
 #| output: false
@@ -303,6 +406,7 @@ from tvboptim.experimental.network_dynamics import GroupObservation
 common = GroupObservation(
     {"cortex": "S", "relay": relay_readout},
     channels=("activity",),
+    monitor=HRFBold(period=1000.0, voi=0),
 )
 bold = solve(
     heterogeneous_network,
@@ -310,11 +414,12 @@ bold = solve(
     t0=0.0,
     t1=120_000.0,
     dt=1.0,
-    observe=(common, HRFBold(period=1000.0, voi=0)),
+    observe=common,
 )
 ```
 
-The tuple always means group readout followed by one temporal monitor. Full node
+The group readout runs first, followed by its temporal monitor. The older
+`observe=(group_observation, monitor)` tuple remains supported. Full node
 coverage is required by default. If `allow_partial_coverage=True`, the configured
 fill value becomes real monitor input and later statistics are not automatically
 fill-aware.

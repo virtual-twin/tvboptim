@@ -612,8 +612,8 @@ def driven_observable(voi, params):
     return jnp.clip((voltage + 2.0) / 4.0, 0.0, 1.0)
 
 
-common_activity = GroupObservation(
-    {
+activity = dict(
+    readouts={
         "cortex": "S",
         "relay": Readout(
             relay_observable,
@@ -629,6 +629,7 @@ common_activity = GroupObservation(
     params={"relay": rate_params},
     channels=("activity",),
 )
+common_activity = GroupObservation(**activity)
 
 observe_simulation, observe_config = prepare(
     network,
@@ -664,8 +665,8 @@ observations. Shared `config.readouts` parameters are not yet supported.
 
 ### Observe BOLD without retaining the neural trajectory
 
-Compose the graph-order readout with exactly one temporal monitor. Preparation
-keeps the two parameter namespaces separate: readout parameters live under
+Give the graph-order readout a temporal `monitor`. Preparation keeps the two
+parameter namespaces separate: readout parameters live under
 `config.observation`, and monitor parameters live under `config.monitor`.
 
 ```{python}
@@ -675,7 +676,9 @@ bold_simulation, bold_config = prepare(
     t0=0.0,
     t1=100.0,
     dt=0.1,
-    observe=(common_activity, HRFBold(period=10.0, downsample_period=1.0)),
+    observe=GroupObservation(
+        **activity, monitor=HRFBold(period=10.0, downsample_period=1.0)
+    ),
 )
 bold = bold_simulation(bold_config)
 fc = compute_fc(bold)
@@ -683,8 +686,9 @@ print(bold.ys.shape)
 print(fc.shape)
 ```
 
-The tuple has fixed roles: `GroupObservation` first, then one supported temporal
-monitor. It is not a general pipeline or a request for independent outputs.
+The readout runs first, then one temporal monitor or `JointObservation`. It is
+not a general pipeline. The older `observe=(common_activity, monitor)` tuple
+remains supported with the same meaning.
 Regular blocks must contain complete monitor periods. The returned time series
 can be inspected and reused for FC or another post-hoc statistic. Exact reverse
 mode still retains checkpoint carries at block boundaries; the memory model is

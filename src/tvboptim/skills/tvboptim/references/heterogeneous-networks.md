@@ -97,24 +97,31 @@ solve_fn, config = prepare(network, Heun(), t0=0.0, t1=20.0, dt=0.1, observe=obs
 
 Passing `observe=` changes the returned type. The result becomes a graph-order `NativeSolution` of shape `[n_time, n_channels, n_nodes]` whose `variable_names` are the channel names, not a `HeterogeneousSolution`.
 
-Compose one temporal monitor after the graph-order projection with an exact
-tuple:
+Compose one temporal monitor after the graph-order projection with the
+`monitor=` slot:
 
 ```python
 from tvboptim.observations.tvb_monitors import HRFBold
 
+bold_observe = GroupObservation(
+    {"cortex": lambda voi, params: voi[1:2] - voi[2:3], "sub": "x"},
+    channels=("activity",),
+    monitor=HRFBold(period=1000.0, voi=0),
+)
 bold_fn, config = prepare(
     network,
     Heun(block_size=10_000),
     t0=0.0,
     t1=120_000.0,
     dt=0.1,
-    observe=(observe, HRFBold(period=1000.0, voi=0)),
+    observe=bold_observe,
 )
 bold = bold_fn(config)
 ```
 
 The order is group-local output, `GroupObservation`, then temporal monitor.
+The older `observe=(group_observation, monitor)` tuple is equivalent; giving a
+monitor in both places is an error. A `JointObservation` also fits the slot.
 Readout parameters remain under `config.observation.<group>` and live monitor
 parameters are under `config.monitor`.
 
