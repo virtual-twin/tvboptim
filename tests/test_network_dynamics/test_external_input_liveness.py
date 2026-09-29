@@ -53,7 +53,8 @@ def _prepared(external):
         graph=DenseGraph(jnp.zeros((N_NODES, N_NODES))),
         external_input={"stimulus": external},
     )
-    return prepare(network, Heun(), t0=0.0, t1=1.0, dt=0.05)
+    simulate, config = prepare(network, Heun(), t0=0.0, t1=1.0, dt=0.05)
+    return jax.jit(simulate), config
 
 
 def _with(config, leaf, value):
