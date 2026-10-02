@@ -11,10 +11,12 @@ import jax.numpy as jnp
 import jax.scipy as jsp
 import pytest
 
+from docs.advanced.low_pass_monitor import LowPass
 from tvboptim.experimental.network_dynamics import Bunch, prepare, solve
 from tvboptim.experimental.network_dynamics.dynamics import AbstractDynamics
 from tvboptim.experimental.network_dynamics.result import NativeSolution
 from tvboptim.experimental.network_dynamics.solvers import Euler
+from tvboptim.observations import Identity
 from tvboptim.observations.tvb_monitors import (
     BalloonWindkesselBold,
     FirstOrderVolterraHRFKernel,
@@ -389,9 +391,7 @@ class TestStreamingHrfBold(unittest.TestCase):
         pytest.param(DoubledTemporalAverage(period=4.0), 2.0, id="built-in-subclass"),
     ],
 )
-def test_valid_hrf_preserves_custom_callable_downsampler_posthoc_only(
-    downsample, downsample_scale
-):
+def test_valid_hrf_preserves_custom_callable_downsampler(downsample, downsample_scale):
     kernel = FirstOrderVolterraHRFKernel(duration=20.0)
     monitor = HRFBold(
         period=1000.0,
@@ -435,7 +435,16 @@ def test_valid_hrf_preserves_custom_callable_downsampler_posthoc_only(
     )
     assert jnp.allclose(actual_gradient, expected_gradient, rtol=1e-5, atol=1e-7)
 
-    with pytest.raises(ValueError, match="Prepared HRFBold downsample"):
+    if isinstance(downsample, CustomTemporalAverage):
+        with pytest.raises(TypeError, match="no streaming preparation method"):
+            prepare(
+                ConstantDrive(),
+                Euler(block_size=1000),
+                t1=2000.0,
+                dt=1.0,
+                observe=monitor,
+            )
+    else:
         prepare(
             ConstantDrive(),
             Euler(block_size=1000),
@@ -445,13 +454,28 @@ def test_valid_hrf_preserves_custom_callable_downsampler_posthoc_only(
         )
 
 
-@pytest.mark.parametrize("downsampler", [DoubledTemporalAverage, DoubledSubSampling])
+@pytest.mark.parametrize(
+    "downsampler", [DoubledTemporalAverage, DoubledSubSampling, CustomTemporalAverage]
+)
 @pytest.mark.parametrize("n_steps", [0, 1, 4003])
-def test_bw_preserves_custom_downsampler_subclasses(downsampler, n_steps):
-    downsample = downsampler(period=4.0, voi=1)
+def test_bw_preserves_custom_downsamplers(downsampler, n_steps):
+    if downsampler is CustomTemporalAverage:
+        downsample = downsampler()
+        scale_factor = 1.0
+    else:
+        downsample = downsampler(period=4.0, voi=1)
+        scale_factor = 2.0
     drive = jnp.linspace(0.05, 0.15, n_steps)[:, None] * jnp.asarray([1.0, 1.5])
-    values = jnp.stack([jnp.zeros_like(drive), drive], axis=1)
-    names = ("unused", "drive") if n_steps else None
+    values = (
+        drive[:, None, :]
+        if downsampler is CustomTemporalAverage
+        else jnp.stack([jnp.zeros_like(drive), drive], axis=1)
+    )
+    names = (
+        (("drive",) if downsampler is CustomTemporalAverage else ("unused", "drive"))
+        if n_steps
+        else None
+    )
 
     def observed(scale, vo, origin, offset):
         solution = NativeSolution(
@@ -468,10 +492,10 @@ def test_bw_preserves_custom_downsampler_subclasses(downsampler, n_steps):
         windows = drive[: n_steps // 4 * 4].reshape((-1, 4, 2))
         sampled = (
             windows.mean(axis=1)
-            if downsampler is DoubledTemporalAverage
+            if downsampler in (DoubledTemporalAverage, CustomTemporalAverage)
             else windows[:, -1, :]
         )
-        firing_rates = jnp.repeat(2.0 * scale * sampled, 4, axis=0)
+        firing_rates = jnp.repeat(scale_factor * scale * sampled, 4, axis=0)
 
         def step(state, rate):
             s, f, v, q = state
@@ -523,14 +547,82 @@ def test_bw_preserves_custom_downsampler_subclasses(downsampler, n_steps):
     if n_steps >= 1000:
         assert all(float(gradient) != 0.0 for gradient in actual_gradients)
 
-    with pytest.raises(ValueError, match="Prepared BalloonWindkesselBold downsample"):
+    if downsampler is CustomTemporalAverage:
+        with pytest.raises(TypeError, match="no streaming preparation method"):
+            prepare(
+                ConstantDrive(),
+                Euler(block_size=1000),
+                t1=float(n_steps),
+                dt=1.0,
+                observe=BalloonWindkesselBold(period=1000.0, downsample=downsample),
+            )
+    else:
         prepare(
             ConstantDrive(),
             Euler(block_size=1000),
             t1=float(n_steps),
             dt=1.0,
-            observe=BalloonWindkesselBold(period=1000.0, downsample=downsample),
+            observe=BalloonWindkesselBold(
+                period=1000.0, downsample=downsampler(period=4.0)
+            ),
         )
+
+
+class PreparedLowPass:
+    """Foreign monitor with no built-in ancestry or period attribute."""
+
+    def prepare(self, grid, sample, variable_names):
+        return LowPass(period=2.0, tau=3.0).prepare(grid, sample, variable_names)
+
+
+@pytest.mark.parametrize("kind", ["hrf", "bw"])
+def test_bold_carries_custom_downsampler_state_and_live_parameters(kind):
+    def monitor(downsample):
+        if kind == "hrf":
+            return HRFBold(
+                period=4.0,
+                kernel=FirstOrderVolterraHRFKernel(duration=4.0),
+                downsample=downsample,
+            )
+        return BalloonWindkesselBold(period=4.0, downsample=downsample)
+
+    with jax.enable_x64(True):
+        model, config = prepare(
+            ConstantDrive(),
+            Euler(block_size=4),
+            t0=37.0,
+            t1=54.0,
+            dt=1.0,
+            observe=monitor(PreparedLowPass()),
+        )
+        raw = solve(ConstantDrive(), Euler(), t0=37.0, t1=54.0, dt=1.0)
+
+        def observed(tau):
+            current = config.copy()
+            current.monitor.downsample.tau = tau
+            return model(current)
+
+        def reference(tau):
+            filtered = LowPass(period=2.0, tau=tau)(raw)
+            return monitor(Identity())(filtered)
+
+        assert jnp.allclose(
+            monitor(PreparedLowPass())(raw).ys,
+            reference(3.0).ys,
+            rtol=1e-6,
+            atol=1e-12,
+        )
+        for tau in (3.0, 6.0):
+            result = jax.jit(observed)(jnp.asarray(tau))
+            expected = reference(jnp.asarray(tau))
+            assert jnp.allclose(result.ys, expected.ys, rtol=1e-6, atol=1e-12)
+            assert jnp.array_equal(result.ts, expected.ts)
+            assert result.variable_names == expected.variable_names
+
+        actual_gradient = jax.grad(lambda tau: observed(tau).ys.sum())(3.0)
+        expected_gradient = jax.grad(lambda tau: reference(tau).ys.sum())(3.0)
+        assert jnp.allclose(actual_gradient, expected_gradient, rtol=1e-5, atol=1e-12)
+        assert abs(float(actual_gradient)) > 0.0
 
 
 @pytest.mark.parametrize("mode", ["same", "full"])

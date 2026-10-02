@@ -120,14 +120,8 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- Valid-mode post-hoc `HRFBold` again accepts existing callable custom
-  downsamplers, including subclasses that override a built-in implementation,
-  while prepared online execution continues to reject downsamplers outside its
-  exact registered causal implementations.
-- Post-hoc `BalloonWindkesselBold` preserves overridden downsampling behavior
-  in customized subclasses, including the original timestamp origin. Prepared
-  execution rejects those subclasses instead of silently using their base
-  implementation.
+- BOLD monitors support custom streaming downsamplers with persistent state
+  and live parameters, and arbitrary callable downsamplers post-hoc.
 - The deprecated `streaming_hrf_bold` reducer now resolves solution-valued warm
   history on its configured downsampling grid before dtype and support
   normalization.

@@ -379,10 +379,13 @@ in `params`; fixed support and indexing are captured by the callbacks.
 - Monitor state restarts on every invocation. Continuation between separate
   solves and automatic warm-start propagation through a joint pipeline are not
   inferred.
-- `HRFBold` online execution supports valid convolution with the exact built-in
-  `Identity`, `SubSampling`, or `TemporalAverage` implementations. Other
-  callable downsamplers, including customized subclasses, remain available
-  post-hoc. Warm history passed to a joint HRF branch must already
+- BOLD monitors accept any downsampler implementing the streaming preparation
+  contract online, carrying its state between blocks and exposing its live
+  parameters under `config.monitor.downsample`. Post-hoc execution accepts any
+  callable downsampler. `HRFBold` online execution requires valid convolution.
+  Customize `prepare` for online behavior; overriding only `__call__` changes
+  post-hoc behavior.
+  Warm history passed to a joint HRF branch must already
   describe that branch's shared-input signal and grid.
 - The node axis is preserved. Spatial sensor projections and irregular node-axis
   remapping require a separate operation before the temporal monitor.

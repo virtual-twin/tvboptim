@@ -1154,13 +1154,15 @@ def test_hrf_preparation_resolves_default_averaging_and_history_shape():
         ("slow", "fast"),
     )
 
-    history = prepared.init(prepared.params)
+    state = prepared.init(prepared.params)
+    history = state[1]
     assert history.shape == (2, 1, 3)
     block = jnp.zeros((4, 2, 3), dtype=jnp.float32)
-    next_history, bold = prepared.update(history, block, prepared.params)
+    next_state, bold = prepared.update(state, block, prepared.params)
+    next_history = next_state[1]
     assert history.dtype == next_history.dtype == bold.dtype
     assert jnp.array_equal(history, jnp.zeros((2, 1, 3), dtype=history.dtype))
-    assert prepared.params == {"k_1": 5.6, "V_0": 0.02}
+    assert prepared.params == {"k_1": 5.6, "V_0": 0.02, "downsample": {}}
     assert prepared.output.period == 4.0
     assert prepared.output.first_sample_offset == 4.0
     assert prepared.output.variable_names == ("BOLD(fast)",)
@@ -1336,7 +1338,7 @@ def test_hrf_history_is_front_padded_or_suffix_trimmed(history, expected):
         ("slow", "fast"),
     )
 
-    assert jnp.array_equal(prepared.init(prepared.params)[:, 0, 0], expected)
+    assert jnp.array_equal(prepared.init(prepared.params)[1][:, 0, 0], expected)
 
 
 def test_hrf_solution_history_is_downsampled_selected_and_normalized():
@@ -1367,7 +1369,7 @@ def test_hrf_solution_history_is_downsampled_selected_and_normalized():
     )
 
     assert jnp.array_equal(
-        prepared.init(prepared.params)[:, 0, :],
+        prepared.init(prepared.params)[1][:, 0, :],
         jnp.array([[0.0, 0.0], [15.0, 17.0]]),
     )
 
