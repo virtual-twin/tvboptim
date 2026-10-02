@@ -300,23 +300,36 @@ solver = Heun(grad_horizon=2000, block_size=200)  # horizon + bounded memory
 
 See [Truncated Backpropagation](../workflows/TBPTT.qmd).
 
-**`reduce` — online statistics (per-call, not a solver attribute).** A
-`reduce=(init, update, finalize)` kwarg on `solve` / `prepare` folds the
-trajectory block-by-block into a running statistic instead of stacking it, so the
-output memory is independent of `n_steps`. `welford_cov` streams functional
-connectivity; `streaming_hrf_bold` streams a BOLD signal:
+**`observe` — scientific output (per-call, not a solver attribute).** Pass a
+supported temporal monitor to `solve` or `prepare` to compute its signal inside
+the integration blocks. Only that signal is returned, so a low-rate observation
+does not require retaining the full neural trajectory:
 
 ```python
-from tvboptim.observations import welford_cov
+from tvboptim.observations import compute_fc
+from tvboptim.observations.tvb_monitors import HRFBold
 
-# Online FC over a long, memory-bounded SDE rollout; returns the FC matrix.
-fc = solve(network, Heun(block_size=2000), t0=0.0, t1=100_000.0, dt=0.1,
-           reduce=welford_cov(s_var=0))
+# Return a low-rate BOLD time series, then compute reusable statistics.
+bold = solve(
+    network,
+    Heun(block_size=2000),
+    t0=0.0,
+    t1=100_000.0,
+    dt=1.0,
+    observe=HRFBold(period=1000.0, voi=0),
+)
+fc = compute_fc(bold)
 ```
 
-`reduce` is native-only (the Diffrax dispatch rejects it). See
-[Streaming Reductions](../advanced/streaming_reductions.qmd) for the streaming
-and `reduce` design, with a memory and runtime comparison.
+Temporal observations are native-only. Sampling periods and regular block or
+gradient-window boundaries must form aligned integer grids; an incomplete final
+window is dropped. See [Prepared Observations for Long
+Simulations](../advanced/streaming_reductions.qmd) for the memory model and a
+runtime comparison.
+
+The temporary `reduce=` keyword and its reducer factories are deprecated in
+0.5.0 and will be removed in 0.6.0. Migrate BOLD reducers to `observe=monitor`
+and compute FC or other statistics from the returned signal.
 
 ---
 

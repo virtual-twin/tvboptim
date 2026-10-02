@@ -97,9 +97,42 @@ solve_fn, config = prepare(network, Heun(), t0=0.0, t1=20.0, dt=0.1, observe=obs
 
 Passing `observe=` changes the returned type. The result becomes a graph-order `NativeSolution` of shape `[n_time, n_channels, n_nodes]` whose `variable_names` are the channel names, not a `HeterogeneousSolution`.
 
-Partial coverage is allowed for plain projection and fills uncovered nodes with `fill_value`. With `reduce=` it is rejected unless `allow_partial_coverage=True`, which is only appropriate for a reducer verified to be fill-aware; it does not stop a covariance reducer producing NaN rows or a BOLD reducer treating fill as real drive.
+Compose one temporal monitor after the graph-order projection with the
+`monitor=` slot:
 
-`reduce=` requires `observe=`, and it bounds forward trajectory memory only when the solver sets `block_size`. Without `block_size` the full trajectory is materialized before reduction and a warning says so.
+```python
+from tvboptim.observations.tvb_monitors import HRFBold
+
+bold_observe = GroupObservation(
+    {"cortex": lambda voi, params: voi[1:2] - voi[2:3], "sub": "x"},
+    channels=("activity",),
+    monitor=HRFBold(period=1000.0, voi=0),
+)
+bold_fn, config = prepare(
+    network,
+    Heun(block_size=10_000),
+    t0=0.0,
+    t1=120_000.0,
+    dt=0.1,
+    observe=bold_observe,
+)
+bold = bold_fn(config)
+```
+
+The order is group-local output, `GroupObservation`, then temporal monitor.
+The older `observe=(group_observation, monitor)` tuple is equivalent; giving a
+monitor in both places is an error. A `JointObservation` also fits the slot.
+Readout parameters remain under `config.observation.<group>` and live monitor
+parameters are under `config.monitor`.
+
+Partial coverage is allowed for plain projection and fills uncovered nodes
+with `fill_value`. Before a temporal monitor, full coverage is required unless
+`allow_partial_coverage=True`; with that opt-in, fill values become real monitor
+inputs and must be scientifically meaningful.
+
+The temporary `reduce=` API is deprecated in 0.5.0 and scheduled for removal
+in 0.6.0. Use `observe=` for the returned time series and compute statistics
+post-hoc.
 
 ## Read the prepared config
 

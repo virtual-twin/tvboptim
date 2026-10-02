@@ -57,6 +57,7 @@ website:
           - file: advanced/buffer_strategies.qmd
           - file: advanced/gradient_checkpointing.qmd
           - file: advanced/streaming_reductions.qmd
+          - file: advanced/custom_observations.qmd
           - file: advanced/coupling_freezing.qmd
           - text: "Coupling 1: Surface Simulations"
             file: advanced/subspace_coupling.qmd
@@ -150,6 +151,29 @@ quartodoc:
         - utils.caching
         - utils.utils
         - types.stateutils
+    - title: Observations (Experimental)
+      desc: Regular temporal signals computed post-hoc or inside native solves
+      package: tvboptim.observations
+      contents:
+        - SampledMonitor
+        - StreamingMonitor
+        - SimulationGrid
+        - ObservationOutput
+        - PreparedObservation
+        - prepare_observation
+        - apply_observation
+        - sampling_stride
+        - Identity
+        - JointObservation
+
+    - subtitle: Built-in temporal monitors
+      desc: Sampling, averaging, and hemodynamic observations
+      package: tvboptim.observations.tvb_monitors
+      contents:
+        - SubSampling
+        - TemporalAverage
+        - HRFBold
+        - BalloonWindkesselBold
     - title: Network Dynamics (Experimental)
       desc: JAX-based brain network modeling interface
       package: tvboptim.experimental.network_dynamics

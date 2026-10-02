@@ -117,38 +117,37 @@ Warm up the dynamics and HRF when required by the experiment. Keep empirical arr
 
 ## Stream long simulations
 
-Use an online FC reducer when only long-run neural-state FC is required:
+Return a suitably sampled signal, then compute FC from that result:
 
 ```python
 from tvboptim.experimental.network_dynamics import solve
 from tvboptim.experimental.network_dynamics.solvers import Heun
-from tvboptim.observations import welford_cov
+from tvboptim.observations import compute_fc
+from tvboptim.observations.tvb_monitors import SubSampling
 
-fc = solve(
+activity = solve(
     network,
     Heun(block_size=2000),
     t0=0.0,
     t1=120_000.0,
     dt=1.0,
-    reduce=welford_cov(s_var=0),
+    observe=SubSampling(period=10.0, voi=0),
 )
+fc = compute_fc(activity)
 ```
 
-This returns FC without stacking the trajectory. It keeps an `O(nodes²)` accumulator. Blocking alone does not remove trajectory memory.
+This avoids retaining the full-rate trajectory while preserving the sampled
+signal for inspection and reuse. Blocking alone does not remove a requested
+trajectory from the returned result.
 
-For streamed HRF BOLD:
+For HRF BOLD computed inside native-solver blocks:
 
 ```python
-from tvboptim.observations.tvb_monitors import (
-    HRFBold,
-    SubSampling,
-    streaming_hrf_bold,
-)
+from tvboptim.observations.tvb_monitors import HRFBold
 
 monitor = HRFBold(
     period=1000.0,
-    downsample_period=10.0,
-    downsample=SubSampling(period=10.0),
+    downsample_period=4.0,
     voi=0,
 )
 bold = solve(
@@ -157,11 +156,19 @@ bold = solve(
     t0=0.0,
     t1=120_000.0,
     dt=1.0,
-    reduce=streaming_hrf_bold(monitor, dt=1.0),
+    observe=monitor,
 )
 ```
 
-The streaming HRF reducer requires `SubSampling`; temporal averaging is not streamable through this path. Every block and the total step count must be multiples of `period / dt`. It returns a BOLD array, not a `NativeSolution`.
+The prepared path supports the default `TemporalAverage` and an explicit
+`SubSampling` downsampler with `convolution_mode="valid"`. The downsampling
+period and BOLD period must form integer grids with the solver `dt`, and each
+regular block must contain complete BOLD periods. It returns a `NativeSolution`
+on the BOLD grid while retaining only the convolution history between blocks.
+
+The temporary `reduce=` keyword, `welford_cov`, and `streaming_hrf_bold` are
+deprecated in 0.5.0 and scheduled for removal in 0.6.0. Migrate by selecting
+the scientific time series with `observe=` and applying statistics post-hoc.
 
 Blocked stochastic simulations generate noise per block and therefore do not reproduce the monolithic noise draw. Compare blocked and streaming variants only when they use the same key and block strategy.
 

@@ -34,6 +34,24 @@ website:
       - reference/types.stateutils.qmd
       section: Utilities
     - contents:
+      - reference/SampledMonitor.qmd
+      - reference/StreamingMonitor.qmd
+      - reference/SimulationGrid.qmd
+      - reference/ObservationOutput.qmd
+      - reference/PreparedObservation.qmd
+      - reference/prepare_observation.qmd
+      - reference/apply_observation.qmd
+      - reference/sampling_stride.qmd
+      - reference/Identity.qmd
+      - reference/JointObservation.qmd
+      - contents:
+        - reference/SubSampling.qmd
+        - reference/TemporalAverage.qmd
+        - reference/HRFBold.qmd
+        - reference/BalloonWindkesselBold.qmd
+        section: Built-in temporal monitors
+      section: Observations (Experimental)
+    - contents:
       - reference/Network.qmd
       - reference/NodeGroup.qmd
       - reference/Readout.qmd

@@ -1,0 +1,398 @@
+---
+title: "Authoring Temporal Observations"
+subtitle: "One update for native solves, stored trajectories, and named joint results"
+format:
+  html:
+    code-fold: false
+    toc: true
+    echo: true
+    embed-resources: true
+jupyter: python3
+execute:
+  cache: false
+---
+
+Try this notebook interactively:
+
+[Download .ipynb](https://github.com/virtual-twin/tvboptim/blob/main/docs/advanced/custom_observations.ipynb){.btn .btn-primary download="custom_observations.ipynb"}
+[Download .qmd](custom_observations.qmd){.btn .btn-secondary download="custom_observations.qmd"}
+[Open in Colab](https://colab.research.google.com/github.com/virtual-twin/tvboptim/blob/main/docs/advanced/custom_observations.ipynb){.btn .btn-warning target="_blank"}
+
+## When to define a monitor
+
+Prefer post-hoc observation whenever the raw trajectory fits in memory.
+Calling a monitor on a stored solution is the most flexible and usually the
+fastest route: it operates on the whole array at once and allows arbitrary
+analysis afterwards. Any callable that takes a solution works post-hoc.
+
+Use a streaming monitor with `observe=` when retaining the trajectory is the
+bottleneck. The solver then returns a regular scientific time series instead of
+its full neural trajectory. The same monitor can also be called on a stored
+solution; both paths use one prepared recipe and one numerical block update.
+Keep a streaming monitor to the reduction that removes the memory bottleneck
+and do further analysis post-hoc on its output. Building extensive
+postprocessing into a monitor is an anti-pattern.
+
+This authoring contract is experimental in 0.5.0. It covers causal transforms
+with uniform output periods, fixed-shape state, and the existing channel/node
+signal layout. A streaming monitor is any object with a callable
+`prepare(grid, sample, variable_names)` method returning a
+`PreparedObservation`. There are two ways to write one:
+
+| Route | Use it for |
+|---|---|
+| `SampledMonitor` | A recurrence that produces one value per input sample, such as a causal filter. |
+| `StreamingMonitor.prepare` | Block algorithms and channel transforms. |
+
+`isinstance(monitor, StreamingMonitor)` checks streaming support. The check is
+structural: it holds for every monitor that defines `prepare`, including the
+built-ins, whether or not it inherits the class.
+
+```{python}
+#| output: false
+
+try:
+    import google.colab
+    !pip install -q tvboptim
+except ImportError:
+    pass
+```
+
+## A per-sample low-pass monitor
+
+`SampledMonitor` is an Equinox module. Fields marked `eqx.field(static=True)`
+are structural settings; every other field is a live parameter that stays
+adjustable after preparation. Implement two methods:
+
+- `init(sample_spec)` builds the initial state. `sample_spec` describes one
+  `[channels, nodes]` input sample; it is not a numerical value.
+- `step(state, sample, dt)` advances the state by one input sample and returns
+  the next state and one candidate output shaped like the sample.
+
+The adapter scans `step` over each solver block and emits the candidate at the
+last input sample of every completed `period`, labelled with that sample's
+timestamp.
+
+```{python}
+import equinox as eqx
+import jax
+import jax.numpy as jnp
+
+from tvboptim.observations import SampledMonitor
+
+
+class LowPass(SampledMonitor):
+    period: float = eqx.field(static=True, default=10.0)
+    tau: object = 50.0
+
+    def init(self, sample_spec):
+        if jnp.shape(self.tau) not in ((), (sample_spec.shape[1],)):
+            raise ValueError("LowPass tau must be scalar or have one value per node")
+        dtype = jnp.result_type(sample_spec.dtype, self.tau)
+        return jnp.zeros(sample_spec.shape, dtype=dtype)
+
+    def step(self, state, sample, dt):
+        decay = jnp.exp(-dt / self.tau)
+        filtered = decay * state + (1.0 - decay) * sample
+        return filtered, filtered
+```
+
+Both methods run on an instance rebuilt from the current live values, so
+`self.tau` is the value the model is called with, including traced values under
+`jax.grad` or a parameter sweep. The rebuilt instance is created without calling
+a constructor, so shape checks belong in `init` as shown. `dt` is the input
+interval, which differs from the output `period`.
+
+The state can be any fixed-structure PyTree and need not match the output. The
+candidate output must keep the input's channels, so channel names carry over.
+The shape is validated, but keeping channel order and meaning is up to you.
+
+The complete standalone implementation is also available in
+[`low_pass_monitor.py`](low_pass_monitor.py).
+
+## Use the same monitor in both execution modes
+
+This small constant-drive system keeps the example quick while exercising the
+real native solver path.
+
+```{python}
+from tvboptim.experimental.network_dynamics import Bunch, prepare, solve
+from tvboptim.experimental.network_dynamics.dynamics import AbstractDynamics
+from tvboptim.experimental.network_dynamics.solvers import Euler
+
+
+class ConstantDrive(AbstractDynamics):
+    STATE_NAMES = ("signal",)
+    INITIAL_STATE = (0.0,)
+    DEFAULT_PARAMS = Bunch(rate=1.0)
+
+    def dynamics(self, t, state, params, coupling, external):
+        del t, state, coupling, external
+        return jnp.asarray([[params.rate]])
+
+
+monitor = LowPass(period=2.0, tau=3.0)
+solver = Euler(block_size=4)
+
+raw = solve(ConstantDrive(), solver, t1=9.0, dt=1.0)
+posthoc = monitor(raw)
+online = solve(ConstantDrive(), solver, t1=9.0, dt=1.0, observe=monitor)
+
+assert jnp.allclose(online.ys, posthoc.ys)
+assert jnp.array_equal(online.ts, posthoc.ts)
+print(online.ts, online.ys[:, 0, 0])
+```
+
+Only complete two-step periods are emitted; the final one-step tail is dropped.
+For a prepared model, `tau` is available under `config.monitor` and remains a
+normal JAX input:
+
+```{python}
+model, config = prepare(
+    ConstantDrive(), solver, t1=8.0, dt=1.0, observe=monitor
+)
+
+
+def loss(tau):
+    current = config.copy()
+    current.monitor["tau"] = tau
+    return model(current).ys.sum()
+
+
+gradient = jax.grad(loss)(jnp.asarray(3.0))
+assert jnp.isfinite(gradient)
+print("d loss / d tau:", gradient)
+```
+
+Changing a live value is supported when its shape and resulting callback
+signatures stay compatible. Re-prepare the model after changing a period,
+channel selection, state shape, or another setting that changes static structure.
+
+## Block recipes for advanced monitors
+
+Efficient convolution, window averaging, or channel transforms do not fit a
+per-sample step. Subclass `StreamingMonitor` and implement `prepare`, which
+returns an explicit `PreparedObservation`. The same LowPass filter as a block
+recipe:
+
+```{python}
+from tvboptim.observations import (
+    PreparedObservation,
+    StreamingMonitor,
+    sampling_stride,
+)
+
+
+class BlockLowPass(StreamingMonitor):
+    def __init__(self, period=10.0, tau=50.0):
+        self.period = period
+        self.tau = tau
+
+    def prepare(self, grid, sample, variable_names):
+        stride = sampling_stride(self.period, grid.dt)
+        dt = grid.dt
+
+        def init(params):
+            dtype = jnp.result_type(sample.dtype, params["tau"])
+            return jnp.zeros(sample.shape, dtype=dtype)
+
+        def update(state, block, params):
+            decay = jnp.exp(-dt / params["tau"])
+
+            def step(filtered, value):
+                filtered = decay * filtered + (1.0 - decay) * value
+                return filtered, filtered
+
+            state, filtered = jax.lax.scan(step, state, block)
+            return state, filtered[stride - 1 :: stride]
+
+        return PreparedObservation(
+            params={"tau": self.tau},
+            init=init,
+            update=update,
+            output=grid.output(self.period, variable_names=variable_names),
+        )
+
+
+block_online = solve(
+    ConstantDrive(), solver, t1=9.0, dt=1.0, observe=BlockLowPass(2.0, 3.0)
+)
+assert jnp.allclose(block_online.ys, online.ys)
+assert jnp.array_equal(block_online.ts, online.ts)
+```
+
+The callbacks capture fixed preparation values such as `stride` and `dt`. Live
+values arrive through `params` and are published as `config.monitor`. Do not
+read a live value from `self` inside a callback: that value would stay fixed
+after preparation.
+
+`grid.output` builds the output descriptor. Its `label` selects the timestamp
+of each emitted sample, relative to the original simulation origin. With input
+interval `d`, first input label `p`, and `k = period / d` inputs per period:
+
+| `label` | First timestamp | Typical use |
+|---|---|---|
+| `"last_input"` (default) | `p + (k - 1) * d` | Endpoint sample or causal filter |
+| `"window_center"` | `p + (k - 1) * d / 2` | Average over a completed window |
+| `"period_end"` | `period` | BOLD TR endpoint |
+
+Labels only name the timestamps; a sample is emitted once its complete window
+has been consumed. `ObservationOutput(...)` remains available for a measurement
+with a justified custom offset.
+
+TVB-Optim validates the recipe abstractly before execution. It checks the
+output cadence and metadata, callback return structure, fixed state signature,
+emitted sample count, rank, node count, and channel names. Errors are reported
+while preparing or tracing instead of after a long simulation.
+
+Inheriting `StreamingMonitor` is optional. It supplies `__call__`, which
+applies the recipe to a stored solution. A class that only defines `prepare`
+works with `observe=` and with `apply_observation(monitor, solution)`.
+
+### Subclasses and types you do not own
+
+Preparation follows ordinary Python method resolution. A subclass of a built-in
+monitor customizes streaming by overriding `prepare`, and may start from the
+parent's recipe with `super().prepare(grid, sample, variable_names)`.
+
+A subclass that only overrides `__call__` changes post-hoc results, but
+`observe=` keeps using the inherited `prepare`. The two paths then disagree.
+Put behavior that both paths should share into `prepare`, or apply the extra
+step post-hoc to the monitor's output.
+
+To stream a type you cannot modify, wrap it in a small `StreamingMonitor`
+subclass that implements `prepare`. The foreign object stays usable on its own:
+
+```python
+class StreamingExternal(StreamingMonitor):
+    def __init__(self, external):
+        self.external = external
+
+    def prepare(self, grid, sample, variable_names):
+        ...  # build the recipe from self.external's settings
+```
+
+## Named results with one shared stage
+
+`JointObservation` feeds one optional shared monitor into a flat mapping of
+ordinary monitor branches. This example averages once, retains that signal, and
+also filters it at a slower cadence.
+
+```{python}
+from tvboptim.observations import Identity, JointObservation
+from tvboptim.observations.tvb_monitors import TemporalAverage
+
+observations = JointObservation(
+    preprocess=TemporalAverage(period=2.0),
+    outputs={
+        "neural": Identity(),
+        "filtered": LowPass(period=4.0, tau=3.0),
+    },
+)
+
+result = solve(
+    ConstantDrive(),
+    Euler(block_size=4),
+    t1=9.0,
+    dt=1.0,
+    observe=observations,
+)
+
+assert set(result) == {"neural", "filtered"}
+print("neural:", result["neural"].dt, result["neural"].ys.shape)
+print("filtered:", result["filtered"].dt, result["filtered"].ys.shape)
+```
+
+Every mapping value is its own `NativeSolution` with independent `.ys`, `.ts`,
+`.dt`, and `.variable_names`. Branches are matched by key and incomplete tails
+are handled independently; results are neither padded nor repeated onto a common
+grid. Calling `observations(raw)` applies the same composition post-hoc.
+
+Omit `preprocess` to run independent branches on the raw input. `Identity()`
+retains the incoming stage exactly. It can also bypass a BOLD monitor's default
+input averaging:
+
+```python
+from tvboptim.observations.tvb_monitors import HRFBold
+
+neural_and_bold = JointObservation(
+    preprocess=TemporalAverage(period=4.0, voi=0),
+    outputs={
+        "neural": Identity(),
+        "bold": HRFBold(period=1000.0, downsample=Identity()),
+    },
+)
+```
+
+The shared and branch parameters appear under
+`config.monitor.preprocess` and `config.monitor.outputs.<name>`. Loss gradients
+from several branches add through the shared stage. The solver block size and
+gradient horizon must be multiples of the composite least-common-multiple
+alignment. For independent six-step and ten-step branches, that alignment is
+30 input steps.
+
+For a heterogeneous network, pass the composition as the monitor of the group
+readout: `observe=GroupObservation(..., monitor=observations)`. The readout
+produces one common graph-order channel/node signal before the temporal
+composition. The older `observe=(group_observation, observations)` tuple
+remains supported.
+
+Prefer one `JointObservation` over separate post-hoc calls such as
+`bold(average(raw))`. A stored result does not record the original simulation
+origin, so a second post-hoc call reconstructs it from the first result's
+labels. That is exact for raw solver output. On a centered intermediate grid
+the chained timestamps shift earlier by the centering offset, although the
+values agree.
+
+## Recipe contract
+
+| Part | Runs | Requirements |
+|---|---|---|
+| `prepare` | once while preparing a monitor | Return a `PreparedObservation`; resolve cadence, indices, and metadata here. |
+| `init(params)` | once per model or post-hoc invocation | Return the initial state. Stateless monitors return `None`. |
+| `update(state, block, params)` | once per block inside JAX execution | Return `(next_state, samples)`; preserve the state signature and emit the declared completed-period samples shaped `[samples, channels, nodes]`. |
+
+Callbacks must use JAX-compatible array operations. Avoid host transfers,
+mutation, Python branching on traced values, and data-dependent output shapes.
+Validation may trace them more than once. There is no finalize callback: only
+complete periods are emitted. Parameters that users should fit or sweep belong
+in `params`; fixed support and indexing are captured by the callbacks.
+
+## Current limits
+
+- Native fixed-step solvers support online `observe=` execution. Diffrax solvers
+  reject it explicitly.
+- Outputs are regular causal time series with uniform periods. Irregular events,
+  terminal reducers, and data-dependent output lengths are outside this API.
+- State and output PyTree structures and shapes are fixed after preparation.
+  `init` may choose state dtypes from live parameters, and each update must
+  then preserve that invocation's state dtypes. Live values cannot change the
+  prepared input specification.
+- `SampledMonitor` outputs keep the input's channels. Use a block recipe for
+  outputs that select, mix, or rename channels.
+- Periods are integer multiples of the receiving grid. Regular blocks and
+  truncated-gradient windows must honor the prepared alignment; only an
+  incomplete final tail may be dropped.
+- A joint observation has at most one shared stage and flat named branches.
+  Nested joints, branch-to-branch edges, and automatic common-operation
+  detection are not supported.
+- Monitor state restarts on every invocation. Continuation between separate
+  solves and automatic warm-start propagation through a joint pipeline are not
+  inferred.
+- BOLD monitors accept any downsampler implementing the streaming preparation
+  contract online, carrying its state between blocks and exposing its live
+  parameters under `config.monitor.downsample`. Post-hoc execution accepts any
+  callable downsampler. `HRFBold` online execution requires valid convolution.
+  Customize `prepare` for online behavior; overriding only `__call__` changes
+  post-hoc behavior.
+  Warm history passed to a joint HRF branch must already
+  describe that branch's shared-input signal and grid.
+- The node axis is preserved. Spatial sensor projections and irregular node-axis
+  remapping require a separate operation before the temporal monitor.
+- Returned arrays still consume their full requested storage. Exact reverse mode
+  also retains checkpoint dependencies, so total memory is not constant in run
+  duration.
+
+See [Prepared Observations for Long Simulations](streaming_reductions.qmd) for
+the built-in BOLD workflow, memory behavior, heterogeneous composition, and
+`reduce=` migration.

@@ -7,8 +7,69 @@ of simulation outputs, commonly used before BOLD signal computation.
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import numpy as np
 
-from tvboptim.experimental.network_dynamics.result import NativeSolution
+from tvboptim.experimental.network_dynamics.core.bunch import Bunch
+from tvboptim.experimental.network_dynamics.core.observation import (
+    PreparedObservation,
+    SimulationGrid,
+    _stateless,
+    apply_observation,
+    sampling_stride,
+)
+
+
+def _selection_indices(voi, n_variables):
+    """Resolve a NumPy/JAX-style variable selection to concrete indices."""
+    try:
+        selected = np.arange(n_variables)[voi]
+    except (IndexError, TypeError) as exc:
+        raise ValueError(
+            f"Invalid variable selection {voi!r} for {n_variables} input channels"
+        ) from exc
+    indices = np.asarray(selected)
+    if indices.ndim == 0:
+        indices = indices.reshape(1)
+    indices = tuple(int(index) for index in indices.tolist())
+    if not indices:
+        raise ValueError("Temporal observation variable selection must not be empty")
+    return indices
+
+
+def _resolve_selection(voi, n_variables, variable_names):
+    """Resolve selected indices and their corresponding channel names."""
+    indices = _selection_indices(voi, n_variables)
+    names = (
+        None
+        if variable_names is None
+        else tuple(variable_names[index] for index in indices)
+    )
+    return indices, names
+
+
+_integer_stride = sampling_stride
+
+
+def _validate_monitor_input(sample, variable_names):
+    """Validate the common per-step monitor input description."""
+    if len(sample.shape) != 2:
+        raise ValueError(
+            "Temporal observations require per-step input shaped "
+            f"[channels, nodes]; got {sample.shape}"
+        )
+    if variable_names is not None and len(variable_names) != sample.shape[0]:
+        raise ValueError(
+            "variable_names must describe the monitor input channel axis; "
+            f"got {len(variable_names)} names for {sample.shape[0]} channels"
+        )
+
+
+def _window_average(values, samples_per_window):
+    """Average complete, disjoint windows along the leading axis."""
+    n_windows = values.shape[0] // samples_per_window
+    trimmed = values[: n_windows * samples_per_window]
+    windows = trimmed.reshape((n_windows, samples_per_window) + values.shape[1:])
+    return jnp.mean(windows, axis=1)
 
 
 def _slice_variable_names(sol, voi):
@@ -17,8 +78,9 @@ def _slice_variable_names(sol, voi):
     if names is None:
         return None
     try:
-        return tuple(names)[voi]
-    except (TypeError, IndexError):
+        indices = _selection_indices(voi, len(names))
+        return tuple(names[index] for index in indices)
+    except (TypeError, ValueError):
         return None
 
 
@@ -128,18 +190,39 @@ class SubSampling(AbstractMonitor):
         Returns:
             NativeSolution with downsampled timeseries
         """
-        ts, ys = sol.ts, sol.ys
-        # Use sol.dt from auxiliary data and convert with Python int()
-        # This keeps sample_step concrete during JIT compilation
-        sample_step = int(round(self.period / self._resolve_dt(sol)))
-        # Select indices at regular intervals
-        sample_indices = jnp.arange(sample_step - 1, ts.shape[0], sample_step)
-        return NativeSolution(
-            ts=ts[sample_indices] + t_offset,
-            ys=ys[sample_indices, self.voi, ...],
-            dt=self.period,
-            variable_names=_slice_variable_names(sol, self.voi),
-        )
+        return apply_observation(self, sol, t_offset=t_offset)
+
+    def prepare(self, grid, sample, variable_names):
+        """Prepare point sampling for block-wise execution."""
+        return _prepare_subsampling(self, grid, sample, variable_names)
+
+
+def _subsampling_update(indices, stride):
+    """Build endpoint selection for one aligned raw block."""
+
+    def update(state, block, params):
+        del params
+        return state, block[:, indices, :][stride - 1 :: stride]
+
+    return update
+
+
+def _prepare_subsampling(
+    monitor,
+    grid: SimulationGrid,
+    sample: jax.ShapeDtypeStruct,
+    variable_names: tuple | None,
+) -> PreparedObservation:
+    """Prepare point sampling for an aligned native-solver grid."""
+    _validate_monitor_input(sample, variable_names)
+    stride = _integer_stride(monitor.period, grid.dt, label="SubSampling period")
+    indices, names = _resolve_selection(monitor.voi, sample.shape[0], variable_names)
+    return PreparedObservation(
+        params=Bunch(),
+        init=_stateless,
+        update=_subsampling_update(jnp.asarray(indices, dtype=int), stride),
+        output=grid.output(monitor.period, variable_names=names),
+    )
 
 
 class TemporalAverage(AbstractMonitor):
@@ -169,7 +252,7 @@ class TemporalAverage(AbstractMonitor):
         self.voi = self._normalize_voi(voi)
         self.period = period
 
-    def __call__(self, sol):
+    def __call__(self, sol, t_offset=0.0):
         """Downsample by averaging over temporal windows.
 
         Args:
@@ -179,43 +262,36 @@ class TemporalAverage(AbstractMonitor):
         Returns:
             NativeSolution with temporally averaged timeseries
         """
-        ts, ys = sol.ts, sol.ys
+        return apply_observation(self, sol, t_offset=t_offset)
 
-        # Apply voi slicing first
-        ys_sliced = ys[:, self.voi, ...]
+    def prepare(self, grid, sample, variable_names):
+        """Prepare complete-window averaging for block-wise execution."""
+        return _prepare_temporal_average(self, grid, sample, variable_names)
 
-        # Number of samples per averaging window
-        # Use sol.dt from auxiliary data and convert with Python int()
-        dt = self._resolve_dt(sol)
-        samples_per_window = int(round(self.period / dt))
 
-        # Map time points to sample indices
-        time_indices = (ts[::samples_per_window] / dt).astype(int)
+def _temporal_average_update(indices, stride):
+    """Build complete-window averaging for one aligned raw block."""
 
-        def average_window(start_idx):
-            """Compute average over a temporal window."""
-            # Define slice starting point for all dimensions
-            start_indices = (start_idx,) + (0,) * (ys_sliced.ndim - 1)
-            # Define slice size based on the sliced array shape
-            slice_sizes = (samples_per_window,) + ys_sliced.shape[1:]
+    def update(state, block, params):
+        del params
+        return state, _window_average(block[:, indices, :], stride)
 
-            # Extract window and compute mean over time axis
-            return jnp.mean(
-                jax.lax.dynamic_slice(ys_sliced, start_indices, slice_sizes),
-                axis=0,
-            )
+    return update
 
-        # Vectorized averaging over all windows
-        averaged_trace = jax.vmap(average_window)(time_indices)
 
-        # Create time indices centered in each window
-        # Offset by half window to center timestamps
-        center_offset = (samples_per_window - 2) // 2
-        centered_indices = jnp.arange(center_offset, ts.shape[0], samples_per_window)
-
-        return NativeSolution(
-            ts=ts[centered_indices],
-            ys=averaged_trace[: centered_indices.shape[0], ...],
-            dt=self.period,
-            variable_names=_slice_variable_names(sol, self.voi),
-        )
+def _prepare_temporal_average(
+    monitor,
+    grid: SimulationGrid,
+    sample: jax.ShapeDtypeStruct,
+    variable_names: tuple | None,
+) -> PreparedObservation:
+    """Prepare complete-window averaging for an aligned native grid."""
+    _validate_monitor_input(sample, variable_names)
+    stride = _integer_stride(monitor.period, grid.dt, label="TemporalAverage period")
+    indices, names = _resolve_selection(monitor.voi, sample.shape[0], variable_names)
+    return PreparedObservation(
+        params=Bunch(),
+        init=_stateless,
+        update=_temporal_average_update(jnp.asarray(indices, dtype=int), stride),
+        output=grid.output(monitor.period, label="window_center", variable_names=names),
+    )

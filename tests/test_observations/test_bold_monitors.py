@@ -6,10 +6,25 @@ NativeSolution inputs.
 
 import unittest
 
+import jax
 import jax.numpy as jnp
+import jax.scipy as jsp
+import pytest
 
+from docs.advanced.low_pass_monitor import LowPass
+from tvboptim.experimental.network_dynamics import Bunch, prepare, solve
+from tvboptim.experimental.network_dynamics.dynamics import AbstractDynamics
 from tvboptim.experimental.network_dynamics.result import NativeSolution
-from tvboptim.observations.tvb_monitors import BalloonWindkesselBold, HRFBold
+from tvboptim.experimental.network_dynamics.solvers import Euler
+from tvboptim.observations import Identity
+from tvboptim.observations.tvb_monitors import (
+    BalloonWindkesselBold,
+    FirstOrderVolterraHRFKernel,
+    HRFBold,
+    SubSampling,
+    TemporalAverage,
+    streaming_hrf_bold,
+)
 
 
 def make_sol(T_ms, dt_ms, n_nodes, n_states=1, seed=0):
@@ -35,6 +50,45 @@ def make_sol(T_ms, dt_ms, n_nodes, n_states=1, seed=0):
     )
     ts = jnp.arange(n_steps) * dt_ms
     return NativeSolution(ts=ts, ys=ys, dt=dt_ms)
+
+
+class ConstantDrive(AbstractDynamics):
+    STATE_NAMES = ("signal",)
+    INITIAL_STATE = (0.0,)
+    DEFAULT_PARAMS = Bunch(rate=1.0)
+
+    def dynamics(self, t, state, params, coupling, external):
+        del t, state, coupling, external
+        return jnp.asarray([[params.rate]])
+
+
+class CustomTemporalAverage:
+    period = 4.0
+
+    def __call__(self, solution):
+        return TemporalAverage(period=self.period)(solution)
+
+
+class DoubledTemporalAverage(TemporalAverage):
+    def __call__(self, solution):
+        averaged = super().__call__(solution)
+        return NativeSolution(
+            ts=averaged.ts,
+            ys=2.0 * averaged.ys,
+            dt=averaged.dt,
+            variable_names=averaged.variable_names,
+        )
+
+
+class DoubledSubSampling(SubSampling):
+    def __call__(self, solution):
+        sampled = super().__call__(solution)
+        return NativeSolution(
+            ts=sampled.ts,
+            ys=2.0 * sampled.ys,
+            dt=sampled.dt,
+            variable_names=sampled.variable_names,
+        )
 
 
 class TestHRFBoldOutputShape(unittest.TestCase):
@@ -137,6 +191,54 @@ class TestBalloonWindkesselBoldOutputShape(unittest.TestCase):
             monitor = BalloonWindkesselBold(period=2000.0, dt_bw=1.0, voi=0)
             result = monitor(sol)
             self.assertEqual(result.ys.shape[2], n_nodes)
+
+    def test_legacy_positional_voi_and_downsample_order_is_preserved(self):
+        solution = NativeSolution(
+            ts=jnp.arange(1.0, 9.0),
+            ys=jnp.arange(16.0).reshape(8, 2, 1) / 100.0,
+            dt=1.0,
+            variable_names=("first", "second"),
+        )
+        prefix = (2.0, 1.0, 0.65, 0.41, 0.98, 0.32, 0.4, 0.04, 0.04)
+
+        positional_voi = BalloonWindkesselBold(*prefix, 1)
+        keyword_voi = BalloonWindkesselBold(*prefix, voi=1)
+        self.assertEqual(positional_voi.voi, keyword_voi.voi)
+        self.assertEqual(positional_voi.k3, keyword_voi.k3)
+        self.assertEqual(positional_voi.k3, 1.0)
+        self.assertTrue(
+            jnp.array_equal(positional_voi(solution).ys, keyword_voi(solution).ys)
+        )
+
+        downsample = SubSampling(period=1.0)
+        positional_downsample = BalloonWindkesselBold(*prefix, 1, downsample)
+        keyword_downsample = BalloonWindkesselBold(
+            *prefix, voi=1, downsample=downsample
+        )
+        self.assertIs(positional_downsample.downsample, downsample)
+        self.assertTrue(
+            jnp.array_equal(
+                positional_downsample(solution).ys,
+                keyword_downsample(solution).ys,
+            )
+        )
+
+        overridden = BalloonWindkesselBold(*prefix, voi=1, k3=0.25)
+        self.assertEqual(overridden.k3, 0.25)
+        from tvboptim.observations.tvb_monitors.bold import _bw_params, _bw_signal
+
+        state = (
+            jnp.array([0.0]),
+            jnp.array([1.0]),
+            jnp.array([0.8]),
+            jnp.array([0.7]),
+        )
+        self.assertFalse(
+            jnp.array_equal(
+                _bw_signal(state, _bw_params(overridden)),
+                _bw_signal(state, _bw_params(keyword_voi)),
+            )
+        )
 
 
 class TestBalloonWindkesselBoldTimestamps(unittest.TestCase):
@@ -266,6 +368,343 @@ class TestStreamingHrfBold(unittest.TestCase):
                 dt=dt,
                 reduce=streaming_hrf_bold(mon, dt),
             )
+
+    def test_factory_is_deprecated(self):
+        from tvboptim.observations.tvb_monitors import (
+            HRFBold,
+            SubSampling,
+            streaming_hrf_bold,
+        )
+
+        monitor = HRFBold(
+            period=200.0,
+            downsample=SubSampling(period=40.0),
+        )
+        with self.assertWarnsRegex(DeprecationWarning, "streaming_hrf_bold"):
+            streaming_hrf_bold(monitor, dt=0.1)
+
+
+@pytest.mark.parametrize(
+    ("downsample", "downsample_scale"),
+    [
+        pytest.param(CustomTemporalAverage(), 1.0, id="callable"),
+        pytest.param(DoubledTemporalAverage(period=4.0), 2.0, id="built-in-subclass"),
+    ],
+)
+def test_valid_hrf_preserves_custom_callable_downsampler(downsample, downsample_scale):
+    kernel = FirstOrderVolterraHRFKernel(duration=20.0)
+    monitor = HRFBold(
+        period=1000.0,
+        downsample=downsample,
+        kernel=kernel,
+    )
+    base = jnp.linspace(0.25, 1.25, 2000).reshape(2000, 1, 1)
+
+    def solution(scale):
+        return NativeSolution(
+            ts=jnp.arange(1.0, 2001.0),
+            ys=base * scale,
+            dt=1.0,
+            variable_names=("signal",),
+        )
+
+    def independent_reference(scale):
+        downsampled = TemporalAverage(period=4.0)(solution(scale))
+        n_kernel = int(jnp.ceil(kernel.duration / downsampled.dt))
+        hrf = kernel(jnp.linspace(0.0, kernel.duration, n_kernel), downsampled.dt)
+        history = jnp.zeros((n_kernel, 1, 1), dtype=downsampled.ys.dtype)
+        signal = jnp.concatenate([history, downsample_scale * downsampled.ys], axis=0)
+        convolved = jsp.signal.fftconvolve(signal[:, 0, 0], hrf, mode="valid")[
+            :, None, None
+        ]
+        stride = int(monitor.period / downsampled.dt)
+        return monitor.k_1 * monitor.V_0 * (convolved[stride::stride] - 1.0)
+
+    result = monitor(solution(jnp.asarray(1.0)))
+    expected = independent_reference(jnp.asarray(1.0))
+    assert jnp.allclose(result.ys, expected, rtol=1e-5, atol=1e-7)
+    assert jnp.array_equal(result.ts, jnp.asarray([1000.0, 2000.0]))
+    assert result.dt == 1000.0
+    assert result.variable_names == ("BOLD(signal)",)
+
+    actual_gradient = jax.grad(lambda scale: monitor(solution(scale)).ys.sum())(
+        jnp.asarray(1.0)
+    )
+    expected_gradient = jax.grad(lambda scale: independent_reference(scale).sum())(
+        jnp.asarray(1.0)
+    )
+    assert jnp.allclose(actual_gradient, expected_gradient, rtol=1e-5, atol=1e-7)
+
+    if isinstance(downsample, CustomTemporalAverage):
+        with pytest.raises(TypeError, match="no streaming preparation method"):
+            prepare(
+                ConstantDrive(),
+                Euler(block_size=1000),
+                t1=2000.0,
+                dt=1.0,
+                observe=monitor,
+            )
+    else:
+        prepare(
+            ConstantDrive(),
+            Euler(block_size=1000),
+            t1=2000.0,
+            dt=1.0,
+            observe=monitor,
+        )
+
+
+@pytest.mark.parametrize(
+    "downsampler", [DoubledTemporalAverage, DoubledSubSampling, CustomTemporalAverage]
+)
+@pytest.mark.parametrize("n_steps", [0, 1, 4003])
+def test_bw_preserves_custom_downsamplers(downsampler, n_steps):
+    if downsampler is CustomTemporalAverage:
+        downsample = downsampler()
+        scale_factor = 1.0
+    else:
+        downsample = downsampler(period=4.0, voi=1)
+        scale_factor = 2.0
+    drive = jnp.linspace(0.05, 0.15, n_steps)[:, None] * jnp.asarray([1.0, 1.5])
+    values = (
+        drive[:, None, :]
+        if downsampler is CustomTemporalAverage
+        else jnp.stack([jnp.zeros_like(drive), drive], axis=1)
+    )
+    names = (
+        (("drive",) if downsampler is CustomTemporalAverage else ("unused", "drive"))
+        if n_steps
+        else None
+    )
+
+    def observed(scale, vo, origin, offset):
+        solution = NativeSolution(
+            ts=origin + jnp.arange(1, n_steps + 1),
+            ys=values * scale,
+            dt=1.0,
+            variable_names=names,
+        )
+        monitor = BalloonWindkesselBold(period=1000.0, vo=vo, downsample=downsample)
+        return monitor(solution, t_offset=offset)
+
+    def reference(scale, vo):
+        # Resolve completed four-step windows independently of monitor dispatch.
+        windows = drive[: n_steps // 4 * 4].reshape((-1, 4, 2))
+        sampled = (
+            windows.mean(axis=1)
+            if downsampler in (DoubledTemporalAverage, CustomTemporalAverage)
+            else windows[:, -1, :]
+        )
+        firing_rates = jnp.repeat(scale_factor * scale * sampled, 4, axis=0)
+
+        def step(state, rate):
+            s, f, v, q = state
+            next_state = (
+                s + 0.001 * (rate - s / 0.65 - (f - 1.0) / 0.41),
+                f + 0.001 * s,
+                v + 0.001 * (f - v ** (1.0 / 0.32)) / 0.98,
+                q
+                + 0.001
+                * (f * (1.0 - 0.6 ** (1.0 / f)) / 0.4 - v ** (1.0 / 0.32 - 1.0) * q)
+                / 0.98,
+            )
+            _, _, next_v, next_q = next_state
+            bold = vo * (
+                (4.3 * 40.3 * 0.4 * 0.04) * (1.0 - next_q)
+                + (25.0 * 0.4 * 0.04) * (1.0 - next_q / next_v)
+                + (1.0 - next_v)
+            )
+            return next_state, bold
+
+        state0 = (jnp.zeros(2), jnp.ones(2), jnp.ones(2), jnp.ones(2))
+        _, bold = jax.lax.scan(step, state0, firing_rates)
+        return bold[999::1000, None, :]
+
+    scale, vo = jnp.asarray(1.0), jnp.asarray(0.04)
+    origin, offset = jnp.asarray(37.0), jnp.asarray(7.0)
+    result = jax.jit(observed)(scale, vo, origin, offset)
+    expected = reference(scale, vo)
+    assert result.ys.shape == (n_steps // 1000, 1, 2)
+    assert jnp.allclose(result.ys, expected, rtol=1e-4, atol=1e-7)
+    assert jnp.array_equal(
+        result.ts, origin + offset + jnp.arange(1, n_steps // 1000 + 1) * 1000.0
+    )
+    assert result.dt == 1000.0
+    assert result.variable_names == (None if names is None else ("BOLD(drive)",))
+
+    actual_gradients = jax.grad(
+        lambda scale, vo: observed(scale, vo, origin, offset).ys.sum(), argnums=(0, 1)
+    )(scale, vo)
+    expected_gradients = jax.grad(
+        lambda scale, vo: reference(scale, vo).sum(), argnums=(0, 1)
+    )(scale, vo)
+    assert jnp.allclose(
+        jnp.asarray(actual_gradients),
+        jnp.asarray(expected_gradients),
+        rtol=1e-4,
+        atol=1e-7,
+    )
+    if n_steps >= 1000:
+        assert all(float(gradient) != 0.0 for gradient in actual_gradients)
+
+    if downsampler is CustomTemporalAverage:
+        with pytest.raises(TypeError, match="no streaming preparation method"):
+            prepare(
+                ConstantDrive(),
+                Euler(block_size=1000),
+                t1=float(n_steps),
+                dt=1.0,
+                observe=BalloonWindkesselBold(period=1000.0, downsample=downsample),
+            )
+    else:
+        prepare(
+            ConstantDrive(),
+            Euler(block_size=1000),
+            t1=float(n_steps),
+            dt=1.0,
+            observe=BalloonWindkesselBold(
+                period=1000.0, downsample=downsampler(period=4.0)
+            ),
+        )
+
+
+class PreparedLowPass:
+    """Foreign monitor with no built-in ancestry or period attribute."""
+
+    def prepare(self, grid, sample, variable_names):
+        return LowPass(period=2.0, tau=3.0).prepare(grid, sample, variable_names)
+
+
+@pytest.mark.parametrize("kind", ["hrf", "bw"])
+def test_bold_carries_custom_downsampler_state_and_live_parameters(kind):
+    def monitor(downsample):
+        if kind == "hrf":
+            return HRFBold(
+                period=4.0,
+                kernel=FirstOrderVolterraHRFKernel(duration=4.0),
+                downsample=downsample,
+            )
+        return BalloonWindkesselBold(period=4.0, downsample=downsample)
+
+    with jax.enable_x64(True):
+        model, config = prepare(
+            ConstantDrive(),
+            Euler(block_size=4),
+            t0=37.0,
+            t1=54.0,
+            dt=1.0,
+            observe=monitor(PreparedLowPass()),
+        )
+        raw = solve(ConstantDrive(), Euler(), t0=37.0, t1=54.0, dt=1.0)
+
+        def observed(tau):
+            current = config.copy()
+            current.monitor.downsample.tau = tau
+            return model(current)
+
+        def reference(tau):
+            filtered = LowPass(period=2.0, tau=tau)(raw)
+            return monitor(Identity())(filtered)
+
+        assert jnp.allclose(
+            monitor(PreparedLowPass())(raw).ys,
+            reference(3.0).ys,
+            rtol=1e-6,
+            atol=1e-12,
+        )
+        for tau in (3.0, 6.0):
+            result = jax.jit(observed)(jnp.asarray(tau))
+            expected = reference(jnp.asarray(tau))
+            assert jnp.allclose(result.ys, expected.ys, rtol=1e-6, atol=1e-12)
+            assert jnp.array_equal(result.ts, expected.ts)
+            assert result.variable_names == expected.variable_names
+
+        actual_gradient = jax.grad(lambda tau: observed(tau).ys.sum())(3.0)
+        expected_gradient = jax.grad(lambda tau: reference(tau).ys.sum())(3.0)
+        assert jnp.allclose(actual_gradient, expected_gradient, rtol=1e-5, atol=1e-12)
+        assert abs(float(actual_gradient)) > 0.0
+
+
+@pytest.mark.parametrize("mode", ["same", "full"])
+def test_hrf_specialized_posthoc_convolution_modes_remain_available(mode):
+    kernel = FirstOrderVolterraHRFKernel(duration=20.0)
+    solution = NativeSolution(
+        ts=jnp.arange(1.0, 41.0),
+        ys=jnp.linspace(0.1, 1.1, 40).reshape(40, 1, 1),
+        dt=1.0,
+        variable_names=("signal",),
+    )
+    monitor = HRFBold(
+        period=8.0,
+        downsample=SubSampling(period=4.0),
+        kernel=kernel,
+        convolution_mode=mode,
+    )
+    result = monitor(solution)
+
+    downsampled = SubSampling(period=4.0)(solution)
+    n_kernel = int(jnp.ceil(kernel.duration / downsampled.dt))
+    hrf = kernel(jnp.linspace(0.0, kernel.duration, n_kernel), downsampled.dt)
+    history = jnp.zeros((n_kernel, 1, 1), dtype=downsampled.ys.dtype)
+    signal = jnp.concatenate([history, downsampled.ys], axis=0)
+    convolved = jsp.signal.fftconvolve(signal[:, 0, 0], hrf, mode=mode)[:, None, None]
+    expected = monitor.k_1 * monitor.V_0 * (convolved[2::2] - 1.0)
+
+    assert jnp.allclose(result.ys, expected)
+    assert jnp.array_equal(
+        result.ts, (jnp.arange(expected.shape[0]) + 1) * monitor.period
+    )
+    assert result.variable_names == ("BOLD(signal)",)
+
+
+def test_streaming_hrf_resolves_solution_valued_warm_history():
+    kernel = FirstOrderVolterraHRFKernel(duration=16.0)
+    history = NativeSolution(
+        ts=jnp.arange(-19.0, 1.0),
+        ys=jnp.linspace(0.2, 1.2, 20).reshape(20, 1, 1),
+        dt=1.0,
+        variable_names=("signal",),
+    )
+    downsample = SubSampling(period=4.0)
+    array_history = downsample(history).ys
+    solution_monitor = HRFBold(
+        period=8.0,
+        downsample=downsample,
+        kernel=kernel,
+        history=history,
+    )
+    array_monitor = HRFBold(
+        period=8.0,
+        downsample=downsample,
+        kernel=kernel,
+        history=array_history,
+    )
+    solver = Euler(block_size=8)
+    kwargs = dict(t1=16.0, dt=1.0)
+
+    raw = solve(ConstantDrive(), solver, **kwargs)
+    posthoc_solution = solution_monitor(raw)
+    posthoc_array = array_monitor(raw)
+    with pytest.warns(DeprecationWarning):
+        reduced_solution = solve(
+            ConstantDrive(),
+            solver,
+            reduce=streaming_hrf_bold(solution_monitor, 1.0),
+            **kwargs,
+        )
+    with pytest.warns(DeprecationWarning):
+        reduced_array = solve(
+            ConstantDrive(),
+            solver,
+            reduce=streaming_hrf_bold(array_monitor, 1.0),
+            **kwargs,
+        )
+
+    assert posthoc_solution.ys.shape == (2, 1, 1)
+    assert jnp.allclose(posthoc_solution.ys, posthoc_array.ys)
+    assert jnp.array_equal(posthoc_solution.ts, posthoc_array.ts)
+    assert jnp.allclose(reduced_solution, posthoc_solution.ys)
+    assert jnp.allclose(reduced_array, posthoc_solution.ys)
 
 
 if __name__ == "__main__":

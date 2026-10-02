@@ -100,6 +100,11 @@ class NativeSolution:
 
     def __repr__(self):
         """String representation."""
+        if self.ts.size == 0:
+            return (
+                f"NativeSolution(shape={self.ys.shape}, t=[], "
+                f"variable_names={self.variable_names})"
+            )
         return (
             f"NativeSolution(shape={self.ys.shape}, "
             f"t=[{self.ts[0]:.2f}, {self.ts[-1]:.2f}], "

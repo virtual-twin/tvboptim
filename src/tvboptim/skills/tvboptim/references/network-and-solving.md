@@ -131,9 +131,9 @@ coupling = DelayedLinearCoupling(source="S", G=0.1, history_interpolation="linea
 
 `KuramotoCoupling` and `DelayedKuramotoCoupling` are available for phase models.
 
-Use native `Euler`, `Heun`, or `RungeKutta4` for delays, auxiliaries, variables-of-interest filtering, block scans, and streaming reductions. Use `BoundedSolver` only when state clipping is an intentional numerical/modeling choice.
+Use native `Euler`, `Heun`, or `RungeKutta4` for delays, auxiliaries, variables-of-interest filtering, block scans, and prepared temporal observations. Use `BoundedSolver` only when state clipping is an intentional numerical/modeling choice.
 
-Before choosing `DiffraxSolver`, inspect the current dispatch. The current experimental path rejects delayed coupling, streaming `reduce`, auxiliary recording, and variables-of-interest filtering in cases the native path supports. When exact output times matter, configure a `SaveAt(ts=...)` grid to avoid padded or irregular output.
+Before choosing `DiffraxSolver`, inspect the current dispatch. The current experimental path rejects delayed coupling, prepared temporal observations, auxiliary recording, and variables-of-interest filtering in cases the native path supports. When exact output times matter, configure a `SaveAt(ts=...)` grid to avoid padded or irregular output.
 
 Native `Heun` and `RungeKutta4` freeze coupling across stages by default. Set `recompute_coupling_per_stage=True` when instantaneous coupling must retain the base method's full stage order; delayed coupling does not need repeated history gathers.
 
@@ -155,13 +155,15 @@ result = solve_fn(config)
 Treat these as separate controls:
 
 - `Heun(block_size=K)` checkpoints a nested scan for backward memory and enables block-wise noise generation. It does not remove the stacked trajectory by itself.
-- `reduce=(init, update, finalize)` folds outputs instead of returning the trajectory. It is supported by native solvers.
+- `observe=monitor` computes and returns the requested scientific time series inside native-solver blocks, avoiding retention of the full-rate trajectory when the monitor emits fewer samples.
 - `Heun(grad_horizon=W)` applies truncated backpropagation through time. The forward trajectory is unchanged, but gradients no longer cross window boundaries.
 - `block_size` controls memory granularity; `grad_horizon` controls scientific credit-assignment horizon. Do not equate them.
 
 For delayed networks, prefer `roll` or `circular` history buffers when bounding memory. The `preallocated` strategy grows with the simulation length and can dominate any checkpointing benefit.
 
-Read the observation reference before using `welford_cov` or streaming BOLD reducers.
+The temporary `reduce=` API and its reducer factories are deprecated in 0.5.0
+and will be removed in 0.6.0. Use `observe=` followed by ordinary post-hoc
+statistics.
 
 ## Diagnose failures
 

@@ -6,6 +6,7 @@ management, and returns a pure function for execution.
 """
 
 import copy
+import operator
 import warnings
 from typing import Callable, Tuple
 
@@ -17,13 +18,26 @@ from plum import dispatch
 from .core.bunch import Bunch
 from .core.heterogeneous import HeterogeneousNetwork
 from .core.network import Network
-from .core.observation import GroupObservation
+from .core.observation import (
+    GroupObservation,
+    SimulationGrid,
+    observation_alignment_steps,
+    observation_result,
+    prepare_observation,
+    validate_observation_input,
+    validate_observation_invocation,
+    validate_prepared_observation,
+)
 from .core.readout import pack_history_readouts, pack_readouts, prepare_readouts
 from .coupling.base import DelayedCoupling, InstantaneousCoupling
 from .dynamics.base import AbstractDynamics
 from .graph.base import delay_steps_bound, effective_max_delay
 from .graph.topology import prepare_graph_topology, validate_graph_topology
-from .result import DiffraxSolution, HeterogeneousSolution, wrap_native_result
+from .result import (
+    DiffraxSolution,
+    HeterogeneousSolution,
+    wrap_native_result,
+)
 from .solvers.diffrax import DiffraxSolver
 from .solvers.native import NativeSolver
 from .utils.history import extract_history_window
@@ -39,6 +53,17 @@ def _snapshot(tree):
     buffers, pre-sampled noise tensors).
     """
     return jax.tree.map(lambda x: x, tree)
+
+
+def _warn_reduce_deprecated():
+    """Warn once per preparation that the temporary reducer API is retiring."""
+    warnings.warn(
+        "reduce= is deprecated in 0.5.0 and will be removed in 0.6.0. Use "
+        "observe= to return the required temporal signal, then compute "
+        "statistics from that result.",
+        DeprecationWarning,
+        stacklevel=4,
+    )
 
 
 def _partition_jax_params(params):
@@ -63,7 +88,7 @@ def _partition_jax_params(params):
 def _blocked_scan(runner, state0, scan_inputs, n_steps, block_size):
     """Split the leading axis into ``(n_blocks, block_size)`` plus a tail, scan
     ``runner`` over the main blocks, run ``runner`` once on the tail, and stitch
-    the outputs back to leading shape ``(n_steps, ...)``.
+    the outputs by concatenating each block's emitted leading axis.
 
     ``runner(state, block_inputs, block_len) -> (state, outs)`` is the only
     per-block behaviour that varies between callers (checkpointed inner scan,
@@ -89,7 +114,7 @@ def _blocked_scan(runner, state0, scan_inputs, n_steps, block_size):
             lambda s, b: runner(s, b, block_size), state0, main
         )
         outs_main_flat = jax.tree.map(
-            lambda x: x.reshape((n_blocks * block_size,) + x.shape[2:]),
+            lambda x: x.reshape((n_blocks * x.shape[1],) + x.shape[2:]),
             outs_main,
         )
     else:
@@ -251,6 +276,51 @@ def _assemble_output(
     return selected_states
 
 
+def _native_output_sample(
+    dynamics,
+    solver,
+    initial_state,
+    params,
+    *,
+    t0,
+    dt,
+    coupling_inputs,
+    external_inputs,
+    state_voi_indices,
+    aux_voi_indices,
+    record_auxiliaries,
+):
+    """Describe one assembled native output through the real prepared inputs."""
+
+    def output():
+        def dynamics_fn(t, state, current_params):
+            return dynamics.dynamics(
+                t,
+                state,
+                current_params,
+                coupling_inputs(t, state),
+                external_inputs(t, state),
+            )
+
+        next_state, auxiliaries = solver.step(
+            dynamics_fn,
+            jnp.asarray(t0),
+            initial_state,
+            dt,
+            params,
+            jnp.zeros_like(initial_state),
+        )
+        return _assemble_output(
+            next_state,
+            auxiliaries,
+            state_voi_indices,
+            aux_voi_indices,
+            record_auxiliaries,
+        )
+
+    return jax.eval_shape(output)
+
+
 def _composed_scan(
     block_step, carry0, scan_inputs, n_steps, block_size, window_size=None
 ):
@@ -283,6 +353,109 @@ def _composed_scan(
         return run_blocks(carry, window_inputs, window_len)
 
     return _blocked_scan(run_window, carry0, scan_inputs, n_steps, window_size)
+
+
+def _observation_block(
+    op, prepared, monitor_params, input_sample=None, monitor_name=None, noise_gen=None
+):
+    """Build the checkpointed integrate-then-observe operation for one block."""
+    if noise_gen is not None:
+
+        @jax.checkpoint
+        def step(carry, time_chunk):
+            simulation_state, observation_state, counter = carry
+            noise = noise_gen(counter, time_chunk.shape[0])
+            simulation_state, raw_block = jax.lax.scan(
+                op, simulation_state, (time_chunk, noise)
+            )
+            if input_sample is not None:
+                validate_observation_input(monitor_name, input_sample, raw_block)
+            observation_state, chunk = prepared.update(
+                observation_state, raw_block, monitor_params
+            )
+            return (simulation_state, observation_state, counter + 1), chunk
+
+        return step
+
+    @jax.checkpoint
+    def step(carry, block_inputs):
+        simulation_state, observation_state = carry
+        simulation_state, raw_block = jax.lax.scan(op, simulation_state, block_inputs)
+        if input_sample is not None:
+            validate_observation_input(monitor_name, input_sample, raw_block)
+        observation_state, chunk = prepared.update(
+            observation_state, raw_block, monitor_params
+        )
+        return (simulation_state, observation_state), chunk
+
+    return step
+
+
+def _run_observed_scan(
+    op,
+    state0,
+    scan_inputs,
+    n_steps,
+    solver,
+    prepared,
+    monitor_params,
+    input_sample=None,
+    monitor_name=None,
+    *,
+    window_size=None,
+    noise_gen=None,
+):
+    """Integrate and transform raw output inside each execution block."""
+    if input_sample is not None:
+        validate_observation_invocation(
+            monitor_name,
+            prepared,
+            monitor_params,
+            input_sample,
+            _observation_execution_lengths(n_steps, solver.block_size, window_size),
+        )
+    block_step = _observation_block(
+        op, prepared, monitor_params, input_sample, monitor_name, noise_gen
+    )
+    observation_state0 = prepared.init(monitor_params)
+    carry0 = (
+        (state0, observation_state0, jnp.array(0))
+        if noise_gen is not None
+        else (state0, observation_state0)
+    )
+
+    # A zero-step solve still executes the statically shaped observation update
+    # once so callers receive an empty array rather than the ``None`` sentinel
+    # used internally by _blocked_scan when it has no blocks to visit.
+    if n_steps == 0:
+        final_carry, chunks = block_step(carry0, scan_inputs)
+    elif solver.block_size is not None:
+        final_carry, chunks = _composed_scan(
+            block_step,
+            carry0,
+            scan_inputs,
+            n_steps,
+            solver.block_size,
+            window_size,
+        )
+    elif window_size is not None:
+
+        def run_window(carry, window_inputs, _window_len):
+            carry = jax.lax.stop_gradient(carry)
+            return block_step(carry, window_inputs)
+
+        final_carry, chunks = _blocked_scan(
+            run_window,
+            carry0,
+            scan_inputs,
+            n_steps,
+            window_size,
+        )
+    else:
+        final_carry, chunks = block_step(carry0, scan_inputs)
+
+    simulation_state = final_carry[0]
+    return simulation_state, chunks
 
 
 def _fold_block(op, update):
@@ -367,6 +540,96 @@ def _snap_window(window, block_size):
         stacklevel=2,
     )
     return snapped
+
+
+def _positive_step_count(value, name):
+    """Normalize a solver execution interval to a positive Python integer."""
+    try:
+        value = operator.index(value)
+    except TypeError as exc:
+        raise ValueError(f"{name} must be a positive integer; got {value!r}") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer; got {value!r}")
+    return value
+
+
+def _observation_execution_lengths(n_steps, block_size, window_size):
+    """Return the distinct observation chunk lengths the scan will execute."""
+    chunk_size = block_size if block_size is not None else window_size
+    if chunk_size is None:
+        return (int(n_steps),)
+    lengths = [int(chunk_size)] if n_steps >= chunk_size else []
+    remainder = n_steps % chunk_size
+    if remainder:
+        lengths.append(int(remainder))
+    if not lengths:
+        lengths.append(int(n_steps))
+    return tuple(dict.fromkeys(lengths))
+
+
+def _prepare_temporal_observation(
+    observe,
+    *,
+    t0,
+    dt,
+    n_steps,
+    sample,
+    variable_names,
+    solver,
+):
+    """Prepare a monitor and validate the solver's regular chunk boundaries."""
+    grid = SimulationGrid(t0=t0, dt=float(dt), n_steps=int(n_steps))
+    names = None if variable_names is None else tuple(variable_names)
+    prepared = prepare_observation(observe, grid, sample, names)
+
+    block_size = solver.block_size
+    window_size = solver.grad_horizon
+    monitor_name = type(observe).__name__
+    alignment_steps = observation_alignment_steps(prepared, grid)
+    if block_size is None:
+        warnings.warn(
+            f"observe={monitor_name}(...) is enabled without block_size. The "
+            "requested signal will be returned, but block-based memory management "
+            "is not enabled.",
+            UserWarning,
+            stacklevel=3,
+        )
+        if window_size is not None:
+            window_size = _positive_step_count(window_size, "grad_horizon")
+            if window_size % alignment_steps:
+                raise ValueError(
+                    f"grad_horizon={window_size} does not contain complete "
+                    "observation alignment intervals. Use a multiple of "
+                    f"{alignment_steps} steps."
+                )
+    else:
+        block_size = _positive_step_count(block_size, "block_size")
+        if block_size % alignment_steps:
+            example = alignment_steps * max(1, round(block_size / alignment_steps))
+            raise ValueError(
+                f"block_size={block_size} does not contain complete observation "
+                "alignment intervals. Use a multiple of "
+                f"{alignment_steps} steps, for example {example}."
+            )
+        if window_size is not None:
+            window_size = _positive_step_count(window_size, "grad_horizon")
+            window_size = _snap_window(window_size, block_size)
+
+    block_lengths = _observation_execution_lengths(n_steps, block_size, window_size)
+    validate_prepared_observation(
+        observe,
+        grid,
+        sample,
+        prepared,
+        block_lengths=block_lengths,
+    )
+
+    return prepared, window_size, sample
+
+
+def _wrap_observation_result(chunks, t0, prepared):
+    """Construct the solution or named solutions described by a recipe."""
+    return observation_result(chunks, t0, prepared)
 
 
 def _reduce_fold(reduce, variable_names, n_nodes, n_steps):
@@ -496,11 +759,13 @@ configuration PyTree. Dispatches on the first two arguments via ``plum``:
 model                       solver            supports
 ==========================  ================  ======================================
 ``Network``                 ``NativeSolver``  full feature set: delays, noise,
-                                              external inputs, auxiliaries, VOI
+                                              external inputs, auxiliaries, VOI,
+                                              temporal observations
 ``Network``                 ``DiffraxSolver`` stateless couplings only; no delays,
                                               no auxiliaries, no VOI filtering
 ``AbstractDynamics``        ``NativeSolver``  uncoupled multi-node with optional
-                                              noise and external inputs
+                                              noise, external inputs, and
+                                              temporal observations
 ``AbstractDynamics``        ``DiffraxSolver`` uncoupled multi-node with optional
                                               noise and external inputs, no VOI
 ==========================  ================  ======================================
@@ -532,6 +797,10 @@ noise : AbstractNoise, optional
 externals : dict, optional
     **Bare-dynamics dispatch only.** Mapping ``{name: AbstractExternalInput}``.
     For ``Network``, externals live on the network.
+observe : temporal monitor, optional
+    **Native-solver dispatches only.** Return the supported scientific signal
+    computed within integration blocks. Omitting it returns the raw trajectory.
+    Periods and regular execution boundaries must form aligned integer grids.
 
 Returns
 -------
@@ -555,9 +824,9 @@ config : Bunch
     n_noise_states, n_nodes]`` to override generation (used by NumPyro
     workflows that treat the Brownian increments as latents).
 
-    The returned ``result`` is a ``NativeSolution`` (native solvers) or a
-    ``DiffraxSolution`` (Diffrax). Both expose ``.ts``, ``.ys``,
-    ``.variable_names``, and ``.dt``.
+    The returned ``result`` is a ``NativeSolution`` (native solvers, including
+    temporal observations) or a ``DiffraxSolution`` (Diffrax). Both expose
+    ``.ts``, ``.ys``, ``.variable_names``, and ``.dt``.
 
 Raises
 ------
@@ -596,6 +865,8 @@ intentionally narrower than the native ones:
 - ``effective_save_dt`` is inferred as ``saveat.ts[1] - saveat.ts[0]`` and
   is only meaningful for uniform ``SaveAt(ts=...)``. Downstream monitors
   that rely on a scalar ``dt`` will be wrong for non-uniform save grids.
+- Temporal ``observe=`` execution is rejected. Apply a monitor post-hoc or use
+  a native solver.
 
 **Noise generation (native path).** The full Brownian-increment tensor
 of shape ``[n_steps, n_noise_states, n_nodes]`` is materialised inside
@@ -639,7 +910,8 @@ fields, so this is purely a concern for callers that pass
 3. Pre-generate noise samples if stochastic (one per timestep).
 4. Pre-compile coupling/external compute and state-update closures to
    avoid dict iteration inside the scan.
-5. Return a pure function wrapping ``jax.lax.scan``.
+5. Prepare an optional temporal observation against the raw output grid.
+6. Return a pure function wrapping ``jax.lax.scan``.
 
 **Preparation steps (Diffrax).**
 
@@ -748,6 +1020,44 @@ def solve(
     return solve_fn(params)
 
 
+def _split_heterogeneous_observe(observe):
+    """Resolve heterogeneous projection and optional temporal-monitor roles."""
+    if observe is None:
+        return None, None
+    if isinstance(observe, GroupObservation):
+        return observe, observe.monitor
+    if not isinstance(observe, tuple):
+        raise TypeError(
+            "Heterogeneous observe must be a GroupObservation or None. A "
+            "heterogeneous network needs an explicit common readout before a "
+            "temporal monitor: observe=GroupObservation({...}, "
+            "channels=(...), monitor=monitor)"
+        )
+    if len(observe) != 2:
+        raise TypeError(
+            "Heterogeneous observe tuple must contain exactly "
+            "(GroupObservation, temporal_monitor)"
+        )
+    group_observation, temporal_observation = observe
+    if not isinstance(group_observation, GroupObservation):
+        raise TypeError(
+            "The first heterogeneous observe tuple item must be a GroupObservation"
+        )
+    if temporal_observation is None or isinstance(
+        temporal_observation, GroupObservation
+    ):
+        raise TypeError(
+            "The second heterogeneous observe tuple item must be a temporal monitor"
+        )
+    if group_observation.monitor is not None:
+        raise ValueError(
+            "The temporal monitor is specified twice: in GroupObservation.monitor "
+            "and in the observe tuple. Provide it in exactly one place, "
+            "preferably GroupObservation(..., monitor=monitor)."
+        )
+    return group_observation, temporal_observation
+
+
 @dispatch
 def prepare(
     network: HeterogeneousNetwork,
@@ -766,7 +1076,9 @@ def prepare(
             only when ``solver.block_size`` is set.
         observe: Optional :class:`GroupObservation` projecting accepted
             per-step group variables of interest to common graph-order channels.
-            It does not participate in dynamics, route state, or scan carry.
+            Its ``monitor`` transforms that common signal within solver blocks.
+            The equivalent ``(GroupObservation, temporal_monitor)`` tuple
+            remains supported.
     """
     unsupported_routes = [
         name
@@ -781,13 +1093,19 @@ def prepare(
             "Heterogeneous routes require an instantaneous or delayed "
             f"PrePostCoupling implementation: {unsupported_routes}"
         )
-    if observe is not None and not isinstance(observe, GroupObservation):
-        raise TypeError("observe must be a GroupObservation or None")
-    if reduce is not None and observe is None:
+    group_observation, temporal_observation = _split_heterogeneous_observe(observe)
+    if reduce is not None and temporal_observation is not None:
+        raise ValueError(
+            "Heterogeneous temporal observe and reduce= cannot be combined. "
+            "The temporal monitor already defines the returned time series."
+        )
+    if reduce is not None and group_observation is None:
         raise ValueError(
             "Heterogeneous reduce= requires observe=GroupObservation(...) to "
             "define common graph-order channels."
         )
+    if reduce is not None:
+        _warn_reduce_deprecated()
     if reduce is not None and solver.block_size is None:
         warnings.warn(
             "Heterogeneous observe= with reduce= only bounds trajectory memory "
@@ -1065,36 +1383,39 @@ def prepare(
     observation_width = 0
     observation_dtype = None
     observation_params = Bunch()
-    if observe is not None:
-        unknown_groups = set(observe.readouts) - set(network.group_names)
+    if group_observation is not None:
+        unknown_groups = set(group_observation.readouts) - set(network.group_names)
         if unknown_groups:
             raise ValueError(
                 f"GroupObservation references unknown groups {sorted(unknown_groups)}"
             )
         observed_nodes = {
             node
-            for group_name in observe.readouts
+            for group_name in group_observation.readouts
             for node in network.group_nodes[group_name]
         }
         uncovered_nodes = sorted(set(range(network.n_nodes)) - observed_nodes)
         if (
-            reduce is not None
+            (reduce is not None or temporal_observation is not None)
             and uncovered_nodes
-            and not observe.allow_partial_coverage
+            and not group_observation.allow_partial_coverage
         ):
             missing_groups = [
-                name for name in network.group_names if name not in observe.readouts
+                name
+                for name in network.group_names
+                if name not in group_observation.readouts
             ]
             raise ValueError(
-                "GroupObservation with reduce= must cover every graph node; "
+                "GroupObservation before a reducer or temporal monitor must "
+                "cover every graph node; "
                 f"uncovered nodes {uncovered_nodes}. Add groups {missing_groups}, "
-                "or set allow_partial_coverage=True only for a reducer you have "
-                "verified is fill-aware."
+                "or set allow_partial_coverage=True only when the fill value is "
+                "a scientifically valid input to the following operation."
             )
         observation_params = Bunch(
             {
-                name: _snapshot(observe.params.get(name, Bunch()))
-                for name in observe.readouts
+                name: _snapshot(group_observation.params.get(name, Bunch()))
+                for name in group_observation.readouts
             }
         )
         voi_probes = Bunch(
@@ -1103,11 +1424,11 @@ def prepare(
                     (len(variable_names[name]), len(network.group_nodes[name])),
                     dtype=initial_state[name].dtype,
                 )
-                for name in observe.readouts
+                for name in group_observation.readouts
             }
         )
         observation_specs, observation_width, observation_dtypes = prepare_readouts(
-            observe.readouts,
+            group_observation.readouts,
             observation_params,
             probe_values=voi_probes,
             names=variable_names,
@@ -1116,15 +1437,18 @@ def prepare(
             params_name="params",
             reads="voi",
         )
-        if len(observe.channels) != observation_width:
+        if len(group_observation.channels) != observation_width:
             raise ValueError(
                 "GroupObservation channels length must match probed readout "
-                f"width Q={observation_width}; got {len(observe.channels)}"
+                f"width Q={observation_width}; got "
+                f"{len(group_observation.channels)}"
             )
         observation_dtype = jnp.result_type(
-            *observation_dtypes, jnp.asarray(observe.fill_value).dtype
+            *observation_dtypes,
+            jnp.asarray(group_observation.fill_value).dtype,
         )
 
+    n_steps = len(time_steps)
     config = Bunch(
         groups=group_config,
         routes=route_config,
@@ -1132,8 +1456,28 @@ def prepare(
         initial_state=initial_state,
         _internal=Bunch(time=Bunch(t0=t0, t1=t1, dt=dt)),
     )
-    if observe is not None:
+    if group_observation is not None:
         config.observation = observation_params
+    prepared_temporal_observation = None
+    temporal_observation_window = None
+    temporal_observation_sample = None
+    if temporal_observation is not None:
+        (
+            prepared_temporal_observation,
+            temporal_observation_window,
+            temporal_observation_sample,
+        ) = _prepare_temporal_observation(
+            temporal_observation,
+            t0=t0,
+            dt=dt,
+            n_steps=n_steps,
+            sample=jax.ShapeDtypeStruct(
+                (observation_width, network.n_nodes), observation_dtype
+            ),
+            variable_names=group_observation.channels,
+            solver=solver,
+        )
+        config.monitor = _snapshot(prepared_temporal_observation.params)
     has_noise = bool(noise_specs)
     has_externals = bool(external_specs)
     if has_noise:
@@ -1141,7 +1485,6 @@ def prepare(
     if has_externals:
         config._internal.external = external_data
         config._internal.external_state = external_state_init
-    n_steps = len(time_steps)
 
     def precompute_routes(config):
         enriched = Bunch()
@@ -1487,7 +1830,7 @@ def prepare(
                     aux_indices,
                     record_aux,
                 )
-            if observe is not None:
+            if group_observation is not None:
                 output = pack_readouts(
                     output,
                     observation_specs,
@@ -1495,7 +1838,7 @@ def prepare(
                     observation_dtype,
                     config.observation,
                     network.n_nodes,
-                    fill_value=observe.fill_value,
+                    fill_value=group_observation.fill_value,
                 )
             if has_externals or has_delays:
                 next_external = (
@@ -1533,9 +1876,27 @@ def prepare(
             if not has_noise or streaming
             else (time_steps, noise_samples_all)
         )
+        if prepared_temporal_observation is not None:
+            _final_state, trajectories = _run_observed_scan(
+                op,
+                state0,
+                scan_inputs,
+                n_steps,
+                solver,
+                prepared_temporal_observation,
+                config.monitor,
+                temporal_observation_sample,
+                type(temporal_observation).__name__,
+                window_size=temporal_observation_window,
+                noise_gen=noise_gen,
+            )
+            return _wrap_observation_result(
+                trajectories, t0, prepared_temporal_observation
+            )
+
         fold = _reduce_fold(
             reduce,
-            observe.channels if observe is not None else (),
+            group_observation.channels if group_observation is not None else (),
             network.n_nodes,
             n_steps,
         )
@@ -1557,13 +1918,13 @@ def prepare(
             )
             return finalize(acc)
 
-        if observe is not None:
+        if group_observation is not None:
             return wrap_native_result(
                 trajectories,
                 t0,
                 t1,
                 dt,
-                variable_names=observe.channels,
+                variable_names=group_observation.channels,
             )
         ts = t0 + (jnp.arange(n_steps) + 1) * dt
         return HeterogeneousSolution(
@@ -1586,8 +1947,9 @@ def prepare(
     t1: float = 1.0,
     dt: float = 0.1,
     reduce=None,
+    observe=None,
 ) -> Tuple[Callable, Bunch]:
-    del network, solver, t0, t1, dt, reduce
+    del network, solver, t0, t1, dt, reduce, observe
     raise NotImplementedError(
         "HeterogeneousNetwork currently supports native fixed-step solvers only"
     )
@@ -1601,6 +1963,7 @@ def prepare(
     t1: float = 1.0,
     dt: float = 0.1,
     reduce=None,
+    observe=None,
 ) -> Tuple[Callable, Bunch]:
     """Compile a model into a pure JAX solve function and a config PyTree.
 
@@ -1626,6 +1989,14 @@ def prepare(
     for bare dynamics) and Diffrax limitations (no delays, no auxiliaries,
     no VOI filtering).
     """
+    if reduce is not None and observe is not None:
+        raise ValueError(
+            "Temporal observe= and reduce= cannot be combined. observe= returns "
+            "a time series; apply statistics to that result post-hoc."
+        )
+    if reduce is not None:
+        _warn_reduce_deprecated()
+
     # Prepare all couplings (creates history buffers, computes indices, etc.).
     # The solver's stage-time centroid rides along so delayed couplings can
     # undo the delay bias that freezing the coupling across stages introduces.
@@ -1867,6 +2238,64 @@ def prepare(
     # Static shape for the full per-call noise tensor.
     n_steps = len(time_steps)
     noise_samples_shape = (n_steps, n_noise_states, n_nodes)
+    prepared_observation = None
+    observation_window = None
+    observation_sample = None
+    if observe is not None:
+        probe_state = config.initial_state
+        probe_time = jnp.asarray(t0, dtype=time_steps.dtype)
+        probe_enriched = precompute_all_couplings(config)
+
+        def probe_coupling_inputs(t, state):
+            if recompute_coupling_per_stage:
+                return compute_all_couplings(
+                    t,
+                    state,
+                    probe_state.coupling,
+                    config,
+                    probe_enriched,
+                )
+            return compute_all_couplings(
+                probe_time,
+                probe_state.dynamics,
+                probe_state.coupling,
+                config,
+                probe_enriched,
+            )
+
+        def probe_external_inputs(t, state):
+            return compute_all_externals(
+                t,
+                state,
+                probe_state.external,
+                config,
+            )
+
+        output_sample = _native_output_sample(
+            network.dynamics,
+            solver,
+            probe_state.dynamics,
+            config.dynamics,
+            t0=t0,
+            dt=dt,
+            coupling_inputs=probe_coupling_inputs,
+            external_inputs=probe_external_inputs,
+            state_voi_indices=state_voi_indices,
+            aux_voi_indices=aux_voi_indices,
+            record_auxiliaries=record_auxiliaries,
+        )
+        prepared_observation, observation_window, observation_sample = (
+            _prepare_temporal_observation(
+                observe,
+                t0=t0,
+                dt=dt,
+                n_steps=n_steps,
+                sample=output_sample,
+                variable_names=variable_names,
+                solver=solver,
+            )
+        )
+        config.monitor = _snapshot(prepared_observation.params)
 
     def _f(config):
         """Pure integration function."""
@@ -2021,9 +2450,25 @@ def prepare(
         else:
             scan_inputs = (time_steps, noise_samples_all)
 
-        # Run integration through the single scan seam, which dispatches on
-        # the solver's block knob (block_size), the streaming noise source,
-        # and the reduce fold.
+        # Temporal observations integrate and transform within the same
+        # checkpointed block. Raw output and the temporary reducer API retain
+        # their established run_scan path.
+        if prepared_observation is not None:
+            _final_state, res = _run_observed_scan(
+                op,
+                state0,
+                scan_inputs,
+                n_steps,
+                solver,
+                prepared_observation,
+                config.monitor,
+                observation_sample,
+                type(observe).__name__,
+                window_size=observation_window,
+                noise_gen=noise_gen,
+            )
+            return _wrap_observation_result(res, t0, prepared_observation)
+
         fold = _reduce_fold(reduce, variable_names, n_nodes, n_steps)
         final_carry, res = run_scan(
             op, state0, scan_inputs, n_steps, solver, fold=fold, noise_gen=noise_gen
@@ -2055,6 +2500,7 @@ def prepare(
     t1: float = 1.0,
     dt: float = 0.1,
     reduce=None,
+    observe=None,
 ) -> Tuple[Callable, Bunch]:
     """Compile a model into a pure JAX solve function and a config PyTree.
 
@@ -2083,6 +2529,12 @@ def prepare(
     # =========================================================================
     # VALIDATION: Check for unsupported features
     # =========================================================================
+
+    if observe is not None:
+        raise ValueError(
+            "observe is only supported by NativeSolver, not DiffraxSolver. "
+            "Use a NativeSolver or apply the monitor post-hoc."
+        )
 
     # reduce is a native-only feature (it rides on the native block scan).
     # plum dispatches on the first two positional args only, so a reduce= meant
@@ -2395,6 +2847,7 @@ def prepare(
     noise=None,
     externals=None,
     reduce=None,
+    observe=None,
 ) -> Tuple[Callable, Bunch]:
     """Compile a model into a pure JAX solve function and a config PyTree.
 
@@ -2420,6 +2873,14 @@ def prepare(
     for bare dynamics) and Diffrax limitations (no delays, no auxiliaries,
     no VOI filtering).
     """
+    if reduce is not None and observe is not None:
+        raise ValueError(
+            "Temporal observe= and reduce= cannot be combined. observe= returns "
+            "a time series; apply statistics to that result post-hoc."
+        )
+    if reduce is not None:
+        _warn_reduce_deprecated()
+
     # Initial state [N_STATES, n_nodes]
     state0 = dynamics.get_default_initial_state(n_nodes)
 
@@ -2523,6 +2984,55 @@ def prepare(
 
     # Static shape for the full per-call noise tensor.
     noise_samples_shape = (n_steps, n_noise_states, n_nodes) if has_noise else None
+    prepared_observation = None
+    observation_window = None
+    observation_sample = None
+    if observe is not None:
+        probe_state = config.initial_state.dynamics if has_externals else state0
+
+        def probe_coupling_inputs(_t, _state):
+            return zero_coupling
+
+        if has_externals:
+
+            def probe_external_inputs(t, state):
+                return compute_all_externals(
+                    t,
+                    state,
+                    config.initial_state.external,
+                    config,
+                )
+
+        else:
+
+            def probe_external_inputs(_t, _state):
+                return zero_external
+
+        output_sample = _native_output_sample(
+            dynamics,
+            solver,
+            probe_state,
+            config.dynamics,
+            t0=t0,
+            dt=dt,
+            coupling_inputs=probe_coupling_inputs,
+            external_inputs=probe_external_inputs,
+            state_voi_indices=state_voi_indices,
+            aux_voi_indices=aux_voi_indices,
+            record_auxiliaries=record_auxiliaries,
+        )
+        prepared_observation, observation_window, observation_sample = (
+            _prepare_temporal_observation(
+                observe,
+                t0=t0,
+                dt=dt,
+                n_steps=n_steps,
+                sample=output_sample,
+                variable_names=variable_names,
+                solver=solver,
+            )
+        )
+        config.monitor = _snapshot(prepared_observation.params)
 
     def _f(config):
         """Pure integration function for bare dynamics."""
@@ -2616,6 +3126,22 @@ def prepare(
             scan_inputs = time_steps
         else:
             scan_inputs = (time_steps, noise_samples_all)
+        if prepared_observation is not None:
+            _final_state, res = _run_observed_scan(
+                op,
+                config.initial_state,
+                scan_inputs,
+                n_steps,
+                solver,
+                prepared_observation,
+                config.monitor,
+                observation_sample,
+                type(observe).__name__,
+                window_size=observation_window,
+                noise_gen=noise_gen,
+            )
+            return _wrap_observation_result(res, t0, prepared_observation)
+
         # Single scan seam; dispatches on the solver's block knob, the streaming
         # noise source, and the reduce fold.
         fold = _reduce_fold(reduce, variable_names, n_nodes, n_steps)
@@ -2651,6 +3177,7 @@ def prepare(
     noise=None,
     externals=None,
     reduce=None,
+    observe=None,
 ) -> Tuple[Callable, Bunch]:
     """Compile a model into a pure JAX solve function and a config PyTree.
 
@@ -2676,6 +3203,12 @@ def prepare(
     for bare dynamics) and Diffrax limitations (no delays, no auxiliaries,
     no VOI filtering).
     """
+    if observe is not None:
+        raise ValueError(
+            "observe is only supported by NativeSolver, not DiffraxSolver. "
+            "Use a NativeSolver or apply the monitor post-hoc."
+        )
+
     # reduce is a native-only feature (it rides on the native block scan); plum
     # dispatches on positional args only, so reject a stray reduce= explicitly.
     if reduce is not None:

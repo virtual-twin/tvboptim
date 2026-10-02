@@ -124,12 +124,12 @@ class NativeSolver(AbstractSolver):
                 forward-only path.
 
                 This same block is the unit that carries per-block streaming
-                noise and the online ``reduce`` accumulator when those per-call
-                features are used (so blocking *is* checkpointing; the
-                checkpoint grain is ``block_size``). ``block_size`` was formerly
-                named ``checkpoint_every``; once streaming noise is active a
-                blocked run reseeds the noise relative to the monolithic path
-                (see the Phase 4 plan).
+                noise, prepared temporal observations, and the temporary online
+                ``reduce`` accumulator when those features are used (so blocking
+                *is* checkpointing; the checkpoint grain is ``block_size``).
+                ``block_size`` was formerly named ``checkpoint_every``; once
+                streaming noise is active a blocked run reseeds the noise
+                relative to the monolithic path (see the Phase 4 plan).
 
                 The memory model assumes a per-step carry whose size does
                 not grow with ``n_steps``. This holds for the ``roll`` and

@@ -3,11 +3,13 @@
 import warnings
 from collections.abc import Mapping
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import pytest
 from jax.extend import core as jax_core
 
+from docs.advanced.low_pass_monitor import LowPass
 from tvboptim.execution import ParallelExecution
 from tvboptim.experimental.network_dynamics import (
     Bunch,
@@ -22,15 +24,26 @@ from tvboptim.experimental.network_dynamics import (
 )
 from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
 from tvboptim.experimental.network_dynamics.dynamics.base import AbstractDynamics
+from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
 from tvboptim.experimental.network_dynamics.solvers import Euler
+from tvboptim.observations import Identity, JointObservation
 from tvboptim.observations.observation import compute_fc, welford_cov
 from tvboptim.observations.tvb_monitors import (
+    BalloonWindkesselBold,
     FirstOrderVolterraHRFKernel,
     HRFBold,
+    HRFKernel,
     SubSampling,
+    TemporalAverage,
     streaming_hrf_bold,
 )
-from tvboptim.types import DataAxis, Space
+from tvboptim.types import (
+    DataAxis,
+    Parameter,
+    Space,
+    combine_state,
+    partition_state,
+)
 
 
 class VoiDynamics(AbstractDynamics):
@@ -50,7 +63,17 @@ class CoupledVoiDynamics(VoiDynamics):
     COUPLING_INPUTS = {"drive": 1}
 
 
-def _network():
+class CurrentSampleHRFKernel(HRFKernel):
+    """Two-tap identity kernel for transparent heterogeneous tests."""
+
+    duration: float = eqx.field(static=True, default=0.2)
+
+    def __call__(self, t, downsample_dt):
+        del downsample_dt
+        return jnp.zeros_like(t).at[0].set(1.0)
+
+
+def _network(*, noise=False):
     weights = jnp.zeros((4, 4))
     return HeterogeneousNetwork(
         graph=DenseGraph(weights),
@@ -59,6 +82,9 @@ def _network():
                 VoiDynamics(),
                 [0, 2],
                 initial_state=jnp.array([[0.2, 0.7], [1.0, -0.3]]),
+                noise=(
+                    AdditiveNoise(sigma=0.03, key=jax.random.key(7)) if noise else None
+                ),
             ),
             "b": NodeGroup(
                 VoiDynamics(rate=-0.15),
@@ -371,3 +397,434 @@ def test_reduce_warning_can_be_promoted_after_imports():
     with warnings.catch_warnings():
         warnings.simplefilter("error", DeprecationWarning)
         prepare(_network(), Euler(), observe=_observe_y())
+
+
+@pytest.mark.parametrize(
+    "monitor",
+    [
+        SubSampling(period=0.2, voi=0),
+        TemporalAverage(period=0.2, voi=0),
+        BalloonWindkesselBold(period=0.2, dt_bw=0.1, voi=0),
+        HRFBold(
+            k_1=1.0,
+            V_0=1.0,
+            period=0.2,
+            downsample_period=0.1,
+            voi=0,
+            kernel=CurrentSampleHRFKernel(),
+        ),
+    ],
+)
+def test_group_observation_then_temporal_monitor_matches_posthoc(monitor):
+    observation = _observe_y()
+    kwargs = dict(t0=1.0, t1=1.9, dt=0.1)
+    projected = solve(_network(), Euler(block_size=4), observe=observation, **kwargs)
+    expected = monitor(projected)
+    actual = solve(
+        _network(),
+        Euler(block_size=4),
+        observe=(observation, monitor),
+        **kwargs,
+    )
+
+    assert jnp.allclose(actual.ys, expected.ys, rtol=1e-5, atol=1e-6)
+    assert jnp.allclose(actual.ts, expected.ts)
+    assert actual.dt == expected.dt == 0.2
+    assert actual.variable_names == expected.variable_names
+
+
+def test_external_temporal_monitor_composes_with_heterogeneous_readout():
+    observation = _observe_y()
+    monitor = LowPass(period=0.2, tau=0.3)
+    raw = solve(_network(), Euler(block_size=4), t1=0.9, dt=0.1, observe=observation)
+    actual = solve(
+        _network(),
+        Euler(block_size=4),
+        t1=0.9,
+        dt=0.1,
+        observe=(observation, monitor),
+    )
+    expected = monitor(raw)
+
+    assert jnp.allclose(actual.ys, expected.ys)
+    assert jnp.allclose(actual.ts, expected.ts)
+    assert actual.variable_names == ("activity",)
+
+
+def test_joint_observation_composes_after_heterogeneous_readout():
+    observation = _observe_y()
+    monitor = JointObservation(
+        preprocess=TemporalAverage(period=0.2),
+        outputs={
+            "averaged": Identity(),
+            "coarse": SubSampling(period=0.4),
+        },
+    )
+    projected = solve(
+        _network(), Euler(block_size=4), t1=0.9, dt=0.1, observe=observation
+    )
+    expected = monitor(projected)
+    actual = solve(
+        _network(),
+        Euler(block_size=4),
+        t1=0.9,
+        dt=0.1,
+        observe=(observation, monitor),
+    )
+
+    assert set(actual) == {"averaged", "coarse"}
+    for name in actual:
+        assert jnp.allclose(actual[name].ys, expected[name].ys)
+        assert jnp.allclose(actual[name].ts, expected[name].ts)
+        assert actual[name].variable_names == ("activity",)
+
+
+@pytest.mark.parametrize("injected", [False, True])
+def test_heterogeneous_joint_matches_same_generated_or_injected_noise(injected):
+    observation = _observe_y()
+    monitor = JointObservation(
+        preprocess=TemporalAverage(period=0.2),
+        outputs={
+            "averaged": Identity(),
+            "coarse": SubSampling(period=0.4),
+        },
+    )
+    kwargs = dict(t1=0.8, dt=0.1)
+    projected_fn, projected_config = prepare(
+        _network(noise=True),
+        Euler(block_size=4),
+        observe=observation,
+        **kwargs,
+    )
+    joint_fn, joint_config = prepare(
+        _network(noise=True),
+        Euler(block_size=4),
+        observe=(observation, monitor),
+        **kwargs,
+    )
+    if injected:
+        samples = jax.random.normal(jax.random.key(11), (8, 2, 2))
+        projected_config._internal.noise_samples.a = samples
+        joint_config._internal.noise_samples.a = samples
+
+    expected = monitor(projected_fn(projected_config))
+    actual = joint_fn(joint_config)
+    for name in actual:
+        assert jnp.array_equal(actual[name].ys, expected[name].ys)
+        assert jnp.array_equal(actual[name].ts, expected[name].ts)
+
+
+@pytest.mark.parametrize("inject_noise", [False, True])
+def test_heterogeneous_temporal_monitor_matches_posthoc_with_noise(inject_noise):
+    observation = _observe_y()
+    monitor = SubSampling(period=0.2)
+    kwargs = dict(t1=0.8, dt=0.1)
+    projected_fn, projected_config = prepare(
+        _network(noise=True), Euler(block_size=4), observe=observation, **kwargs
+    )
+    observed_fn, observed_config = prepare(
+        _network(noise=True),
+        Euler(block_size=4),
+        observe=(observation, monitor),
+        **kwargs,
+    )
+    if inject_noise:
+        samples = jax.random.normal(jax.random.key(11), (8, 2, 2))
+        projected_config._internal.noise_samples.a = samples
+        observed_config._internal.noise_samples.a = samples
+
+    expected = monitor(projected_fn(projected_config))
+    actual = observed_fn(observed_config)
+    assert jnp.array_equal(actual.ys, expected.ys)
+    assert jnp.array_equal(actual.ts, expected.ts)
+
+
+def test_temporal_monitor_selects_common_readout_channels_by_name_order():
+    observation = GroupObservation(
+        {"a": ("y", "sum"), "b": ("y", "sum")},
+        channels=("activity", "total"),
+    )
+    monitor = SubSampling(period=0.2, voi=1)
+    projected = solve(
+        _network(), Euler(block_size=4), t1=0.8, dt=0.1, observe=observation
+    )
+    actual = solve(
+        _network(),
+        Euler(block_size=4),
+        t1=0.8,
+        dt=0.1,
+        observe=(observation, monitor),
+    )
+
+    assert jnp.array_equal(actual.ys, monitor(projected).ys)
+    assert actual.variable_names == ("total",)
+
+
+def test_heterogeneous_temporal_observe_validates_tuple_roles():
+    observation = _observe_y()
+    monitor = SubSampling(period=0.2)
+
+    with pytest.raises(TypeError, match="GroupObservation, temporal_monitor"):
+        prepare(_network(), Euler(block_size=2), observe=(observation,))
+    with pytest.raises(TypeError, match="first.*GroupObservation"):
+        prepare(_network(), Euler(block_size=2), observe=(monitor, observation))
+    with pytest.raises(TypeError, match="second.*temporal monitor"):
+        prepare(_network(), Euler(block_size=2), observe=(observation, None))
+    with pytest.raises(TypeError, match="Heterogeneous observe must"):
+        prepare(_network(), Euler(block_size=2), observe=monitor)
+    with pytest.raises(TypeError, match="has no streaming preparation method"):
+        prepare(
+            _network(),
+            Euler(block_size=2),
+            observe=(observation, object()),
+        )
+    with pytest.raises(ValueError, match="cannot be combined"):
+        prepare(
+            _network(),
+            Euler(block_size=2),
+            observe=(observation, monitor),
+            reduce=welford_cov(),
+        )
+
+
+def test_temporal_monitor_requires_coverage_unless_fill_is_explicitly_allowed():
+    partial = GroupObservation({"a": "y"}, channels=("activity",))
+    monitor = SubSampling(period=0.2)
+    with pytest.raises(ValueError, match=r"temporal monitor.*uncovered nodes"):
+        prepare(
+            _network(),
+            Euler(block_size=2),
+            observe=(partial, monitor),
+        )
+
+    allowed = GroupObservation(
+        {"a": "y"},
+        channels=("activity",),
+        fill_value=-7.0,
+        allow_partial_coverage=True,
+    )
+    result = solve(
+        _network(),
+        Euler(block_size=2),
+        t1=0.4,
+        dt=0.1,
+        observe=(allowed, monitor),
+    )
+    assert jnp.all(result.ys[:, 0, jnp.array([1, 3])] == -7.0)
+
+
+def _scaled_observation(**kwargs):
+    def scaled(voi, params):
+        return params.gain * voi[0:1]
+
+    return GroupObservation(
+        {"a": scaled, "b": scaled},
+        params={"a": Bunch(gain=1.0), "b": Bunch(gain=1.0)},
+        channels=("activity",),
+        **kwargs,
+    )
+
+
+def _identity_hrf(*, k_1=1.0):
+    return HRFBold(
+        k_1=k_1,
+        V_0=1.0,
+        period=0.2,
+        downsample_period=0.1,
+        voi=0,
+        kernel=CurrentSampleHRFKernel(),
+    )
+
+
+def test_heterogeneous_network_readout_and_monitor_gradients_match_posthoc():
+    observation = _scaled_observation()
+    monitor = _identity_hrf()
+    kwargs = dict(t1=0.8, dt=0.1)
+    projected_fn, projected_config = prepare(
+        _network(), Euler(block_size=2), observe=observation, **kwargs
+    )
+    observed_fn, observed_config = prepare(
+        _network(),
+        Euler(block_size=2),
+        observe=(observation, monitor),
+        **kwargs,
+    )
+
+    def posthoc_loss(rate, gain, scaling):
+        current = projected_config.copy()
+        current.groups.a.dynamics.rate = rate
+        current.observation.a.gain = gain
+        return jnp.sum(_identity_hrf(k_1=scaling)(projected_fn(current)).ys ** 2)
+
+    def observed_loss(rate, gain, scaling):
+        current = observed_config.copy()
+        current.groups.a.dynamics.rate = rate
+        current.observation.a.gain = gain
+        current.monitor.k_1 = scaling
+        return jnp.sum(observed_fn(current).ys ** 2)
+
+    arguments = (jnp.array(0.25), jnp.array(1.2), jnp.array(0.8))
+    expected = jax.value_and_grad(posthoc_loss, argnums=(0, 1, 2))(*arguments)
+    actual = jax.value_and_grad(observed_loss, argnums=(0, 1, 2))(*arguments)
+    assert jnp.allclose(actual[0], expected[0])
+    assert all(
+        jnp.allclose(actual_grad, expected_grad)
+        for actual_grad, expected_grad in zip(actual[1], expected[1])
+    )
+
+
+def test_heterogeneous_temporal_parameter_namespaces_partition_independently():
+    model, config = prepare(
+        _network(),
+        Euler(block_size=2),
+        t1=0.8,
+        dt=0.1,
+        observe=(_scaled_observation(), _identity_hrf()),
+    )
+    config.groups.a.dynamics.rate = Parameter(config.groups.a.dynamics.rate)
+    config.observation.a.gain = Parameter(config.observation.a.gain)
+    config.monitor.k_1 = Parameter(config.monitor.k_1)
+    parameters, fixed = partition_state(config)
+
+    gradients = jax.grad(
+        lambda current: jnp.sum(model(combine_state(current, fixed)).ys ** 2)
+    )(parameters)
+
+    assert jnp.isfinite(gradients.groups.a.dynamics.rate.value)
+    assert jnp.isfinite(gradients.observation.a.gain.value)
+    assert jnp.isfinite(gradients.monitor.k_1.value)
+    assert gradients.groups.a.dynamics.rate.value != 0.0
+    assert gradients.observation.a.gain.value != 0.0
+    assert gradients.monitor.k_1.value != 0.0
+
+
+def test_heterogeneous_readout_and_monitor_params_work_with_space():
+    model, config = prepare(
+        _network(),
+        Euler(block_size=2),
+        t1=0.4,
+        dt=0.1,
+        observe=(_scaled_observation(), _identity_hrf()),
+    )
+    swept = config.copy()
+    case = "case"
+    swept.observation.a.gain = DataAxis(jnp.array([0.5, 1.5]), group=case)
+    swept.monitor.k_1 = DataAxis(jnp.array([0.8, 1.2]), group=case)
+    execution = ParallelExecution(
+        lambda current: model(current).ys[-1, 0, 0],
+        Space(swept, mode="zip"),
+        n_vmap=2,
+        n_pmap=1,
+    )
+    values = jnp.asarray(execution.run())
+
+    expected = []
+    for gain, scaling in zip((0.5, 1.5), (0.8, 1.2)):
+        current = config.copy()
+        current.observation.a.gain = gain
+        current.monitor.k_1 = scaling
+        expected.append(model(current).ys[-1, 0, 0])
+    assert jnp.allclose(values, jnp.asarray(expected))
+
+
+def test_heterogeneous_temporal_jaxpr_has_only_block_sized_common_signal():
+    model, config = prepare(
+        _network(),
+        Euler(block_size=2),
+        t1=0.8,
+        dt=0.1,
+        observe=(_observe_y(), SubSampling(period=0.2)),
+    )
+    shapes = _jaxpr_shapes(jax.make_jaxpr(model)(config))
+
+    assert (8, 1, 4) not in shapes
+    assert (2, 1, 4) in shapes
+    assert model(config).ys.shape == (4, 1, 4)
+
+
+NAMED_SLOT_MONITORS = {
+    "hrf": _identity_hrf,
+    "joint": lambda: JointObservation(
+        preprocess=TemporalAverage(period=0.2),
+        outputs={"low": LowPass(period=0.4, tau=0.3), "raw": Identity()},
+    ),
+}
+
+
+@pytest.mark.parametrize("noise", [False, True])
+@pytest.mark.parametrize("name", NAMED_SLOT_MONITORS)
+def test_named_monitor_slot_matches_tuple_form(name, noise):
+    build = NAMED_SLOT_MONITORS[name]
+    kwargs = dict(t1=0.8, dt=0.1)
+    tuple_fn, tuple_config = prepare(
+        _network(noise=noise),
+        Euler(block_size=4),
+        observe=(_scaled_observation(), build()),
+        **kwargs,
+    )
+    slot_fn, slot_config = prepare(
+        _network(noise=noise),
+        Euler(block_size=4),
+        observe=_scaled_observation(monitor=build()),
+        **kwargs,
+    )
+    assert slot_config.monitor == tuple_config.monitor
+    assert slot_config.observation == tuple_config.observation
+
+    def loss(model, config, monitor, gain):
+        current = config.copy()
+        current.monitor = monitor
+        current.observation.a.gain = gain
+        result = model(current)
+        results = result.values() if isinstance(result, dict) else (result,)
+        return sum(jnp.sum(item.ys**2) for item in results), result
+
+    arguments = (tuple_config.monitor, jnp.array(1.2))
+    grad = jax.grad(loss, argnums=(2, 3), has_aux=True)
+    expected_grads, expected = grad(tuple_fn, tuple_config, *arguments)
+    actual_grads, actual = grad(slot_fn, slot_config, *arguments)
+    for left, right in zip(
+        jax.tree.leaves(actual_grads), jax.tree.leaves(expected_grads)
+    ):
+        assert jnp.allclose(left, right)
+    assert jax.tree.structure(actual) == jax.tree.structure(expected)
+    for left, right in zip(jax.tree.leaves(actual), jax.tree.leaves(expected)):
+        assert jnp.array_equal(left, right)
+    if isinstance(actual, dict):
+        for key in actual:
+            assert actual[key].variable_names == expected[key].variable_names
+            assert actual[key].dt == expected[key].dt
+    else:
+        assert actual.variable_names == expected.variable_names
+        assert actual.dt == expected.dt
+
+
+def test_named_monitor_slot_keeps_partial_coverage_rule():
+    monitor = SubSampling(period=0.2)
+    partial = GroupObservation({"a": "y"}, channels=("activity",), monitor=monitor)
+    with pytest.raises(ValueError, match=r"temporal monitor.*uncovered nodes"):
+        prepare(_network(), Euler(block_size=2), observe=partial)
+
+    allowed = GroupObservation(
+        {"a": "y"},
+        channels=("activity",),
+        fill_value=-7.0,
+        allow_partial_coverage=True,
+        monitor=monitor,
+    )
+    result = solve(_network(), Euler(block_size=2), t1=0.4, dt=0.1, observe=allowed)
+    assert jnp.all(result.ys[:, 0, jnp.array([1, 3])] == -7.0)
+
+
+def test_named_monitor_slot_rejects_ambiguous_or_missing_readout():
+    monitor = SubSampling(period=0.2)
+    with pytest.raises(ValueError, match="specified twice"):
+        prepare(
+            _network(),
+            Euler(block_size=2),
+            observe=(_observe_y(monitor=monitor), monitor),
+        )
+    with pytest.raises(TypeError, match=r"GroupObservation\(.*monitor=monitor\)"):
+        prepare(_network(), Euler(block_size=2), observe=monitor)
+    with pytest.raises(TypeError, match="must be a temporal monitor"):
+        _observe_y(monitor=_observe_y())
