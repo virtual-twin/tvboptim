@@ -99,6 +99,10 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Clarified block-size-dependent stochastic noise, executor compilation reuse,
+  and the current history/callback limits of batched multi-start optimization
+  in the documentation and bundled agent skill.
+
 - Coupling state selectors are now named `source=` and `local=`. The previous
   `incoming_states=` and `local_states=` spellings became misleading once a
   route, rather than the coupling, owns signal selection.
@@ -139,6 +143,8 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - HRF valid convolution now chooses between direct endpoint evaluation for
   sparse output and FFT convolution for dense output, avoiding the dense-grid
   slowdown while retaining the low-workspace sparse path.
+- Dense graph parameters retain their attribute names in `Space.to_dataframe()`
+  columns, such as `graph.speed` instead of `graph.2`.
 - **`DataInput` runs under `jit`.** Its interpolation kind was a string in `params`, which `prepare()` copies into the jitted config. It is now the attribute `DataInput.interpolation`.
 - **`DataInput` parameters are now live on the prepared config.** `prepare()`
   built a diffrax interpolator from `times` and `data` and closed it over the

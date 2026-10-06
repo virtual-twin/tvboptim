@@ -196,6 +196,121 @@ p_opt, _ = opt.run(p_custom, max_steps=1000)
 print("Optimized parameter:", p_opt)
 print("Smaller than 1:", p_opt < 1.0)
 ```
+## Batched fitting: starts, seeds, and observations
+
+`Space` controls **which values vary between fits**. `Parameter` controls **which
+values the optimizer updates within each fit**. These are independent choices:
+
+| Role of a value | Representation | Behavior |
+| --- | --- | --- |
+| Optimize from a different start in each fit | `DataAxis(starts, wrap=Parameter)` | Each lane receives its own optimizable parameter |
+| Optimize from the same start in every fit | `Parameter(start)` | Each lane starts at the same value and optimizes independently |
+| Vary seeds, observations, or fixed coefficients between fits | `DataAxis(values)` | Each lane receives a value that the optimizer does not update |
+| Keep a coefficient or dataset fixed in every fit | Plain scalar or array | Every lane uses the same value without optimizing it |
+
+Use `wrap=Parameter` only for an axis whose selected value should be optimized.
+Seeds and observations need no wrapper. A parameter with a common start is still
+updated independently in each fit; it is not one shared parameter fitted jointly
+across the batch. To hold a model coefficient fixed throughout fitting, leave it
+as a plain value.
+
+For forward simulations with all model coefficients fixed, map the simulation
+function directly instead of calling `OptaxOptimizer`. To fit one common parameter
+set against several datasets jointly, combine their losses in one optimizer run
+instead of mapping independent optimizers.
+
+### Vary seeds with common parameter starts
+
+This small example fits a line to observations. The model includes additive
+noise so different keys produce different fits. Each fit reuses its key at every
+loss evaluation, keeping its random forcing fixed during optimization.
+
+```python
+import jax
+import jax.numpy as jnp
+import optax
+
+from tvboptim.execution import ParallelExecution
+from tvboptim.optim import OptaxOptimizer
+from tvboptim.types import Parameter, collect_parameters
+from tvboptim.types.spaces import DataAxis, Space
+
+n_fits = 8
+inputs = jnp.linspace(-1.0, 1.0, 16)
+observed = 3.0 * inputs + 1.0
+keys = jax.random.split(jax.random.key(0), n_fits)
+
+
+def fit_one(state):
+    def loss(s):
+        noise = s["noise_scale"] * jax.random.normal(s["key"], s["inputs"].shape)
+        prediction = s["slope"] * s["inputs"] + s["intercept"] + noise
+        return jnp.mean((prediction - s["observed"]) ** 2)
+
+    fitted, _ = OptaxOptimizer(loss, optax.adam(0.1)).run(
+        state, max_steps=300, chunk_size=300
+    )
+    values = collect_parameters(fitted)
+    return {"slope": values["slope"], "intercept": values["intercept"]}
+
+
+common = {
+    "slope": Parameter(0.0),       # Same start, independently optimized per fit
+    "intercept": Parameter(0.0),   # Same start, independently optimized per fit
+    "inputs": inputs,             # Shared fixed input array
+    "observed": observed,         # Shared fixed observations
+    "noise_scale": 0.01,           # Fixed model coefficient
+    "key": jax.random.key(0),
+}
+seed_space = Space({**common, "key": DataAxis(keys)}, mode="zip")
+results = ParallelExecution(
+    fit_one, seed_space, n_pmap=jax.local_device_count(), n_vmap=2
+).run()
+# Eight independent fits with different noise keys; slope ~3 and intercept ~1.
+```
+
+No axis in this example needs `wrap`: only the keys are batched, while the
+optimizable parameters already have `Parameter` markers. If the intercept should
+remain fixed, use `"intercept": 1.0` instead of `Parameter(0.0)`.
+
+Set `chunk_size` explicitly when batching only seeds or observations. The current
+automatic scan selection checks optimized leaves; common starts can otherwise
+leave the Python step loop unrolled during compilation. `chunk_size=300` above
+keeps all 300 steps in one scan for every case.
+
+### Vary observations or combine them with different starts
+
+An observation axis selects one whole dataset per fit. For an array with shape
+`(n_fits, n_samples)`, each fit receives an array with shape `(n_samples,)`.
+
+```python
+observations = jnp.stack([
+    slope * inputs + 1.0 for slope in jnp.linspace(2.0, 4.0, n_fits)
+])
+
+# Different datasets, common parameter starts and one common noise key.
+observation_space = Space(
+    {**common, "observed": DataAxis(observations)}, mode="zip"
+)
+
+# Pair each dataset with a start and a noise key. Only the slope axis needs wrap.
+mixed_space = Space(
+    {
+        **common,
+        "slope": DataAxis(jnp.linspace(-5.0, 5.0, n_fits), wrap=Parameter),
+        "observed": DataAxis(observations),
+        "key": DataAxis(keys),
+        "intercept": 1.0,  # Fixed throughout every fit
+    },
+    mode="zip",
+)
+# Run either space with ParallelExecution(fit_one, space, ...).run().
+```
+
+`mode="zip"` pairs matching entries: dataset 0, start 0, and key 0 form one fit.
+Use `mode="product"` to fit every combination instead. `n_pmap` selects the
+number of devices and `n_vmap` controls the batch width within each device.
+
 # A Simple Example
 
 As a simple example we use parameters to find a fixed point of the reduced Wong-Wang model: parameter values where the neural activity reaches equilibrium.

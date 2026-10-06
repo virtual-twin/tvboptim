@@ -6,7 +6,7 @@ from typing import Optional, Sequence
 
 import jax
 import jax.numpy as jnp
-from jax.tree_util import register_pytree_node_class
+from jax.tree_util import GetAttrKey, register_pytree_with_keys_class
 
 
 def effective_max_delay(graph) -> float:
@@ -152,7 +152,7 @@ class AbstractGraph(ABC):
         )
 
 
-@register_pytree_node_class
+@register_pytree_with_keys_class
 class DenseGraph(AbstractGraph):
     """Dense graph representation.
 
@@ -408,6 +408,10 @@ class DenseGraph(AbstractGraph):
         )  # Static metadata
         return children, aux_data
 
+    def tree_flatten_with_keys(self):
+        children, aux_data = self.tree_flatten()
+        return ((GetAttrKey("weights"), children[0]),), aux_data
+
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         """Reconstruct Graph from PyTree data."""
@@ -489,7 +493,7 @@ class DenseGraph(AbstractGraph):
         return fig, (ax1, ax2)
 
 
-@register_pytree_node_class
+@register_pytree_with_keys_class
 class DenseDelayGraph(DenseGraph):
     """Dense graph with transmission delays.
 
@@ -853,6 +857,13 @@ class DenseDelayGraph(DenseGraph):
         )  # Static metadata
         return children, aux_data
 
+    def tree_flatten_with_keys(self):
+        children, aux_data = self.tree_flatten()
+        names = ("weights", "delays")
+        return tuple(
+            (GetAttrKey(name), child) for name, child in zip(names, children)
+        ), aux_data
+
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         """Reconstruct DenseDelayGraph from PyTree data."""
@@ -868,7 +879,7 @@ class DenseDelayGraph(DenseGraph):
         return obj
 
 
-@register_pytree_node_class
+@register_pytree_with_keys_class
 class DenseLengthGraph(DenseDelayGraph):
     """Dense delay graph whose delays are derived from tract lengths and speed.
 
@@ -1083,6 +1094,13 @@ class DenseLengthGraph(DenseDelayGraph):
             self._max_delay_bound,
         )
         return children, aux_data
+
+    def tree_flatten_with_keys(self):
+        children, aux_data = self.tree_flatten()
+        names = ("weights", "lengths", "speed")
+        return tuple(
+            (GetAttrKey(name), child) for name, child in zip(names, children)
+        ), aux_data
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):

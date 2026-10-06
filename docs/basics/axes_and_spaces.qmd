@@ -727,6 +727,10 @@ plt.show()
 
 Parallel execution uses JAX's `pmap` and `vmap` for vectorized computation across multiple devices. With large parameter spaces, this is where the runtime difference becomes significant.
 
+Creating a new `ParallelExecution` instance can trigger compilation again.
+Repeated calls on the same instance reuse compilation, so prefer one space
+when memory permits.
+
 ```{python}
 par_state = copy.deepcopy(base_cfg)
 par_state.coupling.instant.G = GridAxis(0.1, 1.0, 8)
@@ -821,7 +825,9 @@ Built-in parameter types with strict input domains validate generated axis
 values before mapped execution begins.
 
 ::: {.callout-tip}
-`OptaxOptimizer.run` detects tracing and represents its step loop with `lax.scan`, avoiding graph unrolling with `max_steps` inside `ParallelExecution`. Per-step callbacks are unavailable under tracing; see [Parameters and Optimization](parameters_and_optimization.qmd).
+Use `chunk_size=max_steps` when calling `OptaxOptimizer.run` inside
+`ParallelExecution` to keep the step loop in a `lax.scan`. See
+[Batched fitting](parameters_and_optimization.qmd#batched-fitting-starts-seeds-and-observations).
 :::
 
 ## Performance Comparison

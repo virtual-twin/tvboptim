@@ -95,6 +95,14 @@ results = execution.run()
 
 Set `XLA_FLAGS=--xla_force_host_platform_device_count=N` before importing JAX only when deliberately testing multi-device CPU execution. Do not change global device configuration inside reusable library code or after JAX initialization.
 
+Each `ParallelExecution` instance creates a new mapped closure and can retrace
+and recompile even for the same model and shapes. Repeated calls on one instance
+reuse compilation. Prefer one larger `Space` when memory permits; measure cold
+and warm execution separately before scaling chunked sweeps. There is currently
+no public `run(space=...)` API. Swapping only `diff_state` is a private workaround
+that retains the original static state, wrappers, and result-space metadata;
+do not present it as a general chunking interface.
+
 When varying noise realizations, vary `config.noise.key` with a stochastic/data axis or a JAX tree update. Do not invent an integrator noise path.
 
 ## Mark and constrain parameters
@@ -154,7 +162,39 @@ Callbacks control printing, saving, stopping, and fitting data. `chunk_size` fus
 
 Optimizing a state with no `Parameter` leaves raises: there would be nothing to differentiate, and the run would return its starting state looking like convergence. If the state came from a `Space`, the axis is missing a `wrap=`.
 
-Running the optimizer inside a traced call, such as a `ParallelExecution` model, compiles the step loop as one `lax.scan` so memory does not scale with `max_steps`. Do not reach for `n_vmap` to fix step-count memory; it controls batch width. Callbacks cannot run under a trace and raise, since they would fire once at trace time on tracers.
+Running the optimizer inside a traced call, such as a `ParallelExecution` model,
+defaults to one `lax.scan`, avoiding Python-loop unrolling with `max_steps`.
+Do not reach for `n_vmap` to fix step-count memory; it controls batch width.
+Callbacks cannot run under a trace and raise, since they would fire once at trace
+time on tracers. Without a callback, `fitting_data` is empty. There are currently
+no `record=` or `accept=` arguments.
+
+For independent batched fits, distinguish batching from optimization:
+
+- Different optimized starts: `DataAxis(starts, wrap=Parameter)`.
+- Common optimized start: `Parameter(start)`, independently updated in each fit.
+- Varying seeds, observations, or frozen coefficients: `DataAxis(values)` without wrap.
+- Values frozen in every fit: plain scalars or arrays, without parameter markers.
+
+An observation array `(n_fits, *observation_shape)` supplies one whole
+`observation_shape` array per fit. `mode="zip"` pairs starts/seeds/datasets;
+`mode="product"` enumerates combinations. Call `OptaxOptimizer.run` inside the
+mapped model and return final values using `collect_parameters`. Common starts
+do not imply parameters shared across fits. To optimize one parameter set jointly
+against multiple observations, aggregate their losses inside one optimizer run.
+For forward simulations with all coefficients fixed, map the simulation directly.
+
+When only seeds or observations are mapped, common initial parameter leaves may
+not be tracers at the optimizer's entry. Its scan autodetection currently checks
+only those leaves. Pass `chunk_size=max_steps` explicitly for these batched fits
+to avoid step-loop unrolling; do not attach Python callbacks inside the map.
+
+Use this path when final results suffice. When per-step history is required,
+use untraced runs with a recording callback and `chunk_size=None`, or a custom
+pure `lax.scan` emitting selected arrays. Recording losses, gradients, and aux
+should use the corresponding pre-update parameters; the existing callback sees
+updated parameters with pre-update loss, aux, and gradients. A custom rejection
+policy must preserve both parameters and optimizer state on a rejected step.
 
 For long or chaotic simulations, `block_size` addresses activation memory and `grad_horizon` truncates temporal credit assignment. A finite, faster gradient is not automatically a scientifically acceptable gradient; compare with finite differences or a trusted short-horizon reference where feasible.
 

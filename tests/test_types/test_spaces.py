@@ -13,7 +13,18 @@ import unittest
 import jax
 import jax.numpy as jnp
 
-from tvboptim.types.spaces import DataAxis, GridAxis, Space, UniformAxis
+from tvboptim.experimental.network_dynamics.graph import (
+    DenseDelayGraph,
+    DenseGraph,
+    DenseLengthGraph,
+)
+from tvboptim.types.spaces import (
+    DataAxis,
+    GridAxis,
+    Space,
+    UniformAxis,
+    _keypath_to_name,
+)
 
 # NumPyro tests only if available
 try:
@@ -503,6 +514,48 @@ class TestSpaceToDataFrame(unittest.TestCase):
 
         self.assertIn("model.G", df.columns)
         self.assertIn("noise.sigma", df.columns)
+
+    def test_dense_graph_parameters_keep_public_attribute_names(self):
+        weights = jnp.array([[0.0, 1.0], [1.0, 0.0]])
+        cases = (
+            (lambda: DenseGraph(weights), ("weights",)),
+            (lambda: DenseDelayGraph(weights, weights), ("weights", "delays")),
+            (
+                lambda: DenseLengthGraph(weights, weights, 1.0, max_delay_bound=20.0),
+                ("weights", "lengths", "speed"),
+            ),
+        )
+        for make_graph, names in cases:
+            graph = make_graph()
+            paths, _ = jax.tree_util.tree_flatten_with_path({"graph": graph})
+            self.assertEqual(
+                [jax.tree_util.keystr(path) for path, _ in paths],
+                [f"['graph'].{name}" for name in names],
+            )
+            for name in names:
+                with self.subTest(graph=type(graph).__name__, parameter=name):
+                    swept = make_graph()
+                    shape = jnp.shape(getattr(swept, name))
+                    setattr(swept, name, GridAxis(1.0, 5.0, 2, shape=shape))
+                    space = Space({"graph": swept})
+                    frame = space.to_dataframe()
+                    self.assertEqual(frame.columns.tolist(), [f"graph.{name}"])
+                    self.assertTrue(jnp.all(jnp.asarray(frame.iloc[1, 0]) == 5.0))
+                    self.assertTrue(jnp.all(getattr(space[1]["graph"], name) == 5.0))
+
+    def test_flattened_indices_are_distinct_from_dictionary_keys(self):
+        self.assertEqual(
+            _keypath_to_name(
+                (jax.tree_util.DictKey("custom"), jax.tree_util.FlattenedIndexKey(2))
+            ),
+            "custom[2]",
+        )
+        self.assertEqual(
+            _keypath_to_name(
+                (jax.tree_util.DictKey("custom"), jax.tree_util.DictKey(2))
+            ),
+            "custom.2",
+        )
 
     def test_fixed_values_not_included(self):
         """Fixed (non-axis) values do not appear as columns — only axis params do."""

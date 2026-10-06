@@ -159,6 +159,15 @@ Treat these as separate controls:
 - `Heun(grad_horizon=W)` applies truncated backpropagation through time. The forward trajectory is unchanged, but gradients no longer cross window boundaries.
 - `block_size` controls memory granularity; `grad_horizon` controls scientific credit-assignment horizon. Do not equate them.
 
+With default streaming noise, changing `block_size` changes the realization even
+with the same key, including in forward-only blocked runs. For common-random-number
+comparisons, keep both key and block size fixed while varying `grad_horizon`;
+choose a block size dividing every compared horizon. Non-multiple horizons are
+rounded with a warning. Forward invariance assumes fixed noise. If comparing
+different block sizes is necessary, one identical injected full tensor via
+`config._internal.noise_samples` preserves noise, but costs full-tensor memory
+and relies on an experimental internal path.
+
 For delayed networks, prefer `roll` or `circular` history buffers when bounding memory. The `preallocated` strategy grows with the simulation length and can dominate any checkpointing benefit.
 
 The temporary `reduce=` API and its reducer factories are deprecated in 0.5.0

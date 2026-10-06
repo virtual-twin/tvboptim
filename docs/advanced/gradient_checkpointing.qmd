@@ -66,7 +66,9 @@ Forward time is unchanged, and memory is minimised near `K ≈ √n_steps`.
 execution. Two consequences matter here:
 
 - On a **stochastic** network it also switches noise to per-block generation, which
-  reseeds the realization. To keep a clean checkpointing benchmark (common random
+  reseeds the realization relative to the monolithic path **and when changing
+  block size**, even with the same key. This also affects forward-only blocked
+  runs. To keep a clean checkpointing benchmark (common random
   numbers, bit-exact across `block_size`), we inject one fixed noise tensor so the
   block path uses it verbatim. Prepared-observation memory is a separate axis;
   see [Prepared Observations for Long Simulations](streaming_reductions.qmd).
@@ -79,7 +81,7 @@ execution. Two consequences matter here:
   `RecursiveCheckpointAdjoint`, which does not support delays.
 - **No effect when `block_size is None`.** The default falls through to the
   original `jax.lax.scan` and is bit-exact with prior versions.
-- **Forward is unaffected.** Forward sims never retain step activations;
+- **Forward activation memory is unaffected.** Forward sims never retain step activations;
   checkpointing only matters for gradients.
 - **SDE noise is held fixed here.** A fixed noise tensor is injected so every
   config integrates the same path and the checkpointed gradient stays bit-exact.

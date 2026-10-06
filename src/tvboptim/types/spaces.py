@@ -62,7 +62,9 @@ def _keypath_to_name(keypath):
     """
     parts = []
     for key in keypath:
-        if hasattr(key, "key"):  # DictKey
+        if isinstance(key, jax.tree_util.FlattenedIndexKey):
+            parts.append(f"[{key.key}]")
+        elif hasattr(key, "key"):  # DictKey
             parts.append(f".{key.key}")
         elif hasattr(key, "idx"):  # SequenceKey
             parts.append(f"[{key.idx}]")

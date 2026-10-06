@@ -177,9 +177,24 @@ class OptaxOptimizer:
         XLA reuses buffers across sequential scans, but compile time still
         grows with ``max_steps / chunk_size``.
 
+        Detection checks differentiable leaves. When mapping only seeds or
+        observations with common parameter starts, pass ``chunk_size`` explicitly
+        to avoid Python-loop unrolling during compilation.
+
         A callback cannot work under a trace -- it would fire once, at trace
         time, on tracers rather than per step on values -- so registering one
         and tracing this call raises.
+
+        Without a callback, ``fitting_data`` is empty, including under a trace.
+        The scan emits no per-step history. For independent batched fits, use
+        ``wrap=Parameter`` only on axes selecting optimizable starting values.
+        Common starts use ordinary ``Parameter`` markers; seeds, observations,
+        and fixed coefficients remain unwrapped. Return constrained final
+        values from the mapped model. If every step must be recorded, use an
+        untraced run with a recording callback and ``chunk_size=None``, or a
+        custom pure ``lax.scan`` that emits the required history. No ``record=`` or
+        ``accept=`` argument is currently supported. Loss, aux, and gradients
+        are evaluated before the update; callbacks receive updated parameters.
         """
         if chunk_size is not None and chunk_size < 1:
             raise ValueError(f"chunk_size must be >= 1, got {chunk_size}")

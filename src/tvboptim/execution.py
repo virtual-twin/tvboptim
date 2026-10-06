@@ -212,6 +212,10 @@ class ParallelExecution(Execution):
       os.environ['XLA_FLAGS'] = f'--xla_force_host_platform_device_count={N}'
     - Tune n_vmap based on memory constraints and model complexity
 
+    Creating a new instance can trigger compilation again. Repeated calls on
+    the same instance with unchanged shapes reuse compilation, so prefer one
+    Space when memory permits.
+
     The execution uses jax.block_until_ready() to ensure all computation completes
     before returning results, providing accurate timing measurements.
     """

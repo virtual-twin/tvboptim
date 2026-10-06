@@ -120,8 +120,9 @@ class NativeSolver(AbstractSolver):
                 Peak memory is U-shaped in ``K``: small ``K`` inflates the
                 outer block-boundary tape (``n_steps/K`` term), large ``K``
                 inflates the per-block inner tape (``K`` term). The minimum
-                sits near ``K = sqrt(n_steps)``. Has no effect on the
-                forward-only path.
+                sits near ``K = sqrt(n_steps)``. Forward-only execution has no
+                backward activation tape, but blocking can still change
+                its noise realization and observation execution grain.
 
                 This same block is the unit that carries per-block streaming
                 noise, prepared temporal observations, and the temporary online
@@ -129,7 +130,13 @@ class NativeSolver(AbstractSolver):
                 *is* checkpointing; the checkpoint grain is ``block_size``).
                 ``block_size`` was formerly named ``checkpoint_every``; once
                 streaming noise is active a blocked run reseeds the noise
-                relative to the monolithic path (see the Phase 4 plan).
+                relative to the monolithic path and when ``block_size``
+                changes, even with the same key. For common-random-number
+                comparisons, keep the key and block size fixed, choosing
+                a block size that divides every compared gradient horizon.
+                Alternatively, inject one identical full noise tensor via
+                the experimental ``config._internal.noise_samples`` path,
+                which requires storing that tensor.
 
                 The memory model assumes a per-step carry whose size does
                 not grow with ``n_steps``. This holds for the ``roll`` and
@@ -147,7 +154,8 @@ class NativeSolver(AbstractSolver):
                 assigned only within a window, so the backward ``T`` in the
                 ``exp(T·Lambda)`` sensitivity growth becomes ``W·dt`` instead
                 of the full horizon. The forward rollout is unchanged and
-                bit-exact; only the backward pass differs.
+                bit-exact when the noise realization is fixed (including
+                keeping ``block_size`` fixed); only the backward pass differs.
 
                 ``grad_horizon`` and ``block_size`` are independent and
                 nest. ``block_size`` is a *memory* granularity (how big a

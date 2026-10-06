@@ -283,7 +283,8 @@ solver = Heun(block_size=200)  # checkpoint blocks of 200 steps
 formerly named `checkpoint_every`). On a **stochastic** network it also switches
 the noise to per-block generation, which reseeds the realization relative to the
 monolithic single draw; this is intended and lets long SDE runs avoid holding the
-full `O(n_steps)` noise tensor. Forward-only runs are untouched. See
+full `O(n_steps)` noise tensor. Changing `block_size` also changes the noise
+realization, even with the same key, including in forward-only blocked runs. See
 [Gradient Checkpointing](../advanced/gradient_checkpointing.qmd) for the memory
 model and the `K` sweep.
 
@@ -297,6 +298,15 @@ multiple of it so window and block boundaries align:
 solver = Heun(grad_horizon=2000)                  # bounded gradient horizon
 solver = Heun(grad_horizon=2000, block_size=200)  # horizon + bounded memory
 ```
+
+For comparisons using common random numbers, keep the noise key **and block size**
+fixed while varying `grad_horizon`. Choose a block size that divides every horizon
+being compared; incompatible horizons are rounded to a block multiple with a
+warning. The forward-invariance claim assumes the noise realization is fixed.
+If block sizes must differ, an identical injected noise tensor can preserve the
+realization, at the cost of storing the full tensor; see the fixed-noise example
+in [Gradient Checkpointing](../advanced/gradient_checkpointing.qmd). That injection
+uses the experimental `config._internal.noise_samples` path.
 
 See [Truncated Backpropagation](../workflows/TBPTT.qmd).
 
