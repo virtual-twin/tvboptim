@@ -42,7 +42,9 @@ KERNELSPEC = {"display_name": "Python 3", "language": "python", "name": "python3
 
 FRONTMATTER = re.compile(r"\A---\n.*?\n---\n", re.S)
 BUTTON_BLOCK = re.compile(
-    r"\A\s*Try this notebook interactively:.*?(?=^#)", re.S | re.M
+    r"\A\s*Try this notebook interactively:[ \t]*\n(?:[ \t]*\n)*"
+    r"(?:\[(?:Download \.ipynb|Download \.qmd|Open in Colab)\]"
+    r"\([^\n]+\)\{[^\n]*\.btn[^\n]*\}[ \t]*\n(?:[ \t]*\n)*)+"
 )
 
 
