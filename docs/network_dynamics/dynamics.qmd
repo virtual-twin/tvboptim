@@ -111,6 +111,8 @@ class MyDynamics(AbstractDynamics):
 
 **Parameters** (`DEFAULT_PARAMS`): Model-specific constants that can be overridden at instantiation.
 
+**Derived Parameters** (`DERIVED_PARAMS`): Names of values the model computes from its parameters in `derived_params()`. They are recomputed once per solve, so they always track the live parameters, but they cannot be set or fitted directly. See [Derived Parameters](#derived-parameters).
+
 **Coupling Inputs** (`COUPLING_INPUTS`): Declares which named coupling inputs the model expects and their dimensionality. Missing couplings are automatically filled with zeros.
 
 **Variables of Interest** (`VARIABLES_OF_INTEREST`): Controls which variables are saved during simulation:
@@ -364,6 +366,61 @@ plt.show()
 
 The FitzHugh-Nagumo model exhibits classic excitable dynamics: subthreshold perturbations decay back to rest, while suprathreshold perturbations trigger a large-amplitude "spike" - the computational basis of neural coding.
 
+## Derived Parameters
+
+Some models use quantities that are functions of their parameters: products of gains and rates, sample points of a distribution, integrals over mode partitions. Declare their names in `DERIVED_PARAMS` and compute them in `derived_params()`. The framework calls the hook once per solve, before the time loop, and merges the result into the `params` that `dynamics()` receives:
+
+```{python}
+class TimescaleFitzHughNagumo(FitzHughNagumo):
+    """FitzHugh-Nagumo written in terms of a recovery rate."""
+
+    DERIVED_PARAMS = ("eps", "a_eps")
+
+    def derived_params(self, params):
+        eps = 1.0 / params.tau
+        return Bunch(eps=eps, a_eps=params.a * eps)
+
+    def dynamics(self, t, state, params, coupling, external):
+        V, W = state[0], state[1]
+        I_mem = V - (V**3 / 3.0) - W
+        dV_dt = I_mem + params.I + coupling.structural[0]
+        dW_dt = params.eps * V + params.a_eps - params.b * params.eps * W
+        return jnp.array([dV_dt, dW_dt]), jnp.array([I_mem])
+
+fhn_eps = TimescaleFitzHughNagumo()
+fhn_eps.verify(n_nodes=1)
+```
+
+Users of the model set, sweep and fit the primary parameters (`tau` here) as usual. `config.dynamics` holds only primary values, so the derived ones can never go stale, and gradients flow through the hook to the primary parameters. To inspect derived values, or to call `dynamics()` directly, resolve the parameters first:
+
+```{python}
+resolved = fhn_eps.resolve_params(fhn_eps.params)
+print("eps =", resolved.eps, " a_eps =", resolved.a_eps)
+```
+
+`resolve_params()` returns a new `Bunch` and leaves its input untouched; resolve again after changing a primary value.
+
+Rules for the hook:
+
+- Return a `Bunch` with exactly the names in `DERIVED_PARAMS`, and only those. Primary values are merged in by the framework.
+- Keep it pure JAX: read from `params`, not `self.params`, and do not mutate anything. Constants fixed in `__init__` may be read from `self`. One derived value may use another through a local variable.
+- Shapes are the model's responsibility. The hook sees the parameters as they are (scalar, per node, or per group in a heterogeneous network) and should reject shapes it does not support.
+
+Setting a derived value, for example `TimescaleFitzHughNagumo(eps=0.1)` or `config.dynamics.eps = 0.1`, raises an error that names the primary parameters to use instead. If a derived quantity should be free, make it a primary parameter in a subclass:
+
+```{python}
+class FreeRateFitzHughNagumo(TimescaleFitzHughNagumo):
+    DEFAULT_PARAMS = Bunch(eps=0.08)  # eps is now primary
+    DERIVED_PARAMS = ("a_eps",)
+
+    def derived_params(self, params):
+        return Bunch(a_eps=params.a * params.eps)
+```
+
+`DERIVED_PARAMS` follows ordinary inheritance: omit it to inherit, define it to replace (`()` removes all derived values). To extend a parent, add to its tuple and merge `super().derived_params(params)` with the new values. If you want to fit a quantity that is an invertible function of a single parameter without changing the model, see [Fitting a derived quantity](../basics/parameters_and_optimization.qmd#fitting-a-derived-quantity).
+
+Cheap scalar arithmetic like the example above can just as well stay inline in `dynamics()`. The hook pays off for clarity, for parity with models defined that way in TVB, and for expensive derivations (matrices, integrals) under gradients, where computing them once per solve avoids repeating their backward pass at every step.
+
 # Available Dynamics Models
 
 TVB-Optim includes several canonical models from computational neuroscience:
@@ -387,6 +444,7 @@ Dynamics models define the local temporal evolution at each network node:
 - **Built-in models** cover common use cases from chaotic systems to biophysical neural masses
 - **Auxiliary variables** must be explicitly included in `VARIABLES_OF_INTEREST` to be recorded
 - **Custom dynamics** are straightforward to implement by subclassing `AbstractDynamics`
+- **Derived parameters** (`DERIVED_PARAMS` + `derived_params()`) are computed once per solve from the live parameters
 - **Parameter customization** enables model configuration without modifying source code (e.g., adjusting `I` in FitzHugh-Nagumo to control excitability)
 - **Standalone methods** (`verify()`, `simulate()`, `plot()`) enable testing before network integration
 
