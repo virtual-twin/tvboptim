@@ -196,6 +196,30 @@ p_opt, _ = opt.run(p_custom, max_steps=1000)
 print("Optimized parameter:", p_opt)
 print("Smaller than 1:", p_opt < 1.0)
 ```
+
+### Fitting a derived quantity
+
+Sometimes the quantity you want to fit is not the one the model is written in. A model may use a rate `a` while you want to fit the time constant `tau = 1 / a`. Instead of changing the model, wrap `a` in a `TransformedParameter` whose leaf is `tau`. The optimizer updates `tau`, and the model keeps seeing `a`.
+
+```{python}
+# The model uses the rate a, but we want to fit the time constant tau = 1 / a.
+a = TransformedParameter(
+    0.02, forward_transform=lambda tau: 1.0 / tau, inverse_transform=lambda a: 1.0 / a
+)
+print("Stored leaf (tau):", a.value)
+print("Value the model sees (a):", a.constrained_value)
+
+# Fit toward a target rate of 0.04, i.e. tau = 25.
+def rate_loss(a):
+    return (a - 0.04) ** 2
+
+a_opt, _ = OptaxOptimizer(rate_loss, optax.adam(0.5)).run(a, max_steps=200)
+print("Fitted tau:", a_opt.value)
+print("Fitted a:", a_opt.constrained_value)
+```
+
+In a simulation, place it like any other parameter, e.g. `config.dynamics.a = TransformedParameter(...)`. Gradients and optimizer steps then act on `tau`, so choose learning rates in `tau` units. The mapping has to be invertible and depend only on that one parameter. If the derived quantity combines several fitted parameters, express the model in the quantity you want to fit instead.
+
 ## Batched fitting: starts, seeds, and observations
 
 `Space` controls **which values vary between fits**. `Parameter` controls **which
