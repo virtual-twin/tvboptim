@@ -74,6 +74,7 @@ website:
         - reference/tvb.WongWangExcInh.qmd
         - reference/tvb.WilsonCowan.qmd
         - reference/tvb.MontbrioPazoRoxin.qmd
+        - reference/tvb.ReducedSetFitzHughNagumo.qmd
         - reference/tvb.CoombesByrne2D.qmd
         - reference/tvb.LarterBreakspear.qmd
         - reference/tvb.Epileptor.qmd

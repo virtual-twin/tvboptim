@@ -39,6 +39,7 @@ from tvboptim.experimental.network_dynamics.dynamics.tvb import (
     LarterBreakspear,
     Linear,
     MontbrioPazoRoxin,
+    ReducedSetFitzHughNagumo,
     ReducedWongWang,
     SupHopf,
     WilsonCowan,
@@ -49,9 +50,34 @@ from tvboptim.experimental.network_dynamics.noise import AdditiveNoise
 from tvboptim.experimental.network_dynamics.result import NativeSolution
 from tvboptim.experimental.network_dynamics.solvers import Heun
 
+
+class _ModeSum:
+    """Sum the source modes before transport, as TVB sums coupling over modes."""
+
+    def pre(self, states, local_states, params):
+        return states.sum(axis=0, keepdims=True)
+
+
+class ModeSumCoupling(_ModeSum, LinearCoupling):
+    pass
+
+
+class DelayedModeSumCoupling(_ModeSum, DelayedLinearCoupling):
+    pass
+
+
+def _flatten_modes(tvb_array):
+    """TVB ``[time, svar, node, mode]`` to ``[time, svar * mode, node]``."""
+    n_time, n_svar, n_node, n_mode = tvb_array.shape
+    return tvb_array.transpose(0, 1, 3, 2).reshape(n_time, n_svar * n_mode, n_node)
+
+
 # ==============================================================================
 # MODEL REGISTRY
 # ==============================================================================
+# Optional keys: "n_modes" flattens TVB's mode axis into the state axis
+# (state-major, matching e.g. xi1..3, eta1..3); "couplings" overrides the
+# (instant, delayed) coupling classes; "dt" overrides DT for stiff models.
 MODEL_REGISTRY = {
     "Linear": {
         "tvb_class": models.Linear,
@@ -151,6 +177,17 @@ MODEL_REGISTRY = {
         "tvb_cvar": [0],
         "params": {},
     },
+    "ReducedSetFitzHughNagumo": {
+        "tvb_class": models.ReducedSetFitzHughNagumo,
+        "tvboptim_class": ReducedSetFitzHughNagumo,
+        "coupling_var": ("xi1", "xi2", "xi3"),
+        "couplings": (ModeSumCoupling, DelayedModeSumCoupling),
+        "n_modes": 3,
+        "dt": 0.02,  # stiff from TVB's random initial conditions at DT=0.1
+        "state_indices": list(range(12)),
+        "tvb_cvar": [0],
+        "params": {},
+    },
     "Epileptor": {
         "tvb_class": models.Epileptor,
         "tvboptim_class": Epileptor,
@@ -201,6 +238,7 @@ class TestTVBComparison(unittest.TestCase):
         "JansenRit",
         "LarterBreakspear",
         "Epileptor",
+        "ReducedSetFitzHughNagumo",
     ]
 
     def setUp(self):
@@ -249,8 +287,11 @@ class TestTVBComparison(unittest.TestCase):
         )
 
         # 4. Compare results
+        tvb_data = tvb_result["data"]
+        if config.get("n_modes", 1) > 1:
+            tvb_data = _flatten_modes(tvb_data)[..., None]
         comparison_metrics = self._compare_results(
-            tvb_data=tvb_result["data"],
+            tvb_data=tvb_data,
             tvboptim_data=tvboptim_result["data"],
             state_indices=config["state_indices"],
         )
@@ -264,6 +305,7 @@ class TestTVBComparison(unittest.TestCase):
 
     def _run_tvb_simulation(self, config, coupling_config):
         """Run TVB simulation."""
+        dt = config.get("dt", self.DT)
         # Configure connectivity with speed
         conn = connectivity.Connectivity(
             weights=np.array(self.weights),
@@ -273,7 +315,7 @@ class TestTVBComparison(unittest.TestCase):
             speed=np.array([coupling_config["speed"]]),
         )
         conn.configure()
-        conn.set_idelays(self.DT)
+        conn.set_idelays(dt)
 
         # Create model with all state variables as VOI for complete comparison
         model_params = config["params"].copy()
@@ -289,7 +331,7 @@ class TestTVBComparison(unittest.TestCase):
             model=tvb_model,
             connectivity=conn,
             coupling=coupling.Linear(a=np.array([coupling_config["G"]])),
-            integrator=integrators.HeunDeterministic(dt=self.DT),
+            integrator=integrators.HeunDeterministic(dt=dt),
             monitors=[monitors.Raw()],
             simulation_length=self.SIMULATION_LENGTH,
         ).configure()
@@ -301,9 +343,11 @@ class TestTVBComparison(unittest.TestCase):
         )
 
         # Extract ICs for TVB-Optim (already in correct order)
-        initial_conditions_tvboptim = jnp.array(
-            initial_conditions[:, :, :, 0], dtype=jnp.float64
-        )
+        if config.get("n_modes", 1) > 1:
+            ics = _flatten_modes(initial_conditions)
+        else:
+            ics = initial_conditions[:, :, :, 0]
+        initial_conditions_tvboptim = jnp.array(ics, dtype=jnp.float64)
 
         # Set ICs and reconfigure
         sim.initial_conditions = initial_conditions
@@ -323,12 +367,16 @@ class TestTVBComparison(unittest.TestCase):
         self, config, coupling_config, tvb_initial_conditions, tvb_conn
     ):
         """Run TVB-Optim simulation with matching initial conditions from TVB."""
+        dt = config.get("dt", self.DT)
         # Compute delays
         speed = coupling_config["speed"]
+        instant_cls, delayed_cls = config.get(
+            "couplings", (LinearCoupling, DelayedLinearCoupling)
+        )
         if np.isinf(speed):
             # Instant coupling - use DenseGraph
             graph = DenseGraph(self.weights, region_labels=self.region_labels)
-            coupling_obj = LinearCoupling(
+            coupling_obj = instant_cls(
                 source=config["coupling_var"], G=coupling_config["G"]
             )
             coupling_dict = {"instant": coupling_obj}
@@ -339,11 +387,11 @@ class TestTVBComparison(unittest.TestCase):
             graph = DenseDelayGraph(
                 self.weights, delays, region_labels=self.region_labels
             )
-            coupling_obj = DelayedLinearCoupling(
+            coupling_obj = delayed_cls(
                 source=config["coupling_var"], G=coupling_config["G"]
             )
             coupling_dict = {"delayed": coupling_obj}
-            t_offset = float(tvb_conn.horizon * self.DT)
+            t_offset = float(tvb_conn.horizon * dt)
 
         # Create dynamics
         model_params = config["params"].copy()
@@ -361,7 +409,7 @@ class TestTVBComparison(unittest.TestCase):
 
         # Set initial conditions from TVB (already in correct order)
         t_max = tvb_conn.horizon
-        ts_tvb = jnp.arange(0.0, t_max * self.DT, self.DT)
+        ts_tvb = jnp.arange(0.0, t_max * dt, dt)
         network.update_history(
             NativeSolution(
                 ts_tvb,
@@ -376,7 +424,7 @@ class TestTVBComparison(unittest.TestCase):
             Heun(),
             t0=0.0 + t_offset,
             t1=self.SIMULATION_LENGTH + t_offset,
-            dt=self.DT,
+            dt=dt,
         )
         model_fn = jax.jit(model_fn)
         result = model_fn(state)
