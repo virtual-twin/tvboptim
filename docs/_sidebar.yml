@@ -84,6 +84,8 @@ website:
         - reference/LinearCoupling.qmd
         - reference/FastLinearCoupling.qmd
         - reference/DelayedLinearCoupling.qmd
+        - reference/SumLinearCoupling.qmd
+        - reference/DelayedSumLinearCoupling.qmd
         - reference/DifferenceCoupling.qmd
         - reference/DelayedDifferenceCoupling.qmd
         - reference/SigmoidalJansenRit.qmd

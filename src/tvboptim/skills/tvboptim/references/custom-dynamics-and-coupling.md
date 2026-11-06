@@ -129,6 +129,8 @@ Test progressively:
 
 When the dynamics declares several coupling channels, provide a dictionary keyed by those declarations. It is valid to omit a declared channel only when a zero input is intentional.
 
+A coupling must produce as many channels as its input declares in `COUPLING_INPUTS`. Elementwise couplings (`LinearCoupling`, `DifferenceCoupling`, `KuramotoCoupling` and delayed variants) declare `N_OUTPUT_STATES = PER_SOURCE`, one channel per source state, so a 2-channel input takes `source=("r", "V")`. `SumLinearCoupling` sums its source states into one channel. A custom `pre()` that combines states must declare `N_OUTPUT_STATES`. `Network` rejects mismatches.
+
 ## Avoid common extension errors
 
 - Returning Python lists instead of stacked JAX arrays.

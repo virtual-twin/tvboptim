@@ -9,7 +9,7 @@ dynamics and coupling), so it has no coupling of its own -- these are it.
 import jax.numpy as jnp
 
 from ..core.bunch import Bunch
-from .base import DelayedCoupling, InstantaneousCoupling
+from .base import PER_SOURCE, DelayedCoupling, InstantaneousCoupling
 
 
 class KuramotoCoupling(InstantaneousCoupling):
@@ -24,12 +24,12 @@ class KuramotoCoupling(InstantaneousCoupling):
     source : str or list of str
         State name(s) to collect from connected nodes (typically ``'theta'``)
     local : str or list of str
-        State name(s) from current node (required for the phase difference)
+        State name(s) from current node, paired in order with ``source``
 
     Attributes
     ----------
-    N_OUTPUT_STATES : int
-        Number of output coupling states: ``1``
+    N_OUTPUT_STATES : PER_SOURCE
+        One output channel per source state
     DEFAULT_PARAMS : Bunch
         Default parameters: ``G=1.0`` (global coupling strength)
 
@@ -43,7 +43,7 @@ class KuramotoCoupling(InstantaneousCoupling):
     >>> coupling = KuramotoCoupling(source='theta', local='theta', G=1.0)
     """
 
-    N_OUTPUT_STATES = 1
+    N_OUTPUT_STATES = PER_SOURCE
     DEFAULT_PARAMS = Bunch(G=1.0)
     PRE_USES_LOCAL = True
 
@@ -96,12 +96,12 @@ class DelayedKuramotoCoupling(DelayedCoupling):
     source : str or list of str
         State name(s) to collect from connected nodes (typically ``'theta'``)
     local : str or list of str
-        State name(s) from current node (required for the phase difference)
+        State name(s) from current node, paired in order with ``source``
 
     Attributes
     ----------
-    N_OUTPUT_STATES : int
-        Number of output coupling states: ``1``
+    N_OUTPUT_STATES : PER_SOURCE
+        One output channel per source state
     DEFAULT_PARAMS : Bunch
         Default parameters: ``G=1.0`` (global coupling strength)
 
@@ -124,7 +124,7 @@ class DelayedKuramotoCoupling(DelayedCoupling):
     Royal Society A, 377(2153), 20180132.
     """
 
-    N_OUTPUT_STATES = 1
+    N_OUTPUT_STATES = PER_SOURCE
     DEFAULT_PARAMS = Bunch(G=1.0)
     PRE_USES_LOCAL = True
 

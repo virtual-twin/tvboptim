@@ -71,15 +71,11 @@ class ReducedSetFitzHughNagumo(AbstractDynamics):
     have shape ``(3, 1)``; ``Aik``, ``Bik``, ``Cik`` keep TVB's ``(3, 3)`` layout.
 
     **Coupling.** As in TVB, the network input is the coupled sum of the three
-    $\\xi$ modes and drives every mode. A linear coupling that sums its source
-    states before transport reproduces it:
+    $\\xi$ modes and drives every mode. ``SumLinearCoupling`` sums the modes
+    before transport:
 
     ```python
-    class ModeSumCoupling(LinearCoupling):
-        def pre(self, incoming_states, local_states, params):
-            return incoming_states.sum(axis=0, keepdims=True)
-
-    coupling = {"instant": ModeSumCoupling(source=("xi1", "xi2", "xi3"))}
+    coupling = {"instant": SumLinearCoupling(source=("xi1", "xi2", "xi3"))}
     ```
 
     ``mu`` and ``sigma`` must be scalars. ``a``, ``b``, ``tau`` and the

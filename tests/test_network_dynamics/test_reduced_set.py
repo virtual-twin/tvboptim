@@ -7,7 +7,7 @@ import pytest
 from tvb.simulator import models as tvb_models
 
 from tvboptim.experimental.network_dynamics import Bunch, Network, prepare
-from tvboptim.experimental.network_dynamics.coupling import LinearCoupling
+from tvboptim.experimental.network_dynamics.coupling import SumLinearCoupling
 from tvboptim.experimental.network_dynamics.dynamics.tvb import (
     ReducedSetFitzHughNagumo,
 )
@@ -16,13 +16,6 @@ from tvboptim.experimental.network_dynamics.solvers import Heun
 
 DISTRIBUTIONS = [(0.0, 0.35), (0.2, 0.6), (-0.1, 0.15)]
 DIST_IDS = [f"mu={mu}-sigma={sigma}" for mu, sigma in DISTRIBUTIONS]
-
-
-class ModeSumCoupling(LinearCoupling):
-    """Sums the xi modes before transport, as TVB sums coupling over modes."""
-
-    def pre(self, incoming_states, local_states, params):
-        return incoming_states.sum(axis=0, keepdims=True)
 
 
 def _tvb(mu, sigma):
@@ -79,7 +72,7 @@ def test_population_parameters_receive_gradients(name):
     n_nodes = 4
     network = Network(
         dynamics=ReducedSetFitzHughNagumo(nv=300, nu=300),
-        coupling={"instant": ModeSumCoupling(source=("xi1", "xi2", "xi3"), G=0.05)},
+        coupling={"instant": SumLinearCoupling(source=("xi1", "xi2", "xi3"), G=0.05)},
         graph=DenseGraph(jnp.ones((n_nodes, n_nodes)) - jnp.eye(n_nodes)),
     )
     solve_fn, config = prepare(network, Heun(), t1=5.0, dt=0.05)

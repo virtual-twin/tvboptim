@@ -1327,14 +1327,22 @@ def prepare(
                 source_mask = source_mask.at[nodes].set(1)
             coupling_data._source_mask = source_mask
 
+        n_route_channels = route.coupling.n_output_channels(source_width)
         target_specs = []
         for group_name in sorted(route.target):
             input_name, conversion = route.target[group_name]
             nodes = jnp.asarray(network.group_nodes[group_name], dtype=int)
             n_group_nodes = len(network.group_nodes[group_name])
+            n_expected = network.groups[group_name].dynamics.COUPLING_INPUTS[input_name]
+            if conversion is None and n_route_channels != n_expected:
+                raise ValueError(
+                    f"route {route_name!r} outputs {n_route_channels} channels "
+                    f"but {group_name!r}.{input_name} expects {n_expected}; "
+                    "provide an explicit conversion"
+                )
             if conversion is not None:
                 signal = jax.ShapeDtypeStruct(
-                    (route.coupling.N_OUTPUT_STATES, n_group_nodes), signal_dtype
+                    (n_route_channels, n_group_nodes), signal_dtype
                 )
                 try:
                     converted = jax.eval_shape(

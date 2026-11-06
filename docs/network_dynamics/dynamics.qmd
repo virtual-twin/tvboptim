@@ -419,7 +419,7 @@ class FreeRateFitzHughNagumo(TimescaleFitzHughNagumo):
 
 `DERIVED_PARAMS` follows ordinary inheritance: omit it to inherit, define it to replace (`()` removes all derived values). To extend a parent, add to its tuple and merge `super().derived_params(params)` with the new values. If you want to fit a quantity that is an invertible function of a single parameter without changing the model, see [Fitting a derived quantity](../basics/parameters_and_optimization.qmd#fitting-a-derived-quantity).
 
-`ReducedSetFitzHughNagumo` is a shipped model built this way: its mode coefficients are integrals over the input distribution $\mathcal{N}(\mu, \sigma)$, recomputed from `mu` and `sigma` once per solve, so the population heterogeneity can be swept or fitted by gradient descent.
+`ReducedSetFitzHughNagumo` is a shipped model built this way: its mode coefficients are integrals over the input distribution $\mathcal{N}(\mu, \sigma)$, recomputed from `mu` and `sigma` once per solve, so the population heterogeneity can be swept or fitted by gradient descent. Couple it with `SumLinearCoupling(source=("xi1", "xi2", "xi3"))`.
 
 Cheap scalar arithmetic like the example above can just as well stay inline in `dynamics()`. The hook pays off for clarity, for parity with models defined that way in TVB, and for expensive derivations (matrices, integrals) under gradients, where computing them once per solve avoids repeating their backward pass at every step.
 

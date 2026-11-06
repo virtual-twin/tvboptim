@@ -28,7 +28,9 @@ from tvboptim.data import load_structural_connectivity
 from tvboptim.experimental.network_dynamics import Network, prepare
 from tvboptim.experimental.network_dynamics.coupling import (
     DelayedLinearCoupling,
+    DelayedSumLinearCoupling,
     LinearCoupling,
+    SumLinearCoupling,
 )
 from tvboptim.experimental.network_dynamics.dynamics.tvb import (
     CoombesByrne2D,
@@ -51,21 +53,6 @@ from tvboptim.experimental.network_dynamics.result import NativeSolution
 from tvboptim.experimental.network_dynamics.solvers import Heun
 
 
-class _ModeSum:
-    """Sum the source modes before transport, as TVB sums coupling over modes."""
-
-    def pre(self, states, local_states, params):
-        return states.sum(axis=0, keepdims=True)
-
-
-class ModeSumCoupling(_ModeSum, LinearCoupling):
-    pass
-
-
-class DelayedModeSumCoupling(_ModeSum, DelayedLinearCoupling):
-    pass
-
-
 def _flatten_modes(tvb_array):
     """TVB ``[time, svar, node, mode]`` to ``[time, svar * mode, node]``."""
     n_time, n_svar, n_node, n_mode = tvb_array.shape
@@ -77,7 +64,9 @@ def _flatten_modes(tvb_array):
 # ==============================================================================
 # Optional keys: "n_modes" flattens TVB's mode axis into the state axis
 # (state-major, matching e.g. xi1..3, eta1..3); "couplings" overrides the
-# (instant, delayed) coupling classes; "dt" overrides DT for stiff models.
+# (instant, delayed) coupling classes; "dt" overrides DT for stiff models;
+# "input" names the dynamics input that receives TVB's long-range coupling
+# (default: the coupling config name).
 MODEL_REGISTRY = {
     "Linear": {
         "tvb_class": models.Linear,
@@ -124,7 +113,7 @@ MODEL_REGISTRY = {
     "MontbrioPazoRoxin": {
         "tvb_class": models.MontbrioPazoRoxin,
         "tvboptim_class": MontbrioPazoRoxin,
-        "coupling_var": "r",
+        "coupling_var": ("r", "V"),
         "state_indices": [0, 1],
         "tvb_cvar": [0, 1],
         "params": {},
@@ -149,6 +138,7 @@ MODEL_REGISTRY = {
         "tvb_class": models.WilsonCowan,
         "tvboptim_class": WilsonCowan,
         "coupling_var": "E",
+        "input": "delayed",  # "instant" is TVB's local coupling
         "state_indices": [0, 1],
         "tvb_cvar": [0, 1],
         "params": {},
@@ -181,7 +171,7 @@ MODEL_REGISTRY = {
         "tvb_class": models.ReducedSetFitzHughNagumo,
         "tvboptim_class": ReducedSetFitzHughNagumo,
         "coupling_var": ("xi1", "xi2", "xi3"),
-        "couplings": (ModeSumCoupling, DelayedModeSumCoupling),
+        "couplings": (SumLinearCoupling, DelayedSumLinearCoupling),
         "n_modes": 3,
         "dt": 0.02,  # stiff from TVB's random initial conditions at DT=0.1
         "state_indices": list(range(12)),
@@ -191,7 +181,7 @@ MODEL_REGISTRY = {
     "Epileptor": {
         "tvb_class": models.Epileptor,
         "tvboptim_class": Epileptor,
-        "coupling_var": "x1",
+        "coupling_var": ("x1", "x2"),
         "state_indices": [0, 1, 2, 3, 4, 5],
         "tvb_cvar": [0, 3],
         "params": {},
@@ -379,7 +369,7 @@ class TestTVBComparison(unittest.TestCase):
             coupling_obj = instant_cls(
                 source=config["coupling_var"], G=coupling_config["G"]
             )
-            coupling_dict = {"instant": coupling_obj}
+            coupling_dict = {config.get("input", "instant"): coupling_obj}
             t_offset = 0.0
         else:
             # Delayed coupling - use DenseDelayGraph
@@ -390,7 +380,7 @@ class TestTVBComparison(unittest.TestCase):
             coupling_obj = delayed_cls(
                 source=config["coupling_var"], G=coupling_config["G"]
             )
-            coupling_dict = {"delayed": coupling_obj}
+            coupling_dict = {config.get("input", "delayed"): coupling_obj}
             t_offset = float(tvb_conn.horizon * dt)
 
         # Create dynamics

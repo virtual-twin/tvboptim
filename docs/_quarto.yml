@@ -218,6 +218,8 @@ quartodoc:
         - LinearCoupling
         - FastLinearCoupling
         - DelayedLinearCoupling
+        - SumLinearCoupling
+        - DelayedSumLinearCoupling
         - DifferenceCoupling
         - DelayedDifferenceCoupling
         - SigmoidalJansenRit
