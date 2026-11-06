@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import jax.numpy as jnp
 
-from ..coupling.base import AbstractCoupling
+from ..coupling.base import PER_SOURCE, AbstractCoupling
 from ..dynamics.base import AbstractDynamics
 from ..graph.base import AbstractGraph, delay_steps_bound, effective_max_delay
 from ..graph.topology import prepare_graph_topology, validate_graph_topology
@@ -19,6 +19,36 @@ from .bunch import Bunch
 
 if TYPE_CHECKING:
     from ..external_input.base import AbstractExternalInput
+
+
+def _check_output_channels(
+    name: str, coupling: AbstractCoupling, dynamics: AbstractDynamics
+) -> None:
+    """Raise if a coupling's channel count differs from the declared input."""
+    source = coupling.SOURCE_STATE_NAMES
+    names = (source,) if isinstance(source, str) else tuple(source)
+    produced = coupling.n_output_channels(len(names))
+    expected = dynamics.COUPLING_INPUTS[name]
+    if produced == expected:
+        return
+    if coupling.N_OUTPUT_STATES is PER_SOURCE:
+        hint = (
+            f"{coupling.__class__.__name__} outputs one channel per source "
+            f"state; pass {expected} source state(s), or use a coupling that "
+            "combines states (e.g. SumLinearCoupling). A pre() that combines "
+            "states must declare N_OUTPUT_STATES."
+        )
+    else:
+        hint = (
+            f"{coupling.__class__.__name__} has a fixed N_OUTPUT_STATES = "
+            f"{coupling.N_OUTPUT_STATES}."
+        )
+    raise ValueError(
+        f"Coupling {name!r} ({coupling.__class__.__name__}, source={names}) "
+        f"outputs {produced} channel(s), but "
+        f"{dynamics.__class__.__name__}.COUPLING_INPUTS[{name!r}] expects "
+        f"{expected}. {hint}"
+    )
 
 
 class Network:
@@ -106,6 +136,7 @@ class Network:
                     "in an ordinary Network. Selector-free couplings are only "
                     "valid inside a heterogeneous SignalRoute."
                 )
+            _check_output_channels(name, value, dynamics)
 
         # Normalize external input to dict format with validation
 

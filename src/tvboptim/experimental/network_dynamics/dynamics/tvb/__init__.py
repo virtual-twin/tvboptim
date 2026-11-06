@@ -8,6 +8,7 @@ from .kuramoto import Kuramoto
 from .larter_breakspear import LarterBreakspear
 from .linear import Linear
 from .montbrio_pazo_roxin import MontbrioPazoRoxin
+from .reduced_set import ReducedSetFitzHughNagumo
 from .sup_hopf import SupHopf
 from .wilson_cowan import WilsonCowan
 from .wong_wang import ReducedWongWang
@@ -22,6 +23,7 @@ __all__ = [
     "LarterBreakspear",
     "Linear",
     "MontbrioPazoRoxin",
+    "ReducedSetFitzHughNagumo",
     "SupHopf",
     "WilsonCowan",
     "ReducedWongWang",

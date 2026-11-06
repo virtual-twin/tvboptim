@@ -5,12 +5,16 @@ named coupling inputs, enabling more flexible network architectures.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple, Union
+from typing import Mapping, Optional, Tuple, Union
 
 import jax.numpy as jnp
 from diffrax import Dopri5, ODETerm, SaveAt, diffeqsolve
 
 from ..core.bunch import Bunch
+
+_REPARAMETERIZATION_DOCS = (
+    "docs/basics/parameters_and_optimization.qmd ('Fitting a derived quantity')"
+)
 
 
 class AbstractDynamics(ABC):
@@ -30,6 +34,9 @@ class AbstractDynamics(ABC):
         Names of auxiliary (non-integrated) variables
     DEFAULT_PARAMS : Bunch
         Default parameter values as Bunch object
+    DERIVED_PARAMS : tuple of str
+        Names of values computed from the parameters by ``derived_params``.
+        They are never set, swept or optimized directly.
     COUPLING_INPUTS : dict
         Dictionary of expected coupling inputs ``{name: n_dims}``
     EXTERNAL_INPUTS : dict
@@ -47,6 +54,7 @@ class AbstractDynamics(ABC):
 
     # Parameters
     DEFAULT_PARAMS: Bunch = Bunch()
+    DERIVED_PARAMS: Tuple[str, ...] = ()
 
     # NEW: Multi-coupling support
     COUPLING_INPUTS: dict = {}  # e.g., {'structural': 1, 'modulatory': 1}
@@ -95,6 +103,12 @@ class AbstractDynamics(ABC):
         # Create instance parameters by copying defaults and updating with kwargs
         self.params = self.DEFAULT_PARAMS.copy()
         for key, value in kwargs.items():
+            if key in self.DERIVED_PARAMS:
+                raise ValueError(
+                    f"'{key}' is computed by {self.__class__.__name__}; set its "
+                    f"primary parameters instead. Primary parameters: "
+                    f"{list(self.DEFAULT_PARAMS.keys())}"
+                )
             if key not in self.DEFAULT_PARAMS:
                 raise ValueError(
                     f"Unknown parameter '{key}' for {self.__class__.__name__}. "
@@ -137,6 +151,39 @@ class AbstractDynamics(ABC):
         # Validate consistency of attributes
         if len(cls.STATE_NAMES) != len(cls.INITIAL_STATE):
             raise ValueError(f"{cls.__name__}: len(STATE_NAMES) != len(INITIAL_STATE)")
+
+        # DERIVED_PARAMS uses ordinary attribute inheritance, unlike the
+        # "empty means inherit" block above: an explicit () must be able to
+        # replace a parent declaration when a value is promoted to primary.
+        cls._validate_derived_declaration()
+
+    @classmethod
+    def _validate_derived_declaration(cls) -> None:
+        """Check DERIVED_PARAMS format, disjointness and hook presence."""
+        names = cls.DERIVED_PARAMS
+        if not isinstance(names, tuple) or not all(isinstance(n, str) for n in names):
+            raise TypeError(
+                f"{cls.__name__}.DERIVED_PARAMS must be a tuple of strings, "
+                f"e.g. ('gain',); got {names!r}"
+            )
+        duplicates = sorted({n for n in names if names.count(n) > 1})
+        if duplicates:
+            raise ValueError(
+                f"{cls.__name__}.DERIVED_PARAMS has duplicate names: {duplicates}"
+            )
+        overlap = [n for n in names if n in cls.DEFAULT_PARAMS]
+        if overlap:
+            raise ValueError(
+                f"{cls.__name__}: {overlap} appear in both DEFAULT_PARAMS and "
+                f"DERIVED_PARAMS. A value is either primary or derived; to make "
+                f"a derived value free, remove it from DERIVED_PARAMS and from "
+                f"the derived_params() output."
+            )
+        if names and cls.derived_params is AbstractDynamics.derived_params:
+            raise TypeError(
+                f"{cls.__name__} declares DERIVED_PARAMS={names} but does not "
+                f"implement or inherit derived_params()."
+            )
 
     @property
     def all_variable_names(self) -> Tuple[str, ...]:
@@ -281,6 +328,91 @@ class AbstractDynamics(ABC):
         else:
             raise ValueError(f"names must be str, list, or tuple, got {type(names)}")
 
+    def derived_params(self, params: Bunch) -> Bunch:
+        """Compute derived values from the live parameters.
+
+        Override this to return a ``Bunch`` with exactly the names in
+        ``DERIVED_PARAMS``. Only derived values are returned; the framework
+        merges them with the primary parameters before calling ``dynamics()``.
+
+        The hook runs inside jit/grad/vmap once per solve, so it must be pure
+        JAX: read parameters from ``params`` (not ``self.params``) and do not
+        mutate the input or the instance. Constants fixed at construction time
+        may be read from ``self``.
+
+        Parameters
+        ----------
+        params : Bunch
+            Primary parameters, e.g. ``config.dynamics``.
+
+        Returns
+        -------
+        Bunch
+            Derived values keyed by the names in ``DERIVED_PARAMS``.
+        """
+        return Bunch()
+
+    def resolve_params(self, params: Mapping, location: Optional[str] = None) -> Bunch:
+        """Return primary and derived parameters as one ``Bunch``.
+
+        This is what ``dynamics()`` receives during a solve. Use it to inspect
+        derived values or to call ``dynamics()`` directly. Not meant to be
+        overridden; implement ``derived_params`` instead.
+
+        Parameters
+        ----------
+        params : Bunch
+            Primary parameters, e.g. ``model.params`` or ``config.dynamics``.
+            Must not contain derived names.
+        location : str, optional
+            Where ``params`` came from (e.g. ``"config.dynamics"``), used in
+            error messages.
+
+        Returns
+        -------
+        Bunch
+            A new ``Bunch``; ``params`` is left untouched. For models without
+            derived parameters, ``params`` is returned unchanged.
+
+        Examples
+        --------
+        >>> resolved = model.resolve_params(config.dynamics)
+        >>> model.dynamics(t, state, resolved, coupling, external)
+        """
+        if type(self).derived_params is AbstractDynamics.derived_params:
+            return params
+
+        name = self.__class__.__name__
+        where = f" in {location}" if location else ""
+        derived_names = self.DERIVED_PARAMS
+
+        given = [n for n in derived_names if n in params]
+        if given:
+            raise ValueError(
+                f"{given}{where} are computed by {name}.derived_params() and "
+                f"cannot be set, swept or optimized directly. Set or fit the "
+                f"primary parameters instead. To fit a derived quantity, "
+                f"reparameterize the model; see {_REPARAMETERIZATION_DOCS}."
+            )
+
+        derived = self.derived_params(params)
+        if not isinstance(derived, Bunch):
+            raise TypeError(
+                f"{name}.derived_params() must return a Bunch, "
+                f"got {type(derived).__name__}"
+            )
+        missing = [n for n in derived_names if n not in derived]
+        extra = [n for n in derived if n not in derived_names]
+        if missing or extra:
+            raise ValueError(
+                f"{name}.derived_params() must return exactly DERIVED_PARAMS="
+                f"{derived_names}; missing {missing}, unexpected {extra}"
+            )
+
+        resolved = Bunch(params)
+        resolved.update(derived)
+        return resolved
+
     @abstractmethod
     def dynamics(
         self,
@@ -299,7 +431,8 @@ class AbstractDynamics(ABC):
         state : jnp.ndarray
             Current state with shape ``[N_STATES, n_nodes]``
         params : Bunch
-            Model parameters as Bunch object (supports broadcasting)
+            Model parameters as Bunch object (supports broadcasting). Includes
+            derived values, see ``resolve_params``.
         coupling : Bunch
             Named coupling inputs accessed as attributes (e.g., ``coupling.structural``,
             ``coupling.modulatory``). Missing couplings are automatically filled with zeros.
@@ -343,7 +476,7 @@ class AbstractDynamics(ABC):
         try:
             # Get test inputs
             state = self.get_default_initial_state(n_nodes)
-            params = self.params
+            params = self.resolve_params(self.params, "model.params")
 
             # Create coupling Bunch with zeros for all declared inputs
             coupling = Bunch()
@@ -428,7 +561,7 @@ class AbstractDynamics(ABC):
             t1: End time
             dt: Time step for output
             n_nodes: Number of nodes to simulate
-            params: Parameters (default: self.params)
+            params: Primary parameters (default: self.params)
             initial_state: Initial state (default: from get_default_initial_state)
             solver: Diffrax solver (default: Dopri5)
             **solver_kwargs: Additional solver arguments
@@ -439,6 +572,7 @@ class AbstractDynamics(ABC):
         """
         if params is None:
             params = self.params
+        params = self.resolve_params(params)
 
         if initial_state is None:
             initial_state = self.get_default_initial_state(n_nodes)

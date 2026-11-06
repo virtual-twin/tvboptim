@@ -8,7 +8,7 @@ This module implements the coupling architecture with:
 
 import warnings
 from abc import ABC, abstractmethod
-from typing import Literal, Optional, Tuple
+from typing import Literal, Optional, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -17,6 +17,27 @@ from ..core.bunch import Bunch
 from ..graph.base import AbstractGraph, delay_steps_bound, effective_max_delay
 
 BufferStrategy = Literal["roll", "circular", "preallocated"]
+
+
+class _PerSource:
+    """Marker for ``N_OUTPUT_STATES``: one output channel per source state."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "PER_SOURCE"
+
+    def __reduce__(self):
+        return "PER_SOURCE"
+
+    def __copy__(self):
+        return self
+
+    def __deepcopy__(self, memo):
+        return self
+
+
+PER_SOURCE = _PerSource()
 
 _PRE_CONTRACT_MIGRATION = (
     "pre() must be elementwise over the final message axes: remove explicit "
@@ -51,11 +72,13 @@ class AbstractCoupling(ABC):
     and the standard matrix multiplication patterns don't apply (e.g., SubspaceCoupling).
 
     Attributes:
-        N_OUTPUT_STATES: Number of output states after coupling
+        N_OUTPUT_STATES: Number of output channels. ``PER_SOURCE`` (default)
+            means one channel per source state, as for elementwise couplings; a
+            coupling whose ``pre()`` combines states declares a fixed int.
         DEFAULT_PARAMS: Default coupling parameters as a Bunch
     """
 
-    N_OUTPUT_STATES: int = 0
+    N_OUTPUT_STATES: Union[int, _PerSource] = PER_SOURCE
     DEFAULT_PARAMS: Bunch = Bunch()
 
     def __init__(
@@ -131,6 +154,17 @@ class AbstractCoupling(ABC):
             stacklevel=3,
         )
         return legacy_value
+
+    def n_output_channels(self, n_source: int) -> int:
+        """Number of output channels when ``n_source`` states are transported."""
+        if self.N_OUTPUT_STATES is PER_SOURCE:
+            return n_source
+        return self.N_OUTPUT_STATES
+
+    def _describe_output_channels(self) -> str:
+        if self.N_OUTPUT_STATES is PER_SOURCE:
+            return "one channel per source state"
+        return f"N_OUTPUT_STATES = {self.N_OUTPUT_STATES}"
 
     @property
     def INCOMING_STATE_NAMES(self):
@@ -405,13 +439,24 @@ class PrePostCoupling(AbstractCoupling):
                 f"{_PRE_CONTRACT_MIGRATION}"
             ) from exc
 
-        expected = (self.N_OUTPUT_STATES, *message_shape)
-        if not hasattr(result, "shape") or tuple(result.shape) != expected:
-            actual = getattr(result, "shape", type(result).__name__)
+        n_out = self.n_output_channels(n_incoming)
+        expected = (n_out, *message_shape)
+        actual = tuple(getattr(result, "shape", ()))
+        if actual == expected:
+            return
+        name = self.__class__.__name__
+        if len(actual) == len(expected) and actual[1:] == tuple(message_shape):
             raise ValueError(
-                f"{self.__class__.__name__}.pre() returned shape {actual}; "
-                f"expected {expected}. {_PRE_CONTRACT_MIGRATION}"
+                f"{name}.pre() returned {actual[0]} channels for {n_incoming} "
+                f"source states; expected {n_out} "
+                f"({self._describe_output_channels()}). Set N_OUTPUT_STATES to "
+                "the number of channels pre() returns."
             )
+        shown = actual if hasattr(result, "shape") else type(result).__name__
+        raise ValueError(
+            f"{name}.pre() returned shape {shown}; expected {expected}. "
+            f"{_PRE_CONTRACT_MIGRATION}"
+        )
 
     def precompute(
         self,
@@ -565,7 +610,7 @@ class PrePostCoupling(AbstractCoupling):
             params: Coupling parameters
 
         Returns:
-            Transformed messages [N_OUTPUT_STATES, *message_shape].
+            Transformed messages [n_output_channels, *message_shape].
         """
         return incoming_states
 

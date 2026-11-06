@@ -32,6 +32,12 @@ class ThreeChannelLocalCoupling(InstantaneousCoupling):
         return summed_inputs
 
 
+class ThreeInputLinear(Linear):
+    """Linear dynamics accepting the three coupling channels."""
+
+    COUPLING_INPUTS = {"instant": 3}
+
+
 WEIGHTS = np.array(
     [
         [0.0, 2.0, 0.0, 0.0],
@@ -61,7 +67,7 @@ def _compute(graph):
         source="x",
         local="x",
     )
-    network = Network(Linear(), {"instant": coupling}, graph)
+    network = Network(ThreeInputLinear(), {"instant": coupling}, graph)
     data, coupling_state = network.prepare(dt=0.1, t0=0.0, t1=0.2)
     return network.compute_coupling_inputs(
         0.0,
@@ -138,8 +144,12 @@ def test_q3_weight_and_state_gradients_sparse_match_dense_under_jit():
         source="x",
         local="x",
     )
-    dense_network = Network(Linear(), {"instant": dense_coupling}, dense_graph)
-    sparse_network = Network(Linear(), {"instant": sparse_coupling}, sparse_graph)
+    dense_network = Network(
+        ThreeInputLinear(), {"instant": dense_coupling}, dense_graph
+    )
+    sparse_network = Network(
+        ThreeInputLinear(), {"instant": sparse_coupling}, sparse_graph
+    )
     dense_data, dense_coupling_state = dense_network.prepare(0.1, 0.0, 0.2)
     sparse_data, sparse_coupling_state = sparse_network.prepare(0.1, 0.0, 0.2)
     dense_aux = dense_graph.tree_flatten()[1]

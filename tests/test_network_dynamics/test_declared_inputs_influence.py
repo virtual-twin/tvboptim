@@ -74,7 +74,8 @@ def test_declared_inputs_reach_the_vector_field(dynamics_class):
         coupling, external = Bunch(), Bunch()
         for (kind, name, _), block in zip(channels, blocks):
             (coupling if kind == "coupling" else external)[name] = block
-        out = model.dynamics(0.0, state, model.params, coupling, external)
+        params = model.resolve_params(model.params)
+        out = model.dynamics(0.0, state, params, coupling, external)
         return out[0] if isinstance(out, tuple) else out
 
     blocks = [jnp.zeros((n_dims, N_NODES)) for _, _, n_dims in channels]

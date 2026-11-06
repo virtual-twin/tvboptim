@@ -97,6 +97,18 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - See `docs/basics/agent_skill.qmd` for the supported clients, the scopes,
     the Python API, and how to place the files by hand.
 
+- **Derived parameters for dynamics.** A model declares `DERIVED_PARAMS` and
+  implements `derived_params(params)`; the values are computed once per solve
+  on every solve path and merged into the `params` that `dynamics()` receives,
+  with gradients flowing to the primary parameters. Derived values never live
+  in `config.dynamics`. `model.resolve_params(params)` exposes them for
+  inspection and direct `dynamics()` calls.
+- Added `dynamics.tvb.ReducedSetFitzHughNagumo`, a TVB port whose mode
+  coefficients are derived from `mu` and `sigma`, so the population
+  heterogeneity can be swept and fitted.
+- Added `SumLinearCoupling` and `DelayedSumLinearCoupling`, which sum their
+  source states before transport into one channel.
+
 ### Changed
 
 - Clarified block-size-dependent stochastic noise, executor compilation reuse,
@@ -121,9 +133,21 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   depended on the population time constant. At the default `tau = 1.0` this is
   a no-op, so existing results and TVB parity are unaffected; only runs with
   `tau != 1` change.
+- **Elementwise couplings emit one channel per source state.** `LinearCoupling`,
+  `DifferenceCoupling`, `KuramotoCoupling`, the sigmoid and tanh couplings and
+  their delayed variants declare `N_OUTPUT_STATES = PER_SOURCE`, so
+  `LinearCoupling(source=("r", "V"))` feeds a 2-channel input. Single-source
+  use is unchanged. Minor breaking change: a subclass of one of these whose
+  `pre()` combines states must now declare its own `N_OUTPUT_STATES`; the error
+  says so.
 
 ### Fixed
 
+- `Network` now checks each coupling's channel count against the model's
+  `COUPLING_INPUTS`. Previously a too-narrow coupling was clamped silently, so
+  e.g. `MontbrioPazoRoxin` with `LinearCoupling(source="r")` received its
+  r-coupling as V-coupling. Heterogeneous routes check against their readout
+  width.
 - BOLD monitors support custom streaming downsamplers with persistent state
   and live parameters, and arbitrary callable downsamplers post-hoc.
 - The deprecated `streaming_hrf_bold` reducer now resolves solution-valued warm

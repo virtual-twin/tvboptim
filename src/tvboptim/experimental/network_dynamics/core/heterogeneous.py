@@ -385,13 +385,16 @@ class HeterogeneousNetwork:
                         f"on group {group_name!r}; expected "
                         f"{list(dynamics.COUPLING_INPUTS)}"
                     )
-                if conversion is None:
+                # Callable-only sources have unknown width; prepare() checks them.
+                if conversion is None and known_widths:
                     expected = dynamics.COUPLING_INPUTS[input_name]
-                    if route.coupling.N_OUTPUT_STATES != expected:
+                    produced = route.coupling.n_output_channels(
+                        next(iter(known_widths))
+                    )
+                    if produced != expected:
                         raise ValueError(
-                            f"route {route_name!r} outputs "
-                            f"{route.coupling.N_OUTPUT_STATES} channels but "
-                            f"{group_name!r}.{input_name} expects {expected}; "
+                            f"route {route_name!r} outputs {produced} channels "
+                            f"but {group_name!r}.{input_name} expects {expected}; "
                             "provide an explicit conversion"
                         )
 

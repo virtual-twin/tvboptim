@@ -216,6 +216,9 @@ class NetworkPrinter:
                 param_items.append(f"{key}={value}")
 
         lines = ["Parameters", "-" * 50, "  " + ", ".join(param_items)]
+        derived = getattr(self.network.dynamics, "DERIVED_PARAMS", ())
+        if derived:
+            lines.append(f"  Derived: {', '.join(derived)}")
 
         return "\n".join(lines)
 
@@ -277,6 +280,8 @@ class HeterogeneousNetworkPrinter:
             )
             if hasattr(dynamics, "params") and dynamics.params:
                 lines.append(f"  Parameters: {self._format_params(dynamics.params)}")
+            if getattr(dynamics, "DERIVED_PARAMS", ()):
+                lines.append(f"  Derived: {', '.join(dynamics.DERIVED_PARAMS)}")
             lines.append("")
         return "\n".join(lines).rstrip()
 
@@ -467,7 +472,13 @@ class DynamicsFormatter:
             # Annotate source with coupling descriptions
             annotated = self._annotate_source(source, coupling_usage)
 
-            lines = ["Dynamics Equations", "-" * 50, annotated]
+            lines = ["Dynamics Equations", "-" * 50]
+            if getattr(self.dynamics, "DERIVED_PARAMS", ()):
+                derived = inspect.getsource(self.dynamics.derived_params)
+                derived = self._remove_docstring(derived)
+                derived = self._collapse_function_signature(derived)
+                lines.extend([derived.rstrip(), ""])
+            lines.append(annotated)
 
             return "\n".join(lines)
 
