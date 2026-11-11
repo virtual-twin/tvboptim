@@ -11,7 +11,7 @@ import warnings
 import jax.numpy as jnp
 
 from ..core.bunch import Bunch
-from .base import DelayedCoupling, InstantaneousCoupling
+from .base import PER_SOURCE, DelayedCoupling, InstantaneousCoupling
 
 
 class LinearCoupling(InstantaneousCoupling):
@@ -34,8 +34,8 @@ class LinearCoupling(InstantaneousCoupling):
 
     Attributes
     ----------
-    N_OUTPUT_STATES : int
-        Number of output coupling states: ``1``
+    N_OUTPUT_STATES : PER_SOURCE
+        One output channel per source state
     DEFAULT_PARAMS : Bunch
         Default parameters: ``G=1.0`` (global coupling strength), ``b=0.0`` (offset/bias)
 
@@ -48,7 +48,7 @@ class LinearCoupling(InstantaneousCoupling):
     >>> coupling = LinearCoupling(source='x', G=0.5, b=0.1)
     """
 
-    N_OUTPUT_STATES = 1
+    N_OUTPUT_STATES = PER_SOURCE
     DEFAULT_PARAMS = Bunch(G=1.0, b=0.0)
 
     # No pre() override: the default identity runs on source-node messages.
@@ -73,6 +73,43 @@ class LinearCoupling(InstantaneousCoupling):
             Transformed coupling with shape ``[n_inputs, n_nodes]``
         """
         return params.G * summed_inputs + params.b
+
+
+class SumLinearCoupling(LinearCoupling):
+    """Linear coupling of the sum of several source states.
+
+    Adds the source states of each sending node before transport, giving one
+    output channel:
+
+    $$c_i = G \\cdot \\sum_{j} w_{ij} \\sum_{s} x_{s,j} + b$$
+
+    Equivalent to summing the channels of ``LinearCoupling`` with the same
+    sources, at the cost of a single transport.
+
+    Parameters
+    ----------
+    source : list of str
+        State names to sum on each sending node (required)
+
+    Attributes
+    ----------
+    N_OUTPUT_STATES : int
+        Number of output coupling states: ``1``
+    DEFAULT_PARAMS : Bunch
+        Default parameters: ``G=1.0`` (global coupling strength), ``b=0.0`` (offset/bias)
+
+    Examples
+    --------
+    >>> coupling = SumLinearCoupling(source=("xi1", "xi2", "xi3"), G=0.1)
+    """
+
+    N_OUTPUT_STATES = 1
+
+    def pre(
+        self, incoming_states: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
+    ) -> jnp.ndarray:
+        """Sum the source states into one message ``[1, *M]``."""
+        return incoming_states.sum(axis=0, keepdims=True)
 
 
 class FastLinearCoupling(LinearCoupling):
@@ -135,12 +172,12 @@ class DifferenceCoupling(InstantaneousCoupling):
     source : str or list of str
         State name(s) to collect from connected nodes (required)
     local : str or list of str
-        State name(s) from current node (required for computing differences)
+        State name(s) from current node, paired in order with ``source``
 
     Attributes
     ----------
-    N_OUTPUT_STATES : int
-        Number of output coupling states: ``1``
+    N_OUTPUT_STATES : PER_SOURCE
+        One output channel per source state
     DEFAULT_PARAMS : Bunch
         Default parameters: ``G=1.0`` (global coupling strength)
 
@@ -150,7 +187,7 @@ class DifferenceCoupling(InstantaneousCoupling):
     >>> coupling = DifferenceCoupling(source='x', local='x', G=1.0)
     """
 
-    N_OUTPUT_STATES = 1
+    N_OUTPUT_STATES = PER_SOURCE
     DEFAULT_PARAMS = Bunch(G=1.0)
     PRE_USES_LOCAL = True
 
@@ -205,8 +242,8 @@ class SigmoidCoupling(InstantaneousCoupling):
 
     Attributes
     ----------
-    N_OUTPUT_STATES : int
-        Number of output coupling states: ``1``
+    N_OUTPUT_STATES : PER_SOURCE
+        One output channel per source state
     DEFAULT_PARAMS : Bunch
         Default parameters: ``G=1.0`` (global coupling strength), ``a=1.0`` (input scaling),
         ``b=0.0`` (offset), ``slope=1.0`` (sigmoid steepness), ``midpoint=0.0`` (sigmoid center)
@@ -216,7 +253,7 @@ class SigmoidCoupling(InstantaneousCoupling):
     >>> coupling = SigmoidCoupling(source='x', G=1.0, slope=2.0, midpoint=0.0)
     """
 
-    N_OUTPUT_STATES = 1
+    N_OUTPUT_STATES = PER_SOURCE
     DEFAULT_PARAMS = Bunch(G=1.0, a=1.0, b=0.0, slope=1.0, midpoint=0.0)
 
     def post(
@@ -258,8 +295,8 @@ class TanhCoupling(InstantaneousCoupling):
 
     Attributes
     ----------
-    N_OUTPUT_STATES : int
-        Number of output coupling states: ``1``
+    N_OUTPUT_STATES : PER_SOURCE
+        One output channel per source state
     DEFAULT_PARAMS : Bunch
         Default parameters: ``G=0.5`` (global coupling strength), ``scale=2.0`` (scaling before tanh)
 
@@ -268,7 +305,7 @@ class TanhCoupling(InstantaneousCoupling):
     >>> coupling = TanhCoupling(source='x', G=0.5, scale=2.0)
     """
 
-    N_OUTPUT_STATES = 1
+    N_OUTPUT_STATES = PER_SOURCE
     DEFAULT_PARAMS = Bunch(G=0.5, scale=2.0)
 
     def post(
@@ -308,8 +345,8 @@ class DelayedLinearCoupling(DelayedCoupling):
 
     Attributes
     ----------
-    N_OUTPUT_STATES : int
-        Number of output coupling states: ``1``
+    N_OUTPUT_STATES : PER_SOURCE
+        One output channel per source state
     DEFAULT_PARAMS : Bunch
         Default parameters: ``G=1.0`` (coupling strength), ``b=0.0`` (offset/bias)
 
@@ -318,7 +355,7 @@ class DelayedLinearCoupling(DelayedCoupling):
     >>> coupling = DelayedLinearCoupling(source='S', G=1.0)
     """
 
-    N_OUTPUT_STATES = 1
+    N_OUTPUT_STATES = PER_SOURCE
     DEFAULT_PARAMS = Bunch(G=1.0, b=0.0)
 
     def post(
@@ -337,6 +374,39 @@ class DelayedLinearCoupling(DelayedCoupling):
         return params.G * summed_inputs + params.b
 
 
+class DelayedSumLinearCoupling(DelayedLinearCoupling):
+    """Delayed linear coupling of the sum of several source states.
+
+    Delayed counterpart of ``SumLinearCoupling``:
+
+    $$c_i(t) = G \\cdot \\sum_{j} w_{ij} \\sum_{s} x_{s,j}(t - \\tau_{ij}) + b$$
+
+    Parameters
+    ----------
+    source : list of str
+        State names to sum on each sending node (required)
+
+    Attributes
+    ----------
+    N_OUTPUT_STATES : int
+        Number of output coupling states: ``1``
+    DEFAULT_PARAMS : Bunch
+        Default parameters: ``G=1.0`` (coupling strength), ``b=0.0`` (offset/bias)
+
+    Examples
+    --------
+    >>> coupling = DelayedSumLinearCoupling(source=("xi1", "xi2", "xi3"), G=0.1)
+    """
+
+    N_OUTPUT_STATES = 1
+
+    def pre(
+        self, delayed_states: jnp.ndarray, local_states: jnp.ndarray, params: Bunch
+    ) -> jnp.ndarray:
+        """Sum the delayed source states into one message ``[1, *M]``."""
+        return delayed_states.sum(axis=0, keepdims=True)
+
+
 class DelayedDifferenceCoupling(DelayedCoupling):
     """Diffusive coupling with transmission delays.
 
@@ -353,12 +423,12 @@ class DelayedDifferenceCoupling(DelayedCoupling):
     source : str or list of str
         State name(s) to collect from connected nodes (required)
     local : str or list of str
-        State name(s) from current node (required for computing differences)
+        State name(s) from current node, paired in order with ``source``
 
     Attributes
     ----------
-    N_OUTPUT_STATES : int
-        Number of output coupling states: ``1``
+    N_OUTPUT_STATES : PER_SOURCE
+        One output channel per source state
     DEFAULT_PARAMS : Bunch
         Default parameters: ``G=1.0`` (global coupling strength)
 
@@ -367,7 +437,7 @@ class DelayedDifferenceCoupling(DelayedCoupling):
     >>> coupling = DelayedDifferenceCoupling(source='x', local='x', G=1.0)
     """
 
-    N_OUTPUT_STATES = 1
+    N_OUTPUT_STATES = PER_SOURCE
     DEFAULT_PARAMS = Bunch(G=1.0)
     PRE_USES_LOCAL = True
 
@@ -420,8 +490,8 @@ class DelayedSigmoidCoupling(DelayedCoupling):
 
     Attributes
     ----------
-    N_OUTPUT_STATES : int
-        Number of output coupling states: ``1``
+    N_OUTPUT_STATES : PER_SOURCE
+        One output channel per source state
     DEFAULT_PARAMS : Bunch
         Default parameters: ``G=1.0`` (global coupling strength), ``slope=1.0`` (sigmoid steepness),
         ``midpoint=0.0`` (sigmoid center)
@@ -431,7 +501,7 @@ class DelayedSigmoidCoupling(DelayedCoupling):
     >>> coupling = DelayedSigmoidCoupling(source='x', G=1.0, slope=1.0, midpoint=0.0)
     """
 
-    N_OUTPUT_STATES = 1
+    N_OUTPUT_STATES = PER_SOURCE
     DEFAULT_PARAMS = Bunch(G=1.0, slope=1.0, midpoint=0.0)
 
     def post(

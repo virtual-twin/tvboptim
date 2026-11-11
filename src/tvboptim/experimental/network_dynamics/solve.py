@@ -293,6 +293,8 @@ def _native_output_sample(
     """Describe one assembled native output through the real prepared inputs."""
 
     def output():
+        resolved_params = dynamics.resolve_params(params, "config.dynamics")
+
         def dynamics_fn(t, state, current_params):
             return dynamics.dynamics(
                 t,
@@ -307,7 +309,7 @@ def _native_output_sample(
             jnp.asarray(t0),
             initial_state,
             dt,
-            params,
+            resolved_params,
             jnp.zeros_like(initial_state),
         )
         return _assemble_output(
@@ -1325,14 +1327,22 @@ def prepare(
                 source_mask = source_mask.at[nodes].set(1)
             coupling_data._source_mask = source_mask
 
+        n_route_channels = route.coupling.n_output_channels(source_width)
         target_specs = []
         for group_name in sorted(route.target):
             input_name, conversion = route.target[group_name]
             nodes = jnp.asarray(network.group_nodes[group_name], dtype=int)
             n_group_nodes = len(network.group_nodes[group_name])
+            n_expected = network.groups[group_name].dynamics.COUPLING_INPUTS[input_name]
+            if conversion is None and n_route_channels != n_expected:
+                raise ValueError(
+                    f"route {route_name!r} outputs {n_route_channels} channels "
+                    f"but {group_name!r}.{input_name} expects {n_expected}; "
+                    "provide an explicit conversion"
+                )
             if conversion is not None:
                 signal = jax.ShapeDtypeStruct(
-                    (route.coupling.N_OUTPUT_STATES, n_group_nodes), signal_dtype
+                    (n_route_channels, n_group_nodes), signal_dtype
                 )
                 try:
                     converted = jax.eval_shape(
@@ -1620,8 +1630,15 @@ def prepare(
             grouped_state0[topology_anchor_group],
         )
         enriched = precompute_routes(config)
+        # Resolve derived parameters once per solve; the solver forwards the
+        # resolved values to every stage.
         dynamics_params = Bunch(
-            {name: config.groups[name].dynamics for name in network.group_names}
+            {
+                name: network.groups[name].dynamics.resolve_params(
+                    config.groups[name].dynamics, f"config.groups.{name}.dynamics"
+                )
+                for name in network.group_names
+            }
         )
 
         streaming = (
@@ -2308,6 +2325,11 @@ def prepare(
         # This allows parameter-dependent quantities (e.g. W_eff = W * wLRE) to
         # be computed with gradient flow while avoiding per-step redundancy.
         enriched = precompute_all_couplings(config)
+        # Resolve derived parameters once per solve; the solver forwards the
+        # resolved values to every stage.
+        dynamics_params = network.dynamics.resolve_params(
+            config.dynamics, "config.dynamics"
+        )
 
         # Noise source. Streaming (per-block fold_in) activates when blocking is
         # on, the network has noise, and no full tensor is injected: it skips the
@@ -2408,7 +2430,7 @@ def prepare(
             # Solver integration step using pre-compiled function references
             # Returns (next_state, auxiliaries)
             next_dynamics_state, auxiliaries = solver_step(
-                wrapped_dynamics, t, state.dynamics, dt, config.dynamics, noise_sample
+                wrapped_dynamics, t, state.dynamics, dt, dynamics_params, noise_sample
             )
 
             # Use pre-compiled closure for coupling state updates
@@ -2756,6 +2778,9 @@ def prepare(
         # This allows parameter-dependent quantities (e.g. W_eff = W * wLRE) to
         # be computed with gradient flow while avoiding per-step redundancy.
         enriched = precompute_all_couplings(config)
+        dynamics_params = network.dynamics.resolve_params(
+            config.dynamics, "config.dynamics"
+        )
 
         def vector_field(t, y, args):
             """Diffrax-compatible vector field: f(t, y, args) -> dy/dt."""
@@ -2767,7 +2792,7 @@ def prepare(
 
             # Call dynamics
             result = dynamics_fn(
-                t, y, config.dynamics, coupling_inputs, external_inputs
+                t, y, dynamics_params, coupling_inputs, external_inputs
             )
 
             # Extract derivatives (discard auxiliaries if present)
@@ -3036,6 +3061,9 @@ def prepare(
 
     def _f(config):
         """Pure integration function for bare dynamics."""
+        # Resolve derived parameters once per solve; the solver forwards the
+        # resolved values to every stage.
+        dynamics_params = dynamics.resolve_params(config.dynamics, "config.dynamics")
 
         # Noise source. Streaming (per-block fold_in) activates when blocking is
         # on, the dynamics has noise, and no full tensor is injected; otherwise
@@ -3096,7 +3124,7 @@ def prepare(
                 noise_sample = jnp.zeros_like(state)
 
             next_state, auxiliaries = solver_step(
-                wrapped_dynamics, t, state, dt, config.dynamics, noise_sample
+                wrapped_dynamics, t, state, dt, dynamics_params, noise_sample
             )
 
             # VOI filtering
@@ -3298,13 +3326,14 @@ def prepare(
 
     def _f(config):
         """Pure integration function using Diffrax for bare dynamics."""
+        dynamics_params = dynamics.resolve_params(config.dynamics, "config.dynamics")
 
         def vector_field(t, y, args):
             if has_externals:
                 ext_inputs = compute_all_externals(t, y, config)
             else:
                 ext_inputs = zero_external
-            result = dynamics_fn(t, y, config.dynamics, zero_coupling, ext_inputs)
+            result = dynamics_fn(t, y, dynamics_params, zero_coupling, ext_inputs)
             if isinstance(result, tuple):
                 derivatives, _ = result
             else:

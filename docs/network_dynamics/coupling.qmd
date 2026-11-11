@@ -197,6 +197,26 @@ def pre(self, incoming_states, local_states, params):
 
 This enables synchronization dynamics where coupling strength depends on state mismatch.
 
+## Output Channels
+
+Each coupling input declares a width in `COUPLING_INPUTS`, and its coupling must produce exactly that many channels. Elementwise couplings (`LinearCoupling`, `DifferenceCoupling`, `KuramotoCoupling` and their delayed variants) declare `N_OUTPUT_STATES = PER_SOURCE`: one channel per source state, in order:
+
+```python
+# MontbrioPazoRoxin declares {"instant": 2, ...}: channel 0 from r, channel 1 from V
+LinearCoupling(source=("r", "V"), G=0.5)
+```
+
+`SumLinearCoupling` and `DelayedSumLinearCoupling` add their source states before transport and produce one channel, for inputs defined on a sum of states:
+
+```python
+# ReducedSetFitzHughNagumo: one input, the coupled sum of the three xi modes
+SumLinearCoupling(source=("xi1", "xi2", "xi3"), G=0.5)
+```
+
+This equals summing the channels of `LinearCoupling` with the same sources, with one transport instead of one per source.
+
+A custom coupling whose `pre()` combines states sets `N_OUTPUT_STATES` to the number of channels it returns, as `SigmoidalJansenRit` does for `y1 - y2`. `Network` raises when a coupling's channel count differs from the declared input width.
+
 # Node and Edge Message Paths
 
 The framework selects the scalable transport representation from the coupling contract:
@@ -529,6 +549,7 @@ Coupling enables inter-region communication in brain networks:
 - **Performance**: Incoming-only transforms use node messages; delays, target-local math, and edge parameters use aligned edge messages (O(E) on sparse graphs)
 - **Delays**: Computed from tract lengths and conduction speed; managed automatically via history buffers with increased computational cost
 - **Multiple couplings**: Named dictionary with automatic zero-filling for missing inputs
+- **Channels**: One output channel per source state for elementwise couplings, `SumLinearCoupling` to sum states, checked against `COUPLING_INPUTS`
 - **Custom couplings**: Subclass `InstantaneousCoupling` or `DelayedCoupling` and override `pre()`/`post()`
 
 Coupling integrates with [Dynamics](dynamics.qmd) through named inputs and with [Graph](graph.qmd) through connectivity structure. Together they define collective network behavior.

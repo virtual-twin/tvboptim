@@ -70,7 +70,7 @@ route = SignalRoute(
 The route, not the coupling, owns signal selection. Construct the route's coupling **without** `source=` or `local=`; supplying either is an error.
 
 - `source` maps a group name to a state name, a tuple of state names, or a `readout(state, params) -> [Q, n_group_nodes]` callable. Every source readout on one route must emit the same channel count `Q`.
-- `target` maps a group name to a coupling-input name, or to `(input_name, conversion)` where `conversion(signal, params)` transforms the target-local transported slice. Without a conversion, the coupling's `N_OUTPUT_STATES` must equal the target's declared `COUPLING_INPUTS[input_name]`.
+- `target` maps a group name to a coupling-input name, or to `(input_name, conversion)` where `conversion(signal, params)` transforms the target-local transported slice. Without a conversion, the coupling's output channels (one per source channel `Q` for elementwise couplings, otherwise its `N_OUTPUT_STATES`) must equal the target's declared `COUPLING_INPUTS[input_name]`.
 - `local` supplies target-local readouts and is required exactly when the coupling sets `PRE_USES_LOCAL`, as `DifferenceCoupling` does. Supplying it for a coupling that does not use local signals is an error.
 - `source_params`, `local_params`, and `target_params` hold per-group readout parameters. They stay separate so a target-only group can carry local-readout parameters and so source and local readouts on one group do not share a namespace.
 

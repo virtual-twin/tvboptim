@@ -311,6 +311,9 @@ class TransformedParameter(Parameter):
     >>> forward = lambda x: jax.nn.sigmoid(x)  # unconstrained → constrained
     >>> inverse = lambda x: jnp.log(x / (1 - x))  # constrained → unconstrained
     >>> param = TransformedParameter(0.7, forward, inverse)
+
+    >>> # Reparametrization: fit tau = 1 / a while the model sees the rate a
+    >>> param = TransformedParameter(0.02, lambda tau: 1.0 / tau, lambda a: 1.0 / a)
     """
 
     def __init__(

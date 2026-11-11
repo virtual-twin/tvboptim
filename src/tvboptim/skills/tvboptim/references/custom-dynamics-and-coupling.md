@@ -20,6 +20,7 @@ Declare the interface at class level:
 
 - `STATE_NAMES` and equal-length `INITIAL_STATE` for integrated variables;
 - `DEFAULT_PARAMS` as a `Bunch`;
+- optional `DERIVED_PARAMS`, names of values computed from the parameters by `derived_params()`;
 - optional `AUXILIARY_NAMES` for derived, non-integrated outputs;
 - `COUPLING_INPUTS = {name: dimension}`;
 - optional `EXTERNAL_INPUTS = {name: dimension}`;
@@ -56,6 +57,8 @@ assert model.verify(n_nodes=2)
 ```
 
 Declared but unsupplied coupling and external inputs are zero-filled by the solve/network layer. Passing an unknown parameter to the constructor, or an unknown coupling key to `Network`, is an error. Do not hide misspellings with permissive dictionaries.
+
+Use `derived_params(self, params)` for parameter-dependent quantities that `dynamics()` needs, the dynamics counterpart of coupling `precompute`. Return a `Bunch` with exactly the names in `DERIVED_PARAMS`; the solve path calls it once per forward call and merges the result into the `params` that `dynamics()` receives. Read from `params`, not `self.params`. Derived values never live in `config.dynamics` and cannot be set, swept or fitted; fit the primary parameters, or promote a quantity to `DEFAULT_PARAMS` in a subclass when it should be free. Direct calls to `dynamics()` need `model.resolve_params(params)` first. Cheap scalar arithmetic can stay inline in `dynamics()`. `dynamics.tvb.ReducedSetFitzHughNagumo` is a worked example with matrix-valued derived parameters.
 
 Use `model.verify()` as an interface check, then simulate bare dynamics to test numerical behavior without graph complexity:
 
@@ -126,6 +129,8 @@ Test progressively:
 
 When the dynamics declares several coupling channels, provide a dictionary keyed by those declarations. It is valid to omit a declared channel only when a zero input is intentional.
 
+A coupling must produce as many channels as its input declares in `COUPLING_INPUTS`. Elementwise couplings (`LinearCoupling`, `DifferenceCoupling`, `KuramotoCoupling` and delayed variants) declare `N_OUTPUT_STATES = PER_SOURCE`, one channel per source state, so a 2-channel input takes `source=("r", "V")`. `SumLinearCoupling` sums its source states into one channel. A custom `pre()` that combines states must declare `N_OUTPUT_STATES`. `Network` rejects mismatches.
+
 ## Avoid common extension errors
 
 - Returning Python lists instead of stacked JAX arrays.
@@ -133,6 +138,7 @@ When the dynamics declares several coupling channels, provide a dictionary keyed
 - Declaring auxiliaries but returning the wrong auxiliary count.
 - Saving an auxiliary without adding it to `VARIABLES_OF_INTEREST`.
 - Reading a coupling/external name not declared by the class.
+- Putting a derived value into `DEFAULT_PARAMS` or `config.dynamics` instead of `DERIVED_PARAMS`, or reading `self.params` inside `derived_params()`.
 - Selecting `source` when `post` needs `local` state, or vice versa.
 - Writing the deprecated `incoming_states=`/`local_states=` keywords into new code.
 - Treating an instantaneous class as delayed because of a dictionary label.
