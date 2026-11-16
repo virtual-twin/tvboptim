@@ -142,17 +142,20 @@ def test_edge_param_normalization_is_jittable_and_differentiable():
     np.testing.assert_allclose(mapped, jnp.array([loss(edge), 4.0 * loss(edge)]))
 
 
-def test_delayed_precompute_extends_edge_alignment():
+@pytest.mark.parametrize("buffer_strategy", ["roll", "circular", "preallocated"])
+def test_delayed_precompute_extends_edge_alignment(buffer_strategy):
     graph = DenseDelayGraph(WEIGHTS, jnp.zeros_like(WEIGHTS))
     coupling = DelayedEdgeScaledCoupling(
         source="x",
         edge=graph.gather_edges(EDGE_VALUES),
+        buffer_strategy=buffer_strategy,
     )
     data, _ = _prepare_data(coupling, graph)
 
     enriched = coupling.precompute(data, coupling.params, graph)
     np.testing.assert_array_equal(enriched.aligned_edge_params.edge, EDGE_VALUES)
-    assert enriched.delay_indices.shape == WEIGHTS.shape
+    read_field = "delay_indices" if buffer_strategy == "roll" else "delay_steps"
+    assert enriched[read_field].shape == WEIGHTS.shape
 
 
 class LocalElementwiseCoupling(InstantaneousCoupling):

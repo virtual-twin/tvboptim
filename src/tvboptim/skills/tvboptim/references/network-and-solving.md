@@ -168,7 +168,7 @@ different block sizes is necessary, one identical injected full tensor via
 `config._internal.noise_samples` preserves noise, but costs full-tensor memory
 and relies on an experimental internal path.
 
-For delayed networks, prefer `roll` or `circular` history buffers when bounding memory. The `preallocated` strategy grows with the simulation length and can dominate any checkpointing benefit.
+For delayed networks, keep the default `circular` history buffer (or `roll`) when bounding memory. The `preallocated` strategy grows with the simulation length and can dominate any checkpointing benefit.
 
 The temporary `reduce=` API and its reducer factories are deprecated in 0.5.0
 and will be removed in 0.6.0. Use `observe=` followed by ordinary post-hoc

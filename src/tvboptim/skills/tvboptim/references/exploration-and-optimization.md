@@ -77,23 +77,40 @@ Arguments bound with `functools.partial` take precedence over the axis. Do not r
 
 ## Run sequentially or in parallel
 
-Start with `SequentialExecution` for debuggability and memory visibility. Move to:
+Start with `SequentialExecution` for debuggability and memory visibility. Move to
+`ParallelExecution` for larger sweeps. How to parallelise depends on the device.
+
+**CPU (the common case).** Parallelise across simulations with host devices, not
+with `n_vmap`. `vmap` on CPU runs the whole batch on one thread and is often no
+faster than a loop. Expose the cores as devices before JAX is first imported:
 
 ```python
+import os
+
+os.environ.setdefault(
+    "XLA_FLAGS", f"--xla_force_host_platform_device_count={os.cpu_count()}"
+)
+
+import jax
 from tvboptim.execution import ParallelExecution
 
-execution = ParallelExecution(
-    loss,
-    space,
-    n_pmap=jax.device_count(),
-    n_vmap=4,
-)
+execution = ParallelExecution(loss, space, n_pmap=jax.device_count(), n_vmap=1)
 results = execution.run()
 ```
 
-`n_pmap` is the number of devices. `n_vmap` is currently passed as the `batch_size` of `jax.lax.map` within each device despite its historical name. The space collector pads and trims as necessary; `n_pmap * n_vmap` does not need to equal `len(space)`.
+Keep `n_vmap=1` on CPU; try a small value only for small networks, and measure.
 
-Set `XLA_FLAGS=--xla_force_host_platform_device_count=N` before importing JAX only when deliberately testing multi-device CPU execution. Do not change global device configuration inside reusable library code or after JAX initialization.
+**GPU.** Use `n_pmap=jax.device_count()` (usually 1) and batch with `n_vmap`.
+Increase `n_vmap` while time per simulation still drops and memory permits;
+very large batches can become slower again.
+
+The flag only takes effect before the first JAX import. In a running kernel or
+session, check `jax.device_count()`; if it is 1 on CPU, tell the user a restart
+is needed instead of setting the flag late. Set it in the user's script or
+notebook, never inside reusable library code. Memory scales with
+`n_pmap * n_vmap` concurrent simulations.
+
+`n_pmap` is the number of devices. `n_vmap` is currently passed as the `batch_size` of `jax.lax.map` within each device despite its historical name. The space collector pads and trims as necessary; `n_pmap * n_vmap` does not need to equal `len(space)`.
 
 Each `ParallelExecution` instance creates a new mapped closure and can retrace
 and recompile even for the same model and shapes. Repeated calls on one instance

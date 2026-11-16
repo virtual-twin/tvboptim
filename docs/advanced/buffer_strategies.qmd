@@ -122,7 +122,7 @@ The `buffer_strategy` parameter in `DelayedLinearCoupling` allows you to select 
 coupling = DelayedLinearCoupling(
     source="V",
     G=1.0,
-    buffer_strategy="circular"  # or "roll" (default), "preallocated"
+    buffer_strategy="circular"  # default; or "roll", "preallocated"
 )
 ```
 :::
@@ -562,7 +562,7 @@ The buffer is then sized for the *largest* delay in the range rather than the cu
 - `roll` shifts the entire buffer every step, so its per-step cost grows with the declared headroom. Doubling the bound to scan longer delays roughly doubles the shift it pays on every step, whether or not the current sample uses that headroom.
 - `circular` only advances a write pointer. Its per-step cost is independent of the buffer length, so headroom is free.
 
-So for swept or differentiable delays, reach for `circular`. It is the strategy the delay-fitting workflows use, and the recommendation is sharper here than the "test your configuration" guidance below because the extra buffer rows headroom adds are pure overhead for `roll` and invisible to `circular`.
+So for swept or differentiable delays, `circular` is the clear choice, not just the default: the extra buffer rows headroom adds are pure overhead for `roll` and invisible to `circular`.
 
 **Gradients.** Reverse-mode autodiff keeps the history buffer to replay the backward pass, but only the buffer itself, not a copy per step: it contributes `O(buffer * n_nodes)` to the tape, not `O(n_steps * buffer * n_nodes)`. `circular` keeps that contribution minimal because it never grows the buffer past the declared bound, which is why it stays the lean choice for the backward pass as well as the forward one. `preallocated` instead stores the whole trajectory, so its tape grows with the simulation length.
 
@@ -574,10 +574,11 @@ So for swept or differentiable delays, reach for `circular`. It is the strategy 
 
 3. **Buffer size matters**: Smaller dt creates larger buffers, which changes the relative performance of strategies.
 
-4. **Hardware matters**: These results are for CPU. GPU execution can yield different results due to higher memory bandwidth and different memory access characteristics.
+4. **Hardware matters**: The sweep above runs on CPU. Roll copies the whole buffer every step, in the forward pass and again in the backward pass, so its cost grows with network size and buffer length (finer time steps, longer delays). This tends to favor circular more on larger connectomes and on GPU, but the sweep here does not measure that; benchmark on your target hardware, especially for gradients.
 
 5. **Practical guidance**:
-   - For **forward-only** simulation: circular or preallocated often win
-   - For **gradient-based optimization** on fixed delays: test your specific configuration, as the optimal choice varies
+   - **Default**: circular. It is the default `buffer_strategy` and the fastest choice in most workloads.
+   - For **forward-only** simulation with a known horizon: preallocated can also win.
+   - For **small dense networks with short buffers and gradients**: roll occasionally wins; test your configuration if this case matters.
    - For **swept or differentiable delays** (a declared `max_delay_bound`): use circular. Its per-step cost does not grow with the buffer headroom, while roll pays for every extra row the bound adds (see the section above).
 
