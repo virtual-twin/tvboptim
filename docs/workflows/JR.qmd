@@ -741,7 +741,7 @@ cb = MultiCallback([
 # Create optimizer
 opt = OptaxOptimizer(loss, optax.adamaxw(0.001), callback = cb, has_aux=True)
 
-@cache("optimize", redo = False)
+@cache("optimize_v2", redo = False)
 def optimize():
     fitted_params, fitting_data = opt.run(init_state, max_steps=151)
     return fitted_params, fitting_data

@@ -834,18 +834,19 @@ class DelayedCoupling(PrePostCoupling):
 
     Parameters
     ----------
-    buffer_strategy : {"roll", "circular", "preallocated"}, default "roll"
+    buffer_strategy : {"roll", "circular", "preallocated"}, default "circular"
         Strategy for history buffer management. ``T = max_delay_steps + 1`` is
         the buffer length; sweeping or fitting delays sizes it for the declared
         ``max_delay_bound`` headroom (see the delay graph), which is where these
         strategies pull apart.
-        - "roll": ``jnp.roll`` shifts the whole buffer each step, so its
-          per-step cost scales with ``T``. Fine for fixed delays at minimal
-          headroom; it pays for every extra buffer row a bound adds. Memory: O(T).
         - "circular": Pointer-based circular buffer with modulo indexing. Only
           the write pointer moves, so per-step cost is independent of ``T``.
-          Preferred for swept or differentiable delays, where the buffer carries
-          headroom. Memory: O(T).
+          The default, and the fastest choice in most forward and gradient
+          workloads on CPU and GPU. Memory: O(T).
+        - "roll": ``jnp.roll`` shifts the whole buffer each step, so its
+          per-step cost scales with ``T``, and its gradient pays the same shift
+          again. Can win for small dense networks with short buffers; it pays
+          for every extra buffer row a ``max_delay_bound`` adds. Memory: O(T).
         - "preallocated": Pre-allocates the full trajectory. Best forward-pass
           performance but a larger gradient tape. Memory: O(T + simulation_steps).
     warn_on_delay_clamp : bool, default False
@@ -889,7 +890,7 @@ class DelayedCoupling(PrePostCoupling):
 
     def __init__(
         self,
-        buffer_strategy: BufferStrategy = "roll",
+        buffer_strategy: BufferStrategy = "circular",
         warn_on_delay_clamp: bool = False,
         history_interpolation: Optional[str] = None,
         **kwargs,

@@ -339,3 +339,28 @@ def test_sparse_delayed_jaxpr_has_no_node_squared_array():
     visit(closed)
     assert (n_nodes, n_nodes) not in shapes
     assert max(np.prod(shape, dtype=np.int64) for shape in shapes) < n_nodes**2
+
+
+def _shipped_delayed_couplings():
+    """Every DelayedCoupling subclass defined in the coupling package."""
+    import tvboptim.experimental.network_dynamics.coupling  # noqa: F401
+
+    found, stack = set(), [DelayedCoupling]
+    while stack:
+        for sub in stack.pop().__subclasses__():
+            stack.append(sub)
+            if sub.__module__.startswith(
+                "tvboptim.experimental.network_dynamics.coupling"
+            ):
+                found.add(sub)
+    return sorted(found, key=lambda cls: cls.__name__)
+
+
+@pytest.mark.parametrize(
+    "coupling_type",
+    _shipped_delayed_couplings() + [DelayedEdgeScaledCoupling],
+    ids=lambda cls: cls.__name__,
+)
+def test_delayed_couplings_default_to_circular_buffer(coupling_type):
+    coupling = coupling_type(source="x", local="x")
+    assert coupling.buffer_strategy == "circular"

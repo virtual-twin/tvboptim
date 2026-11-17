@@ -111,6 +111,17 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Delayed couplings now default to `buffer_strategy="circular"` instead of
+  `"roll"`. Results are unchanged and most workloads run faster, especially
+  on GPU. The default coupling state gains a `write_idx` leaf, so states saved
+  under the old default no longer match freshly prepared ones; re-prepare or
+  pass `buffer_strategy="roll"`.
+
+- All coupling classes are now exported from
+  `tvboptim.experimental.network_dynamics.coupling`, including
+  `SigmoidCoupling`, `TanhCoupling`, `DelayedSigmoidCoupling` and
+  `PrePostCoupling`.
+
 - Clarified block-size-dependent stochastic noise, executor compilation reuse,
   and the current history/callback limits of batched multi-start optimization
   in the documentation and bundled agent skill.
