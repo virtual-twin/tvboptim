@@ -349,7 +349,9 @@ def _shipped_delayed_couplings():
     while stack:
         for sub in stack.pop().__subclasses__():
             stack.append(sub)
-            if sub.__module__.startswith("tvboptim.experimental.network_dynamics.coupling"):
+            if sub.__module__.startswith(
+                "tvboptim.experimental.network_dynamics.coupling"
+            ):
                 found.add(sub)
     return sorted(found, key=lambda cls: cls.__name__)
 
