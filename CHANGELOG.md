@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-11-23
+
+### Fixed
+
+- `prepare(network, solver)` no longer fails with `NotFoundLookupError` when
+  plum-dispatch older than 2.10.1 is installed together with beartype 0.23 or
+  later, as in Google Colab. plum ranked the lazy TVB-O fallback, a catch-all
+  with unannotated `*args`, above the `Network` methods. The varargs are now
+  annotated, which plum ranks correctly on every version.
+
 ## [0.5.0] - 2026-11-23
 
 ### Added

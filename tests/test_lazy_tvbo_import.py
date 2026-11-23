@@ -83,6 +83,23 @@ def test_fallback_does_not_shadow_network_dispatch():
     assert result.stdout.strip() == "(20, 1, 2) False"
 
 
+def test_fallback_varargs_are_annotated():
+    # plum < 2.10.1 with beartype >= 0.23 ranks an unannotated ``*args``
+    # catch-all above every specific method, so prepare(network, solver) hit
+    # the fallback. The locked versions do not show it; check the cause.
+    import inspect
+
+    from tvboptim import prepare
+
+    (fallback,) = [
+        m.implementation
+        for m in prepare.methods
+        if m.implementation.__module__ == module.__name__
+    ]
+    varargs = inspect.signature(fallback).parameters["args"]
+    assert varargs.annotation is not inspect.Parameter.empty
+
+
 def test_unsupported_type_raises_the_error_plum_would_have():
     # Constructing NotFoundLookupError takes (f_name, target, methods); passing
     # a bare message makes the constructor itself raise TypeError.

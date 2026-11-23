@@ -76,11 +76,14 @@ def _load_tvbo() -> bool:
 
 
 @dispatch
-def prepare(experiment: Any, *args, **kwargs) -> Any:
+def prepare(experiment: object, *args: object, **kwargs) -> Any:
     """Resolve a TVBO experiment, importing TVBO on first use.
 
     Registered for arguments no other ``prepare`` method claims. Only TVBO
     objects trigger the import, so an ordinary type error does not pay for it.
+
+    The varargs must stay annotated: plum before 2.10.1, with beartype 0.23 or
+    later, ranks an unannotated ``*args`` catch-all above every specific method.
     """
     if _is_tvbo_object(experiment) and _tvbo_loaded is None and _load_tvbo():
         # The real method now exists; plum picks it up on re-dispatch.
