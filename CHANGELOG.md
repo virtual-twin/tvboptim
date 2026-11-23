@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.0] - Unreleased
+## [0.5.0] - 2026-11-23
 
 ### Added
 
@@ -96,7 +96,6 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     overwrite or remove a locally modified copy without `--force`.
   - See `docs/basics/agent_skill.qmd` for the supported clients, the scopes,
     the Python API, and how to place the files by hand.
-
 - **Derived parameters for dynamics.** A model declares `DERIVED_PARAMS` and
   implements `derived_params(params)`; the values are computed once per solve
   on every solve path and merged into the `params` that `dynamics()` receives,
@@ -154,6 +153,11 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `copy.deepcopy(state)` works inside `jit` and `grad` again. A noise
+  state's typed PRNG key could not be deep-copied while tracing, so copying a
+  closed-over prepared state inside a traced loss raised `AssertionError`.
+  `Bunch` now deep-copies its containers and shares JAX array leaves, which
+  are immutable, matching `Bunch.copy()`.
 - `Network` now checks each coupling's channel count against the model's
   `COUPLING_INPUTS`. Previously a too-narrow coupling was clamped silently, so
   e.g. `MontbrioPazoRoxin` with `LinearCoupling(source="r")` received its
@@ -215,7 +219,6 @@ aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   were previously absent from its docstring, and noted that `CoombesByrne2D`
   and `MontbrioPazoRoxin` inherit different time conventions from TVB, so
   comparing them requires `tau = 1`.
-
 
 ### Deprecated
 

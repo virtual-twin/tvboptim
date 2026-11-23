@@ -1,5 +1,6 @@
 """Parameter container with attribute access and JAX PyTree support."""
 
+import copy
 from typing import Any, Tuple
 
 import jax
@@ -58,6 +59,22 @@ class Bunch(dict):
         it works for ad-hoc config mutation outside prepare().
         """
         return jax.tree.map(lambda x: x, self)
+
+    def __deepcopy__(self, memo: dict) -> "Bunch":
+        """Deep-copy containers and Python values, sharing JAX array leaves.
+
+        JAX arrays are immutable, so sharing them is safe. It is also required
+        under ``jit``: copying a concrete typed PRNG key there fails inside
+        JAX, which made ``copy.deepcopy(state)`` unusable in traced code.
+        """
+        for leaf in jax.tree.leaves(self):
+            if isinstance(leaf, jax.Array):
+                memo.setdefault(id(leaf), leaf)
+        new = self.__class__()
+        memo[id(self)] = new
+        for key, value in self.items():
+            dict.__setitem__(new, copy.deepcopy(key, memo), copy.deepcopy(value, memo))
+        return new
 
 
 # Register Bunch as a JAX PyTree with named keys so that

@@ -91,7 +91,7 @@ target_fc = load_functional_connectivity("dk_average")
 # Build a delayed whole-brain network from the structural connectome.
 network = Network(
     dynamics=ReducedWongWang(),
-    coupling={"delayed": DelayedLinearCoupling(incoming_states="S", G=0.5)},
+    coupling={"delayed": DelayedLinearCoupling(source="S", G=0.5)},
     graph=DenseDelayGraph(
         weights=weights,
         delays=lengths / 3.0,
